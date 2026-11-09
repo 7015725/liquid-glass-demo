@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">流光自动化</string>
+    <string name="a11y_desc">用于识别界面元素并执行你配置的自动指令（Demo 中不做任何操作）。</string>
+    <string-array name="xposed_scope">
+        <item>com.flowglass.demo</item>
+    </string-array>
 </resources>

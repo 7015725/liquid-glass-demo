@@ -19,3 +19,6 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# LSPosed module entry + status probe
+-keep class com.flowglass.demo.xposed.** { *; }
+-dontwarn de.robv.android.xposed.**

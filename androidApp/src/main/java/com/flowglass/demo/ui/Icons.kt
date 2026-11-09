@@ -25,7 +25,8 @@ import kotlin.math.sin
 enum class Ic {
     Home, Grid, List, Settings, Bolt, Copy, ChevronRight, UpDown, ArrowUp, ArrowDown,
     Play, Stop, Plus, Bell, Refresh, Shield, Wifi, Moon, Battery, Timer, Location,
-    Leaf, Gauge, Rocket, Clock, Phone, Bluetooth, Message, Camera, Info, Search, Accessibility
+    Leaf, Gauge, Rocket, Clock, Phone, Bluetooth, Message, Camera, Info, Search, Accessibility,
+    Tap, Back, Lock, Terminal, Puzzle, Key
 }
 
 @Composable
@@ -186,6 +187,30 @@ private fun DrawScope.drawIcon(ic: Ic, color: Color, filled: Boolean, strokeUnit
         Ic.Search -> {
             drawCircle(color, 6.5f, Offset(10.5f, 10.5f), style = st)
             line(15.3f, 15.3f, 20f, 20f)
+        }
+        Ic.Tap -> {
+            if (filled) drawCircle(color, 4f, Offset(12f, 12f)) else drawCircle(color, 3.2f, Offset(12f, 12f), style = st)
+            drawArc(color, 200f, 140f, false, Offset(5f, 5f), Size(14f, 14f), style = st)
+            drawArc(color, 20f, 140f, false, Offset(5f, 5f), Size(14f, 14f), style = st)
+            drawArc(color, 210f, 120f, false, Offset(1.5f, 1.5f), Size(21f, 21f), style = st)
+        }
+        Ic.Back -> drawPath(p { moveTo(14.5f, 6f); lineTo(8.5f, 12f); lineTo(14.5f, 18f) }, color, style = st)
+        Ic.Lock -> {
+            drawRoundRect(color, Offset(5f, 10.5f), Size(14f, 10f), CornerRadius(3f), style = style)
+            drawPath(p { moveTo(8f, 10.5f); lineTo(8f, 8f); cubicTo(8f, 5.5f, 9.8f, 4f, 12f, 4f); cubicTo(14.2f, 4f, 16f, 5.5f, 16f, 8f); lineTo(16f, 10.5f) }, color, style = st)
+        }
+        Ic.Terminal -> {
+            drawRoundRect(color, Offset(3f, 4.5f), Size(18f, 15f), CornerRadius(3.5f), style = st)
+            drawPath(p { moveTo(7.5f, 9.5f); lineTo(10.5f, 12f); lineTo(7.5f, 14.5f) }, color, style = st)
+            line(12.5f, 15f, 16.5f, 15f)
+        }
+        Ic.Puzzle -> drawPath(p {
+            moveTo(5f, 8f); lineTo(9f, 8f); cubicTo(9f, 5f, 13f, 5f, 13f, 8f); lineTo(17f, 8f); lineTo(17f, 12f)
+            cubicTo(20f, 12f, 20f, 16f, 17f, 16f); lineTo(17f, 20f); lineTo(5f, 20f); close()
+        }, color, style = style)
+        Ic.Key -> {
+            drawCircle(color, 4f, Offset(8f, 12f), style = st)
+            line(12f, 12f, 20f, 12f); line(17f, 12f, 17f, 15f); line(20f, 12f, 20f, 14.5f)
         }
         Ic.Accessibility -> {
             drawCircle(color, 2f, Offset(12f, 5f))

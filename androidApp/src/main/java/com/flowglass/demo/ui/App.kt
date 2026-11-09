@@ -26,7 +26,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.activity.compose.BackHandler
+import com.flowglass.demo.system.RootInfo
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -71,15 +72,19 @@ class AppState {
     var category by mutableIntStateOf(0)
     var selectedTasks by mutableStateOf(setOf(0, 2, 4))
     var testRun by mutableIntStateOf(0)
-    var plan by mutableIntStateOf(5)
+    var lastRun by mutableIntStateOf(-1)
+    var runningTap by mutableIntStateOf(-1)
+    var runSeq by mutableIntStateOf(0)
+    var settingsPage by mutableIntStateOf(0)
+    var root by mutableStateOf<RootInfo?>(null)
 }
 
 private data class Dest(val title: String, val label: String, val ic: Ic)
 
 private val Dests = listOf(
     Dest("概览", "概览", Ic.Home),
-    Dest("任务库", "任务", Ic.Grid),
-    Dest("方案", "方案", Ic.List),
+    Dest("自动指令", "自动指令", Ic.Grid),
+    Dest("一键指令", "一键指令", Ic.Tap),
     Dest("设置", "设置", Ic.Settings),
 )
 
@@ -88,7 +93,12 @@ fun FlowGlassApp() {
     val state = remember { AppState() }
     val backdrop = rememberLayerBackdrop()
     var tab by remember { mutableIntStateOf(0) }
-    val scrolls = List(Dests.size) { rememberScrollState() }
+    val scrolls = remember { mutableMapOf<Int, ScrollState>() }
+    // settings sub pages get their own page key so each keeps its own scroll position
+    val pageKey = if (tab == 3) 30 + state.settingsPage else tab
+    fun scrollOf(key: Int) = scrolls.getOrPut(key) { ScrollState(0) }
+    fun titleOf(key: Int) = if (key >= 30) SettingsPage.title(key - 30) else Dests[key].title
+    BackHandler(enabled = tab == 3 && state.settingsPage != 0) { state.settingsPage = 0 }
     val density = LocalDensity.current
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -105,12 +115,13 @@ fun FlowGlassApp() {
             }
         }
     }
-    LaunchedEffect(tab) { navVisible = true }
+    LaunchedEffect(pageKey) { navVisible = true }
 
     // large title collapses into the top bar
-    val collapse by remember {
+    val currentScroll = scrollOf(pageKey)
+    val collapse by remember(currentScroll) {
         derivedStateOf {
-            val px = scrolls[tab].value.toFloat()
+            val px = currentScroll.value.toFloat()
             val start = with(density) { 20.dp.toPx() }
             val range = with(density) { 44.dp.toPx() }
             ((px - start) / range).coerceIn(0f, 1f)
@@ -127,18 +138,22 @@ fun FlowGlassApp() {
                 .nestedScroll(connection)
         ) {
             AnimatedContent(
-                targetState = tab,
+                targetState = pageKey,
                 transitionSpec = {
                     (fadeIn(effect()) + scaleIn(spatial(), initialScale = 0.96f)) togetherWith fadeOut(effect())
                 },
                 label = "page"
             ) { page ->
-                PageColumn(scrolls[page], statusTop, navBottom, Dests[page].title, collapse = { if (page == tab) collapse else 0f }) {
-                    when (page) {
-                        0 -> HomeScreen(state)
-                        1 -> TasksScreen(state)
-                        2 -> PlansScreen(state)
-                        else -> SettingsScreen(state)
+                PageColumn(
+                    scrollOf(page), statusTop, navBottom, titleOf(page),
+                    collapse = { if (page == pageKey) collapse else 0f },
+                    onBack = if (page > 30) ({ state.settingsPage = 0 }) else null
+                ) {
+                    when {
+                        page == 0 -> HomeScreen(state)
+                        page == 1 -> TasksScreen(state)
+                        page == 2 -> OneTapScreen(state)
+                        else -> SettingsHost(state, page - 30)
                     }
                 }
             }
@@ -163,7 +178,7 @@ fun FlowGlassApp() {
                 )
         ) {
             T(
-                Dests[tab].title, 18.sp, FontWeight.Bold,
+                titleOf(pageKey), 18.sp, FontWeight.Bold,
                 modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 20.dp)
             )
         }
@@ -181,7 +196,7 @@ fun FlowGlassApp() {
         }
 
         // ---------------- thin capsule scrollbar on the grid page
-        if (tab == 1) ScrollThumb(scrolls[1], statusTop, Modifier.align(Alignment.TopEnd))
+        if (tab == 1) ScrollThumb(scrollOf(1), statusTop, Modifier.align(Alignment.TopEnd))
 
         // ---------------- floating liquid-glass bottom navigation
         Box(
@@ -193,7 +208,7 @@ fun FlowGlassApp() {
         ) {
             LiquidBottomTabs(
                 selectedTabIndex = { tab },
-                onTabSelected = { tab = it },
+                onTabSelected = { if (it == tab && it == 3) state.settingsPage = 0; tab = it },
                 backdrop = backdrop,
                 tabsCount = Dests.size,
             ) {
@@ -232,6 +247,7 @@ private fun PageColumn(
     navBottom: androidx.compose.ui.unit.Dp,
     title: String,
     collapse: () -> Float,
+    onBack: (() -> Unit)?,
     content: @Composable () -> Unit,
 ) {
     Column(
@@ -243,8 +259,16 @@ private fun PageColumn(
     ) {
         Spacer(Modifier.height(statusTop + 8.dp))
         Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (onBack != null) {
+                Box(
+                    Modifier.graphicsLayer { alpha = 1f - collapse() }
+                        .size(40.dp).clip(Capsule()).background(C.Card).pressable { onBack() },
+                    contentAlignment = Alignment.Center
+                ) { LineIcon(Ic.Back, C.OnSurface, 22.dp) }
+                Spacer(Modifier.width(10.dp))
+            }
             T(
-                title, 32.sp, FontWeight.Bold,
+                title, if (onBack != null) 28.sp else 32.sp, FontWeight.Bold,
                 modifier = Modifier.graphicsLayer {
                     val c = collapse()
                     alpha = 1f - c
