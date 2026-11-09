@@ -26,7 +26,7 @@ enum class Ic {
     Home, Grid, List, Settings, Bolt, Copy, ChevronRight, UpDown, ArrowUp, ArrowDown,
     Play, Stop, Plus, Bell, Refresh, Shield, Wifi, Moon, Battery, Timer, Location,
     Leaf, Gauge, Rocket, Clock, Phone, Bluetooth, Message, Camera, Info, Search, Accessibility,
-    Tap, Back, Lock, Terminal, Puzzle, Key
+    Tap, Back, Lock, Terminal, Puzzle, Key, Pin, Edit, Share, Trash
 }
 
 @Composable
@@ -211,6 +211,29 @@ private fun DrawScope.drawIcon(ic: Ic, color: Color, filled: Boolean, strokeUnit
         Ic.Key -> {
             drawCircle(color, 4f, Offset(8f, 12f), style = st)
             line(12f, 12f, 20f, 12f); line(17f, 12f, 17f, 15f); line(20f, 12f, 20f, 14.5f)
+        }
+        Ic.Pin -> {
+            drawPath(p {
+                moveTo(9f, 4f); lineTo(15f, 4f); lineTo(14f, 10f); lineTo(17.5f, 13.5f); lineTo(6.5f, 13.5f)
+                lineTo(10f, 10f); close()
+            }, color, style = style)
+            line(12f, 13.5f, 12f, 20.5f)
+        }
+        Ic.Edit -> {
+            drawPath(p { moveTo(15.5f, 4.5f); lineTo(19.5f, 8.5f); lineTo(9f, 19f); lineTo(4.5f, 19.5f); lineTo(5f, 15f); close() }, color, style = st)
+            line(13.5f, 6.5f, 17.5f, 10.5f)
+        }
+        Ic.Share -> {
+            drawCircle(color, 2.6f, Offset(17.5f, 6f), style = st)
+            drawCircle(color, 2.6f, Offset(6.5f, 12f), style = st)
+            drawCircle(color, 2.6f, Offset(17.5f, 18f), style = st)
+            line(8.8f, 10.8f, 15.2f, 7.2f); line(8.8f, 13.2f, 15.2f, 16.8f)
+        }
+        Ic.Trash -> {
+            line(4.5f, 6.5f, 19.5f, 6.5f)
+            drawPath(p { moveTo(9f, 6.5f); lineTo(9.5f, 4f); lineTo(14.5f, 4f); lineTo(15f, 6.5f) }, color, style = st)
+            drawPath(p { moveTo(6.5f, 6.5f); lineTo(7.5f, 20f); lineTo(16.5f, 20f); lineTo(17.5f, 6.5f) }, color, style = st)
+            line(10.5f, 10.5f, 10.5f, 16f); line(13.5f, 10.5f, 13.5f, 16f)
         }
         Ic.Accessibility -> {
             drawCircle(color, 2f, Offset(12f, 5f))

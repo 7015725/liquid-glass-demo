@@ -65,7 +65,17 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.unit.round
+import androidx.compose.animation.core.AnimationVector2D
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -91,6 +101,7 @@ fun PressCard(
     radius: Dp = 30.dp,
     color: Color = C.Card,
     onClick: (() -> Unit)? = null,
+    onLongPress: ((rootPosition: Offset) -> Unit)? = null,
     contentPadding: Dp = 20.dp,
     background: (@Composable BoxScope.() -> Unit)? = null,
     foreground: Modifier? = null,
@@ -99,22 +110,31 @@ fun PressCard(
     var pressed by remember { mutableStateOf(false) }
     val p by animateFloatAsState(if (pressed) 1f else 0f, spatial(), label = "press")
     val shape = RoundedRectangle(radius + 6.dp * p)
+    val click by rememberUpdatedState(onClick)
+    val longPress by rememberUpdatedState(onLongPress)
+    var coords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     Box(
         modifier
+            .onGloballyPositioned { coords = it }
             .graphicsLayer {
                 val s = 1f - 0.03f * p
                 scaleX = s; scaleY = s
             }
             .clip(shape)
             .background(color)
-            .pointerInput(onClick) {
+            .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = {
                         pressed = true
                         tryAwaitRelease()
                         pressed = false
                     },
-                    onTap = { onClick?.invoke() }
+                    onTap = { click?.invoke() },
+                    onLongPress = { local ->
+                        val c = coords
+                        val lp = longPress
+                        if (c != null && lp != null && c.isAttached) lp(c.positionInRoot() + local)
+                    }
                 )
             }
     ) {
@@ -124,10 +144,27 @@ fun PressCard(
     }
 }
 
+/** Animates an item from its previous position to its new one when the list reorders. */
+fun Modifier.animatePlacement(): Modifier = composed {
+    val scope = rememberCoroutineScope()
+    var target by remember { mutableStateOf(IntOffset.Zero) }
+    var anim by remember { mutableStateOf<Animatable<IntOffset, AnimationVector2D>?>(null) }
+    this
+        .onPlaced { target = it.positionInParent().round() }
+        .offset {
+            val a = anim ?: Animatable(target, IntOffset.VectorConverter).also { anim = it }
+            if (a.targetValue != target) {
+                scope.launch { a.animateTo(target, spring(dampingRatio = 0.8f, stiffness = 380f)) }
+            }
+            a.value - target
+        }
+}
+
 /** Shared press-scale behaviour for small controls. */
 fun Modifier.pressable(scaleTo: Float = 0.92f, onClick: () -> Unit): Modifier = composed {
     var pressed by remember { mutableStateOf(false) }
     val p by animateFloatAsState(if (pressed) 1f else 0f, spatial(), label = "pressable")
+    val click by rememberUpdatedState(onClick)
     this
         .graphicsLayer {
             val s = 1f - (1f - scaleTo) * p
@@ -136,7 +173,7 @@ fun Modifier.pressable(scaleTo: Float = 0.92f, onClick: () -> Unit): Modifier = 
         .pointerInput(Unit) {
             detectTapGestures(
                 onPress = { pressed = true; tryAwaitRelease(); pressed = false },
-                onTap = { onClick() }
+                onTap = { click() }
             )
         }
 }

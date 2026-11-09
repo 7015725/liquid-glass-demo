@@ -27,11 +27,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.activity.compose.BackHandler
-import com.flowglass.demo.system.RootInfo
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -62,23 +60,6 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.shapes.Capsule
 
-@Stable
-class AppState {
-    var running by mutableStateOf(true)
-    var uptime by mutableIntStateOf(2 * 3600 + 41 * 60 + 7)
-    var triggers by mutableIntStateOf(1284)
-    var mode by mutableIntStateOf(1)
-    var accessibility by mutableStateOf(true)
-    var category by mutableIntStateOf(0)
-    var selectedTasks by mutableStateOf(setOf(0, 2, 4))
-    var testRun by mutableIntStateOf(0)
-    var lastRun by mutableIntStateOf(-1)
-    var runningTap by mutableIntStateOf(-1)
-    var runSeq by mutableIntStateOf(0)
-    var settingsPage by mutableIntStateOf(0)
-    var root by mutableStateOf<RootInfo?>(null)
-}
-
 private data class Dest(val title: String, val label: String, val ic: Ic)
 
 private val Dests = listOf(
@@ -99,6 +80,10 @@ fun FlowGlassApp() {
     fun scrollOf(key: Int) = scrolls.getOrPut(key) { ScrollState(0) }
     fun titleOf(key: Int) = if (key >= 30) SettingsPage.title(key - 30) else Dests[key].title
     BackHandler(enabled = tab == 3 && state.settingsPage != 0) { state.settingsPage = 0 }
+    BackHandler(enabled = state.menu != null || state.renaming != null) {
+        state.menu = null
+        state.renaming = null
+    }
     val density = LocalDensity.current
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -150,9 +135,9 @@ fun FlowGlassApp() {
                     onBack = if (page > 30) ({ state.settingsPage = 0 }) else null
                 ) {
                     when {
-                        page == 0 -> HomeScreen(state)
-                        page == 1 -> TasksScreen(state)
-                        page == 2 -> OneTapScreen(state)
+                        page == 0 -> HomeScreen(state) { tab = it }
+                        page == 1 -> AutoCommandsScreen(state)
+                        page == 2 -> OneTapCommandsScreen(state)
                         else -> SettingsHost(state, page - 30)
                     }
                 }
@@ -220,6 +205,14 @@ fun FlowGlassApp() {
                 }
             }
         }
+
+        // ---------------- undo bar, long-press menu and rename dialog float above everything
+        UndoBar(
+            state, backdrop,
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 92.dp)
+        )
+        CommandMenuOverlay(state, backdrop)
+        RenameOverlay(state, backdrop)
     }
 }
 

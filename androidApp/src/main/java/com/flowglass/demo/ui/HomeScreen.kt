@@ -18,6 +18,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,28 +41,29 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 @Composable
-fun HomeScreen(state: AppState) {
+fun HomeScreen(state: AppState, onOpenTab: (Int) -> Unit) {
     var i = 0
     HeroCard(state, Modifier.staggerIn(i++))
+    QuickOneTaps(state, onOpenTab, Modifier.staggerIn(i++))
     MetricsCard(state, Modifier.staggerIn(i++))
+    RecentRuns(state, Modifier.staggerIn(i++))
     ModeCard(state, Modifier.staggerIn(i++))
-    DeviceCard(state, Modifier.staggerIn(i++))
 }
 
 @Composable
 private fun HeroCard(state: AppState, modifier: Modifier) {
-    // uptime ticks while running
     LaunchedEffect(state.running) {
         while (isActive && state.running) {
             delay(1000)
             state.uptime += 1
-            if (state.uptime % 3 == 0) state.triggers += 1
         }
     }
     val h = state.uptime / 3600
     val m = (state.uptime / 60) % 60
     val s = state.uptime % 60
     val uptime = "%d:%02d:%02d".format(h, m, s)
+    val enabled = state.autoCmds.count { it.enabled }
+    val listening = if (state.running) enabled else 0
 
     PressCard(
         modifier.fillMaxWidth(),
@@ -87,28 +92,124 @@ private fun HeroCard(state: AppState, modifier: Modifier) {
                         Box(
                             Modifier.size(40.dp).clip(PolygonShape(M3EShapes.Clover4)).background(C.PrimarySoft),
                             contentAlignment = Alignment.Center
-                        ) { LineIcon(Ic.Shield, C.Primary, 20.dp) }
+                        ) { LineIcon(Ic.Grid, C.Primary, 20.dp) }
                         Spacer(Modifier.width(10.dp))
                         Column {
-                            T("夜间守护", 14.sp, FontWeight.SemiBold)
-                            T("已持续运行", 12.sp, color = C.Muted)
+                            T("自动指令", 14.sp, FontWeight.SemiBold)
+                            T(if (state.running) "正在监听触发器" else "引擎已暂停", 12.sp, color = C.Muted)
                         }
                     }
-                    Spacer(Modifier.height(10.dp))
-                    RollingText(uptime, 38.sp, FontWeight.Bold, if (state.running) C.OnSurface else C.Muted)
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        RollingText("$listening", 44.sp, FontWeight.Bold, if (state.running) C.OnSurface else C.Muted)
+                        Spacer(Modifier.width(4.dp))
+                        T("/ ${state.autoCmds.size} 条", 14.sp, color = C.Muted, modifier = Modifier.padding(bottom = 8.dp))
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        TonalChip("6 条规则")
-                        TonalChip("省心")
+                        TonalChip("今日 ${state.todayRuns} 次")
+                        TonalChip(listOf("省电", "均衡", "极速")[state.mode])
                     }
                 }
                 ScallopButton(state.running, { state.running = !state.running })
             }
             Spacer(Modifier.height(20.dp))
             Row {
-                Meta("今日触发", "%,d".format(state.triggers), Modifier.weight(1f))
-                Meta("平均响应", "32 ms", Modifier.weight(1f))
+                Column(Modifier.weight(1f)) {
+                    T("运行时长", 13.sp, color = C.Muted)
+                    Spacer(Modifier.height(2.dp))
+                    RollingText(uptime, 17.sp, FontWeight.Bold)
+                }
+                Meta("一键指令", "${state.oneTaps.size} 条", Modifier.weight(1f))
             }
+        }
+    }
+}
+
+@Composable
+private fun QuickOneTaps(state: AppState, onOpenTab: (Int) -> Unit, modifier: Modifier) {
+    val scope = rememberCoroutineScope()
+    val picks = state.sorted(auto = false).take(3)
+    PressCard(modifier.fillMaxWidth()) {
+        Column {
+            SectionTitle("常用一键指令") {
+                Row(Modifier.pressable { onOpenTab(2) }, verticalAlignment = Alignment.CenterVertically) {
+                    T("全部", 13.sp, FontWeight.Medium, C.Primary)
+                    LineIcon(Ic.ChevronRight, C.Primary, 16.dp)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                picks.forEach { cmd ->
+                    val exec = state.executing[cmd.id] ?: 0
+                    val bg by animateColorAsState(
+                        when (exec) { 1 -> C.PrimarySoft; 2 -> C.GoodSoft; else -> C.Tonal }, effect(), label = "qBg"
+                    )
+                    Column(
+                        Modifier.weight(1f).height(112.dp).clip(RoundedRectangle(24.dp)).background(bg)
+                            .pressable(0.94f) { state.execute(cmd, scope) }
+                            .padding(12.dp)
+                    ) {
+                        Box(
+                            Modifier.size(34.dp).clip(PolygonShape(M3EShapes.Clover4)).background(Color.White),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            when (exec) {
+                                1 -> Spinner(C.Primary, 16.dp)
+                                2 -> CheckBadge(true, 18.dp)
+                                else -> LineIcon(cmd.ic, C.OnSurface, 18.dp)
+                            }
+                        }
+                        Spacer(Modifier.weight(1f))
+                        T(cmd.title, 14.sp, FontWeight.Bold, maxLines = 1)
+                        T(
+                            when (exec) { 1 -> "执行中…"; 2 -> "已完成"; else -> "轻点执行" },
+                            12.sp, color = if (exec == 2) C.GoodText else C.Muted
+                        )
+                    }
+                }
+                repeat(3 - picks.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentRuns(state: AppState, modifier: Modifier) {
+    PressCard(modifier.fillMaxWidth(), contentPadding = 0.dp) {
+        Column {
+            SectionTitle("最近执行", Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 6.dp)) {
+                T("今日 ${state.todayRuns} 次", 13.sp, color = C.Muted)
+            }
+            val logs = state.logs.take(5)
+            logs.forEachIndexed { i, log ->
+                key(log.id) {
+                    Column(Modifier.staggerIn(0)) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                Modifier.size(36.dp).clip(Capsule()).background(C.Tonal),
+                                contentAlignment = Alignment.Center
+                            ) { LineIcon(log.ic, C.OnSurfaceVar, 18.dp) }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                T(log.title, 15.sp, FontWeight.SemiBold, maxLines = 1)
+                                T("${log.reason} · ${log.time}", 12.sp, color = C.Muted)
+                            }
+                            Row(
+                                Modifier.clip(Capsule()).background(if (log.ok) C.GoodSoft else Color(0xFFFDE4E4))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) { T(if (log.ok) "成功" else "失败", 12.sp, FontWeight.SemiBold, if (log.ok) C.GoodText else C.Bad) }
+                        }
+                        if (i < logs.lastIndex) {
+                            Box(Modifier.padding(start = 68.dp, end = 20.dp).fillMaxWidth().height(1.dp).background(C.Divider))
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
         }
     }
 }
@@ -178,41 +279,3 @@ private fun ModeCard(state: AppState, modifier: Modifier) {
     }
 }
 
-@Composable
-private fun DeviceCard(state: AppState, modifier: Modifier) {
-    var copied by remember { mutableStateOf(false) }
-    LaunchedEffect(copied) { if (copied) { delay(1400); copied = false } }
-    PressCard(modifier.fillMaxWidth()) {
-        Column {
-            SectionTitle("设备标识") {
-                AnimatedContent(copied, transitionSpec = { fadeIn(effect()) togetherWith fadeOut(effect()) }, label = "copied") {
-                    if (it) T("已复制", 13.sp, FontWeight.Medium, C.Primary, Modifier.padding(end = 8.dp))
-                }
-                CircleIconButton(Ic.Copy, { copied = true })
-            }
-            Spacer(Modifier.height(4.dp))
-            T("FG-7015-A3", 40.sp, FontWeight.Bold, tabular = true)
-            Spacer(Modifier.height(14.dp))
-
-            // The glass toggle refracts this row, so the row is its own backdrop.
-            val rowBackdrop = rememberLayerBackdrop()
-            Box(Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp))) {
-                Box(Modifier.matchParentSize().layerBackdrop(rowBackdrop).background(C.Tonal))
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier.size(44.dp).clip(Capsule()).background(androidx.compose.ui.graphics.Color.White),
-                        contentAlignment = Alignment.Center
-                    ) { LineIcon(Ic.Accessibility, C.OnSurface, 22.dp) }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        T("无障碍服务", 15.sp, FontWeight.SemiBold)
-                        AnimatedContent(state.accessibility, transitionSpec = { fadeIn(effect()) togetherWith fadeOut(effect()) }, label = "acc") {
-                            T(if (it) "已开启 · 监听 6 个应用" else "已关闭", 12.sp, color = if (it) C.GoodText else C.Muted)
-                        }
-                    }
-                    LiquidToggle({ state.accessibility }, { state.accessibility = it }, rowBackdrop)
-                }
-            }
-        }
-    }
-}
