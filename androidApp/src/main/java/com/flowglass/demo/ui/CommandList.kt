@@ -20,6 +20,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -60,6 +62,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.*
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -101,7 +106,7 @@ fun AutoCommandsScreen(state: AppState) {
     ListHeader(
         "已开启 $enabled / ${state.autoCmds.size} 条", "新建",
         Modifier.staggerIn(1)
-    ) { state.renaming = state.create(auto = true) }
+    ) { state.openEditor(state.create(auto = true).id) }
     if (!state.running) EnginePausedBanner(state, Modifier.staggerIn(2))
     CommandColumn(list, state, auto = true, groupKey = f)
     if (list.isEmpty()) EmptyHint(if (!state.query.isNullOrBlank()) "没有匹配「${state.query}」的指令" else "这个分类下还没有指令")
@@ -113,7 +118,7 @@ fun OneTapCommandsScreen(state: AppState) {
     ListHeader(
         "共 ${list.size} 条 · 置顶 ${list.count { it.pinned }}", "新建",
         Modifier.staggerIn(0)
-    ) { state.renaming = state.create(auto = false) }
+    ) { state.openEditor(state.create(auto = false).id) }
     CommandColumn(list, state, auto = false, groupKey = 0)
     if (list.isEmpty()) EmptyHint(if (!state.query.isNullOrBlank()) "没有匹配「${state.query}」的指令" else "还没有一键指令，点右上角新建")
 }
@@ -190,6 +195,7 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
             val s = 1f + 0.02f * lift
             scaleX = s; scaleY = s
         },
+        onClick = { state.openEditor(cmd.id) },
         radius = 26.dp,
         color = Color.Transparent,
         contentPadding = 16.dp,
@@ -232,9 +238,26 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
             }
             Spacer(Modifier.width(10.dp))
             if (cmd.auto) {
-                LiquidToggle({ cmd.enabled }, { state.setEnabled(cmd.id, it) }, cardBackdrop)
+                LiquidToggle({ cmd.enabled }, { state.setEnabled(cmd.id, it) }, cardBackdrop,
+                    Modifier.testTag("command-toggle-${cmd.id}")
+                        // The liquid thumb observes gestures without consuming them. Consume on
+                        // the parent's Main pass, after the thumb but before the card recognizer.
+                        .pointerInput(Unit) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false).consume()
+                                do {
+                                    val event = awaitPointerEvent()
+                                    event.changes.forEach { it.consume() }
+                                } while (event.changes.any { it.pressed })
+                            }
+                        }.semantics(mergeDescendants = true) {
+                        role = Role.Switch
+                        contentDescription = "启用${cmd.title}"
+                        toggleableState = if (cmd.enabled) ToggleableState.On else ToggleableState.Off
+                        onClick { state.setEnabled(cmd.id, !cmd.enabled); true }
+                    })
             } else {
-                ExecButton(exec) { state.execute(cmd, scope) }
+                ExecButton(exec, Modifier.testTag("command-execute-${cmd.id}")) { state.execute(cmd, scope) }
             }
         }
     }
@@ -242,10 +265,12 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
 
 /** Small "一键执行" pill: idle → spinner → done. */
 @Composable
-private fun ExecButton(exec: Int, onClick: () -> Unit) {
+private fun ExecButton(exec: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val bg by animateColorAsState(if (exec == 2) C.GoodSoft else C.Primary, effect(), label = "execBg")
     Box(
-        Modifier.height(34.dp).clip(Capsule()).background(bg).pressable(0.9f) { if (exec == 0) onClick() }
+        modifier.height(34.dp).clip(Capsule()).background(bg)
+            .semantics { role = Role.Button; contentDescription = "一键执行"; if (exec != 0) disabled() else onClick { onClick(); true } }
+            .pressable(0.9f) { if (exec == 0) onClick() }
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center
     ) {

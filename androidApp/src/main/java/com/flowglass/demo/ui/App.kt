@@ -47,6 +47,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -71,7 +73,14 @@ private val Dests = listOf(
 
 @Composable
 fun FlowGlassApp() {
-    val state = remember { AppState() }
+    val state = rememberStoredAppState()
+    if (state == null) {
+        Box(Modifier.fillMaxSize().background(C.Bg), contentAlignment = Alignment.Center) {
+            T("正在读取本地指令…", 16.sp, color = C.OnSurfaceVar)
+        }
+        return
+    }
+
     val backdrop = rememberLayerBackdrop()
     var tab by remember { mutableIntStateOf(0) }
     val scrolls = remember { mutableMapOf<Int, ScrollState>() }
@@ -115,6 +124,7 @@ fun FlowGlassApp() {
     }
 
     Box(Modifier.fillMaxSize().background(C.Bg)) {
+        Box(Modifier.fillMaxSize().then(if (state.editing != null || state.menu != null || state.renaming != null) Modifier.clearAndSetSemantics { } else Modifier)) {
         // ---------------- content (also the backdrop the glass samples)
         Box(
             Modifier
@@ -135,6 +145,7 @@ fun FlowGlassApp() {
                     collapse = { if (page == pageKey) collapse else 0f },
                     onBack = if (page > 30) ({ state.settingsPage = 0 }) else null
                 ) {
+                    StorageErrorNotice(state.storageError)
                     when {
                         page == 0 -> HomeScreen(state) { tab = it }
                         page == 1 -> AutoCommandsScreen(state)
@@ -188,10 +199,10 @@ fun FlowGlassApp() {
                 Box(
                     Modifier.size(40.dp).clip(Capsule()).pressable {
                         if (tab == 2) {
-                            state.renaming = state.create(auto = false)
+                            state.openEditor(state.create(auto = false).id)
                         } else {
                             tab = 1
-                            state.renaming = state.create(auto = true)
+                            state.openEditor(state.create(auto = true).id)
                         }
                     },
                     contentAlignment = Alignment.Center
@@ -207,8 +218,9 @@ fun FlowGlassApp() {
         if (tab == 1) ScrollThumb(scrollOf(1), statusTop, Modifier.align(Alignment.TopEnd))
 
         // ---------------- floating liquid-glass bottom navigation
-        Box(
+        if (state.editing == null) Box(
             Modifier
+                .testTag("bottom-navigation")
                 .align(Alignment.BottomCenter)
                 .graphicsLayer { translationY = navHide * (96.dp.toPx() + navBottom.toPx()) }
                 .navigationBarsPadding()
@@ -229,6 +241,9 @@ fun FlowGlassApp() {
             }
         }
 
+        }
+        CommandEditorHost(state)
+
         // ---------------- undo bar, long-press menu and rename dialog float above everything
         UndoBar(
             state, backdrop,
@@ -236,6 +251,7 @@ fun FlowGlassApp() {
         )
         CommandMenuOverlay(state, backdrop)
         RenameOverlay(state, backdrop)
+
     }
 }
 
