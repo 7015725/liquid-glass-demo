@@ -263,12 +263,12 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
     }
 }
 
-/** Small "一键执行" pill: idle → spinner → done. */
+/** Shared execution action: compact card pill or prominent editor button. */
 @Composable
-private fun ExecButton(exec: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun ExecButton(exec: Int, modifier: Modifier = Modifier, large: Boolean = false, onClick: () -> Unit) {
     val bg by animateColorAsState(if (exec == 2) C.GoodSoft else C.Primary, effect(), label = "execBg")
     Box(
-        modifier.height(34.dp).clip(Capsule()).background(bg)
+        modifier.height(if (large) 56.dp else 34.dp).clip(Capsule()).background(bg)
             .semantics { role = Role.Button; contentDescription = "一键执行"; if (exec != 0) disabled() else onClick { onClick(); true } }
             .pressable(0.9f) { if (exec == 0) onClick() }
             .padding(horizontal = 12.dp),
@@ -282,19 +282,20 @@ private fun ExecButton(exec: Int, modifier: Modifier = Modifier, onClick: () -> 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 when (s) {
                     1 -> {
-                        Spinner(Color.White, 14.dp)
+                        Spinner(Color.White, if (large) 20.dp else 14.dp)
                         Spacer(Modifier.width(6.dp))
-                        T("执行中", 12.sp, FontWeight.SemiBold, Color.White)
+                        T("执行中", if (large) 16.sp else 12.sp, FontWeight.SemiBold, Color.White)
                     }
                     2 -> {
-                        CheckBadge(true, 16.dp)
+                        CheckBadge(true, if (large) 22.dp else 16.dp)
                         Spacer(Modifier.width(6.dp))
-                        T("已完成", 12.sp, FontWeight.SemiBold, C.GoodText)
+                        T("已完成", if (large) 16.sp else 12.sp, FontWeight.SemiBold, C.GoodText)
                     }
                     else -> {
-                        LineIcon(Ic.Play, Color.White, 14.dp)
+                        LineIcon(Ic.Play, Color.White, if (large) 20.dp else 14.dp,
+                            modifier = if (large) Modifier.testTag("editor-execute-play") else Modifier)
                         Spacer(Modifier.width(4.dp))
-                        T("一键执行", 12.sp, FontWeight.SemiBold, Color.White)
+                        T("一键执行", if (large) 16.sp else 12.sp, FontWeight.SemiBold, Color.White)
                     }
                 }
             }

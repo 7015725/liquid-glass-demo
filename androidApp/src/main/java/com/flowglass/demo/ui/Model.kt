@@ -137,7 +137,14 @@ class AppState internal constructor(saved: PersistedAppState?) {
     var editing by mutableStateOf<Long?>(null)
     var storageError by mutableStateOf<String?>(null)
     fun openEditor(id: Long) { if (find(id) != null) editing = id }
-    fun closeEditor() { editing = null }
+    fun closeEditor() {
+        editing?.let { id ->
+            update(id) { cmd ->
+                if (cmd.title.isBlank()) cmd.copy(title = if (cmd.auto) "未命名指令" else "未命名一键指令") else cmd
+            }
+        }
+        editing = null
+    }
     fun setTitle(id: Long, text: String) = update(id) { it.copy(title = text) }
     fun setDescription(id: Long, text: String) = update(id) { it.copy(desc = text, descriptionEdited = true) }
     fun setIcon(id: Long, ic: Ic) = update(id) { it.copy(ic = ic) }
@@ -245,12 +252,13 @@ class AppState internal constructor(saved: PersistedAppState?) {
     }
 
     fun delete(id: Long) {
+        // Normalize the edited title before capturing the undo snapshot.
+        if (editing == id) closeEditor()
         val src = find(id) ?: return
         val l = listFor(src.auto)
         val i = l.indexOf(src)
         l.removeAt(i)
         undo = UndoInfo(src, i)
-        if (editing == id) closeEditor()
     }
 
     fun undoDelete() {
