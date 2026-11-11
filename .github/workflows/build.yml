@@ -3,21 +3,26 @@ name: Build APK
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: build-${{ github.ref }}
+  group: build-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
+    name: Test and build debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-java@v4
         with:
@@ -25,27 +30,83 @@ jobs:
           java-version: 21
 
       - name: Accept Android SDK licenses
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+        run: |
+          set +o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
 
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
+
+      - name: Validate authoring
+        run: ./gradlew :engine:test :androidApp:testDebugUnitTest :androidApp:assembleDebug :androidApp:lintDebug --no-configuration-cache --max-workers=2 --console=plain
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowglass-authoring-debug-apk
+          path: androidApp/build/outputs/apk/debug/androidApp-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload test and lint reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowglass-authoring-test-reports
+          path: |
+            engine/build/test-results/test/
+            engine/build/reports/tests/test/
+            androidApp/build/test-results/testDebugUnitTest/
+            androidApp/build/reports/tests/testDebugUnitTest/
+            androidApp/build/reports/lint-results-debug.*
+          if-no-files-found: warn
+          retention-days: 14
+
+  release:
+    name: Publish main push only
+    needs: build
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Accept Android SDK licenses
+        run: |
+          set +o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
 
       - name: Build release APK
-        run: |
-          chmod +x gradlew
-          ./gradlew :androidApp:assembleRelease --stacktrace --no-configuration-cache
+        run: ./gradlew :androidApp:assembleRelease --stacktrace --no-configuration-cache
 
       - name: Rename APK
         run: |
           mkdir -p out
           cp androidApp/build/outputs/apk/release/*.apk out/LiquidGlassDemo.apk
-          ls -la out
 
       - uses: actions/upload-artifact@v4
         with:
           name: LiquidGlassDemo-apk
           path: out/LiquidGlassDemo.apk
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Publish to "latest" release
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
