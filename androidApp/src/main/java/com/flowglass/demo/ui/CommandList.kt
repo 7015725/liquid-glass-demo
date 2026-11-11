@@ -88,7 +88,7 @@ import kotlin.math.roundToInt
 fun AutoCommandsScreen(state: AppState) {
     val f = state.autoFilter
     val all = state.sorted(auto = true)
-    val list = all.filter {
+    val list = all.filter(state::matches).filter {
         when (f) {
             0 -> true
             1 -> it.enabled
@@ -104,18 +104,18 @@ fun AutoCommandsScreen(state: AppState) {
     ) { state.renaming = state.create(auto = true) }
     if (!state.running) EnginePausedBanner(state, Modifier.staggerIn(2))
     CommandColumn(list, state, auto = true, groupKey = f)
-    if (list.isEmpty()) EmptyHint("这个分类下还没有指令")
+    if (list.isEmpty()) EmptyHint(if (!state.query.isNullOrBlank()) "没有匹配「${state.query}」的指令" else "这个分类下还没有指令")
 }
 
 @Composable
 fun OneTapCommandsScreen(state: AppState) {
-    val list = state.sorted(auto = false)
+    val list = state.sorted(auto = false).filter(state::matches)
     ListHeader(
         "共 ${list.size} 条 · 置顶 ${list.count { it.pinned }}", "新建",
         Modifier.staggerIn(0)
     ) { state.renaming = state.create(auto = false) }
     CommandColumn(list, state, auto = false, groupKey = 0)
-    if (list.isEmpty()) EmptyHint("还没有一键指令，点右上角新建")
+    if (list.isEmpty()) EmptyHint(if (!state.query.isNullOrBlank()) "没有匹配「${state.query}」的指令" else "还没有一键指令，点右上角新建")
 }
 
 @Composable
@@ -548,5 +548,59 @@ fun UndoBar(state: AppState, backdrop: Backdrop, modifier: Modifier) {
                     .pressable { state.undoDelete() }.padding(horizontal = 16.dp, vertical = 9.dp)
             ) { T("撤销", 14.sp, FontWeight.Bold, Color(0xFF8CC2FF)) }
         }
+    }
+}
+
+
+/** Glass search capsule that replaces the top-right actions while searching. */
+@Composable
+fun SearchBarOverlay(state: AppState, backdrop: Backdrop, modifier: Modifier) {
+    val open = state.query != null
+    val p by animateFloatAsState(if (open) 1f else 0f, spatial(), label = "searchP")
+    if (p <= 0.001f && !open) return
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(open) {
+        if (open) { delay(100); runCatching { focus.requestFocus() } }
+    }
+    Row(
+        modifier
+            .graphicsLayer {
+                alpha = p.coerceIn(0f, 1f)
+                scaleX = 0.85f + 0.15f * p
+                transformOrigin = TransformOrigin(1f, 0.5f)
+            }
+            .height(52.dp)
+            .fillMaxWidth()
+            .drawBackdrop(
+                backdrop = backdrop,
+                shape = { Capsule() },
+                effects = {
+                    vibrancy()
+                    blur(8.dp.toPx())
+                    lens(14.dp.toPx(), 24.dp.toPx())
+                },
+                onDrawSurface = { drawRect(Color.White.copy(alpha = 0.6f)) }
+            )
+            .padding(start = 18.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        LineIcon(Ic.Search, C.OnSurfaceVar, 20.dp)
+        Spacer(Modifier.width(10.dp))
+        Box(Modifier.weight(1f)) {
+            if (state.query.isNullOrEmpty()) T("搜索标题、描述、触发器或任务", 15.sp, color = C.Muted, maxLines = 1)
+            BasicTextField(
+                value = state.query ?: "",
+                onValueChange = { state.query = it },
+                singleLine = true,
+                textStyle = TextStyle(color = C.OnSurface, fontSize = 15.sp),
+                cursorBrush = SolidColor(C.Primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                modifier = Modifier.fillMaxWidth().focusRequester(focus)
+            )
+        }
+        Box(
+            Modifier.size(40.dp).clip(Capsule()).background(C.Tonal.copy(alpha = 0.7f)).pressable { state.query = null },
+            contentAlignment = Alignment.Center
+        ) { T("✕", 15.sp, FontWeight.Bold, C.OnSurfaceVar) }
     }
 }

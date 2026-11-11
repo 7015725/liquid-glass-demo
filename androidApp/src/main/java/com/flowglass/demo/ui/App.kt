@@ -80,6 +80,7 @@ fun FlowGlassApp() {
     fun scrollOf(key: Int) = scrolls.getOrPut(key) { ScrollState(0) }
     fun titleOf(key: Int) = if (key >= 30) SettingsPage.title(key - 30) else Dests[key].title
     BackHandler(enabled = tab == 3 && state.settingsPage != 0) { state.settingsPage = 0 }
+    BackHandler(enabled = state.query != null) { state.query = null }
     BackHandler(enabled = state.menu != null || state.renaming != null) {
         state.menu = null
         state.renaming = null
@@ -169,16 +170,38 @@ fun FlowGlassApp() {
         }
 
         // ---------------- top-right glass capsule with two actions
-        LiquidButton(
-            onClick = {},
-            backdrop = backdrop,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = statusTop + 8.dp, end = 16.dp),
-            surfaceColor = Color.White.copy(alpha = 0.5f)
-        ) {
-            LineIcon(Ic.Search, C.OnSurface, 22.dp)
-            Box(Modifier.width(1.dp).height(18.dp).background(C.Divider))
-            LineIcon(Ic.Plus, C.OnSurface, 22.dp)
+        if (state.query == null) {
+            LiquidButton(
+                onClick = {},
+                backdrop = backdrop,
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = statusTop + 8.dp, end = 16.dp),
+                surfaceColor = Color.White.copy(alpha = 0.5f)
+            ) {
+                Box(
+                    Modifier.size(40.dp).clip(Capsule()).pressable {
+                        if (tab != 1 && tab != 2) tab = 1
+                        state.query = ""
+                    },
+                    contentAlignment = Alignment.Center
+                ) { LineIcon(Ic.Search, C.OnSurface, 22.dp) }
+                Box(Modifier.width(1.dp).height(18.dp).background(C.Divider))
+                Box(
+                    Modifier.size(40.dp).clip(Capsule()).pressable {
+                        if (tab == 2) {
+                            state.renaming = state.create(auto = false)
+                        } else {
+                            tab = 1
+                            state.renaming = state.create(auto = true)
+                        }
+                    },
+                    contentAlignment = Alignment.Center
+                ) { LineIcon(Ic.Plus, C.OnSurface, 22.dp) }
+            }
         }
+        SearchBarOverlay(
+            state, backdrop,
+            Modifier.align(Alignment.TopCenter).padding(top = statusTop + 6.dp, start = 16.dp, end = 16.dp)
+        )
 
         // ---------------- thin capsule scrollbar on the grid page
         if (tab == 1) ScrollThumb(scrollOf(1), statusTop, Modifier.align(Alignment.TopEnd))

@@ -110,6 +110,15 @@ class AppState {
         RunLog(-4, "到公司自动连 WiFi", "进入地点", "08:56", true, Ic.Location),
     )
 
+    // search (null = closed)
+    var query by mutableStateOf<String?>(null)
+
+    fun matches(c: Cmd): Boolean {
+        val q = query?.trim().orEmpty()
+        return q.isEmpty() || c.title.contains(q, true) || c.desc.contains(q, true) ||
+            (c.triggers + c.conditions + c.actions).any { it.contains(q, true) }
+    }
+
     // overlays
     var menu by mutableStateOf<MenuReq?>(null)
     var renaming by mutableStateOf<Cmd?>(null)

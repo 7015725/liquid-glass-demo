@@ -9,6 +9,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -54,9 +57,13 @@ private fun DrawScope.drawIcon(ic: Ic, color: Color, filled: Boolean, strokeUnit
                 moveTo(4f, 10.5f); lineTo(12f, 4f); lineTo(20f, 10.5f); lineTo(20f, 19f)
                 quadraticTo(20f, 20f, 19f, 20f); lineTo(5f, 20f); quadraticTo(4f, 20f, 4f, 19f); close()
             }
-            drawPath(path, color, style = style)
-            if (filled) drawRoundRect(Color.White, Offset(10f, 14f), Size(4f, 6f), CornerRadius(1f))
-            else line(10f, 20f, 10f, 15f).also { line(14f, 20f, 14f, 15f); line(10f, 15f, 14f, 15f) }
+            if (filled) {
+                // real cut-out door so it survives the tab bar's tint filter
+                path.fillType = PathFillType.EvenOdd
+                path.addRoundRect(RoundRect(10f, 14f, 14f, 20f, CornerRadius(1f)))
+                drawPath(path, color)
+            } else drawPath(path, color, style = st)
+            if (!filled) line(10f, 20f, 10f, 15f).also { line(14f, 20f, 14f, 15f); line(10f, 15f, 14f, 15f) }
         }
         Ic.Grid -> listOf(Offset(4f, 4f), Offset(13f, 4f), Offset(4f, 13f), Offset(13f, 13f)).forEach {
             drawRoundRect(color, it, Size(7f, 7f), CornerRadius(2.2f), style = style)
@@ -79,8 +86,14 @@ private fun DrawScope.drawIcon(ic: Ic, color: Color, filled: Boolean, strokeUnit
                 if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
             path.close()
-            drawPath(path, color, style = style)
-            drawCircle(if (filled) Color.White else color, 3f, Offset(12f, 12f), style = if (filled) Fill else st)
+            if (filled) {
+                path.fillType = PathFillType.EvenOdd
+                path.addOval(Rect(Offset(12f, 12f), 3.2f))
+                drawPath(path, color)
+            } else {
+                drawPath(path, color, style = st)
+                drawCircle(color, 3f, Offset(12f, 12f), style = st)
+            }
         }
         Ic.Bolt -> drawPath(p {
             moveTo(13.5f, 3f); lineTo(5.5f, 13.5f); lineTo(11.5f, 13.5f); lineTo(10.5f, 21f)

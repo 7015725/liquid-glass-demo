@@ -71,7 +71,7 @@ private fun HeroCard(state: AppState, modifier: Modifier) {
             Box(Modifier.matchParentSize()) {
                 Blob(
                     C.Primary.copy(alpha = 0.13f),
-                    Modifier.size(230.dp).align(Alignment.CenterEnd).offset(x = 70.dp, y = 30.dp),
+                    Modifier.size(170.dp).align(Alignment.TopEnd).offset(x = 46.dp, y = 40.dp),
                     seed = 3
                 )
             }
