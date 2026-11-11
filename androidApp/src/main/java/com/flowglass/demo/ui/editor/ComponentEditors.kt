@@ -55,7 +55,7 @@ internal fun ComponentListEditor(
     }
     if (depth <= EDITOR_MAX_DEPTH && componentCount(components) < EDITOR_MAX_COMPONENTS) {
         EditorButton("添加$label", "add-$path", selected = true) { picking = true }
-    } else T("已达编写上限：深度 $EDITOR_MAX_DEPTH，列表组件 $EDITOR_MAX_COMPONENTS。", 13.sp, color = C.Bad)
+    } else T("已达编写上限：深度 $EDITOR_MAX_DEPTH，列表组件 $EDITOR_MAX_COMPONENTS。", 13.sp, color = C.BadText)
     EditorErrors(notice, "$path-notice")
     if (picking) ComponentPicker(kind, onDismiss = { picking = false }) { component ->
         isNew = true; editingJson = EditorDraft.encode(Rule(actions = listOf(component))); picking = false
@@ -126,7 +126,7 @@ private fun ComponentEditorDialog(initialHolder: Rule, kind: Kind, depth: Int, g
             EditorErrors(errors, "component-errors")
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 EditorCard("参数") {
-                    if (meta == null) T("未知组件，原始数据保留。不能保存为有效指令。", color = C.Bad)
+                    if (meta == null) T("未知组件，原始数据保留。不能保存为有效指令。", color = C.BadText)
                     meta?.let {
                         T(it.description, 13.sp, color = C.OnSurfaceVar)
                         if (it.permissions.isNotEmpty()) T("权限声明：${it.permissions.joinToString()}\n仅编写，不申请权限、不执行。", 12.sp)
@@ -165,7 +165,7 @@ private fun ComponentEditorDialog(initialHolder: Rule, kind: Kind, depth: Int, g
                         if (component.type == "action.if") EditorCard("不满足 · ELSE") {
                             ComponentListEditor("否则动作", "${component.id}-else", Kind.ACTION, component.elseActions, globals, locals, depth + 1) { update(component.copy(elseActions = it)) }
                         }
-                    } else T("嵌套深度上限 $EDITOR_MAX_DEPTH；不能继续添加内部动作。", color = C.Bad)
+                    } else T("嵌套深度上限 $EDITOR_MAX_DEPTH；不能继续添加内部动作。", color = C.BadText)
                 }
                 VariableReferenceHelp(globals, locals, listOf(component))
             }

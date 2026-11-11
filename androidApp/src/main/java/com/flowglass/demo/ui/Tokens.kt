@@ -19,17 +19,20 @@ object C {
     val Card = Color(0xFFFAF8FA)
     val Tonal = Color(0xFFEAE8EE)
     val TonalStrong = Color(0xFFDEDCE3)
-    val Primary = Color(0xFF1A84FF)
+    val Primary = Color(0xFF0F62E0)
     val PrimarySoft = Color(0xFFD6E7FF)
     val OnSurface = Color(0xFF1B1B1F)
     val OnSurfaceVar = Color(0xFF46464F)
-    val Muted = Color(0xFF8A8A93)
+    val Muted = Color(0xFF6A6A76)
     val Divider = Color(0x14000000)
     val Good = Color(0xFF17A34A)
     val GoodSoft = Color(0xFFDDF5E4)
     val GoodText = Color(0xFF0F6B32)
     val Mid = Color(0xFFE59A12)
-    val Bad = Color(0xFFE5484D)
+    val Bad = Color(0xFFE5484D) // Graphic accents; use BadText for readable text.
+    val BadText = Color(0xFFA1231B)
+    val Warn = Color(0xFF8A4500)
+    val WarnSoft = Color(0xFFFFF1DF)
 }
 
 /** Spatial springs (position / size / scale). */

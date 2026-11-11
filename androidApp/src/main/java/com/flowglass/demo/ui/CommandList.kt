@@ -360,7 +360,7 @@ fun CommandMenuOverlay(state: AppState, backdrop: Backdrop) {
                 ) {
                     LineIcon(a.ic, fg, 20.dp)
                     Spacer(Modifier.width(14.dp))
-                    T(a.label, 15.sp, FontWeight.Medium, fg)
+                    T(a.label, 15.sp, FontWeight.Medium, if (a.danger) C.BadText else fg)
                 }
                 if (i == actions.lastIndex - 1) {
                     Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(1.dp).background(C.Divider))

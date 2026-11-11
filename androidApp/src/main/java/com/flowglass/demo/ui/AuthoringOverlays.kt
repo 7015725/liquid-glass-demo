@@ -111,7 +111,7 @@ fun ImportReviewScreen(state: AppState) {
                 T("全局变量：${bundle.globals.joinToString { it.name }.ifBlank { "无" }}", 13.sp)
             }
             if (scripts.isNotEmpty()) EditorCard("脚本与表达式 · 需要额外确认") {
-                T("这些内容可能在未来接入执行端后获得系统或 Root 能力。请逐项查看完整脚本；本次导入不会运行。", 13.sp, color = C.Bad)
+                T("这些内容可能在未来接入执行端后获得系统或 Root 能力。请逐项查看完整脚本；本次导入不会运行。", 13.sp, color = C.BadText)
                 scripts.forEach { T(it, 13.sp, lineHeight = 19.sp) }
                 AuthoringButton(if (state.importScriptConfirmed) "已确认全部脚本 · 点击撤回" else "我已查看并确认全部脚本", "import-script-confirm", primary = !state.importScriptConfirmed) {
                     state.importScriptConfirmed = !state.importScriptConfirmed

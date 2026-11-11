@@ -110,7 +110,7 @@ internal fun EditorChoices(label: String, choices: List<Pair<String, String>>, v
 
 @Composable
 internal fun EditorErrors(text: String, tag: String = "validation-errors") {
-    if (text.isNotBlank()) T(text, 13.sp, color = C.Bad,
+    if (text.isNotBlank()) T(text, 13.sp, color = C.BadText,
         modifier = Modifier.fillMaxWidth().heightIn(max = 140.dp).verticalScroll(rememberScrollState())
             .testTag(tag).semantics { liveRegion = LiveRegionMode.Polite })
 }

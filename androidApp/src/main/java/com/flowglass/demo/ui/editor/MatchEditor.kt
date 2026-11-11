@@ -61,13 +61,13 @@ private fun MatchTreeNode(node: MatchNode, components: List<Component>, path: St
             })
         }
         if (node.op == "leaf") {
-            if (components.isEmpty()) T("先添加组件，才能选择引用。", 12.sp, color = C.Bad)
-            if (node.ref != null && components.none { it.id == node.ref }) T("引用已失效：${node.ref}", 12.sp, color = C.Bad)
+            if (components.isEmpty()) T("先添加组件，才能选择引用。", 12.sp, color = C.BadText)
+            if (node.ref != null && components.none { it.id == node.ref }) T("引用已失效：${node.ref}", 12.sp, color = C.BadText)
             EditorChoices("引用组件", components.mapIndexed { i, component -> component.id to "${i + 1}. ${ComponentRegistry.find(component.type)?.name ?: component.type}" }, node.ref ?: "", "tree-$path-ref") {
                 onChange(node.copy(ref = it))
             }
         } else if (depth >= EDITOR_MAX_DEPTH) {
-            T("已达树深度上限 $EDITOR_MAX_DEPTH，请改为引用节点。", 12.sp, color = C.Bad)
+            T("已达树深度上限 $EDITOR_MAX_DEPTH，请改为引用节点。", 12.sp, color = C.BadText)
         } else {
             node.children.forEachIndexed { index, child ->
                 MatchTreeNode(child, components, "$path-$index", depth + 1) { changed ->
