@@ -14,6 +14,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,13 +33,18 @@ import com.kyant.shapes.RoundedRectangle
 @Composable
 internal fun EditorGlassPanel(backdrop: Backdrop, title: String, bottom: Boolean, onClose: () -> Unit,
     content: @Composable ColumnScope.() -> Unit) {
+    val close by rememberUpdatedState(onClose)
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
     val scale by animateFloatAsState(if (entered) 1f else 0.96f, spatial(), label = "panelScale")
     val alpha by animateFloatAsState(if (entered) 1f else 0f, effect(), label = "panelAlpha")
     BoxWithConstraints(Modifier.fillMaxSize().testTag("editor-panel").imePadding()) {
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.18f * alpha))
-            .testTag("editor-scrim").editorAction("关闭面板", onClose))
+            .testTag("editor-scrim").semantics {
+                role = Role.Button
+                contentDescription = "关闭面板"
+                onClick { onClose(); true }
+            }.pointerInput(Unit) { detectTapGestures { close() } })
         Column(Modifier.align(if (bottom) Alignment.BottomCenter else Alignment.Center)
             .navigationBarsPadding().statusBarsPadding().padding(16.dp).fillMaxWidth()
             .heightIn(max = maxHeight * 0.78f)

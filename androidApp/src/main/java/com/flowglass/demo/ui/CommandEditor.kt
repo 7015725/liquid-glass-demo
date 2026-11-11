@@ -37,10 +37,13 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 fun CommandEditorHost(state: AppState) {
     val scope = rememberCoroutineScope()
     val cmd = state.editing?.let(state::find)
+    var last by remember { mutableStateOf<Cmd?>(null) }
+    if (cmd != null) last = cmd
+    val shown = cmd ?: last
     AnimatedVisibility(cmd != null,
         enter = fadeIn(effect()) + scaleIn(spatial(), initialScale = 0.96f),
         exit = fadeOut(effect()) + scaleOut(spatial(), targetScale = 0.96f)) {
-        if (cmd != null) key(cmd.id) { CommandEditor(state, cmd, scope) }
+        if (shown != null) key(shown.id) { CommandEditor(state, shown, scope) }
     }
 }
 
@@ -49,7 +52,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope) {
     var panel by remember { mutableStateOf<EditorPanel?>(null) }
     val backdrop = rememberLayerBackdrop()
     fun back() { if (panel != null) panel = null else state.closeEditor() }
-    BackHandler { back() }
+    BackHandler(enabled = state.editing == cmd.id) { back() }
     Box(Modifier.fillMaxSize().background(C.Bg).testTag("command-editor")
         .pointerInput(Unit) { detectTapGestures { } }) {
     Column(Modifier.fillMaxSize().layerBackdrop(backdrop)
@@ -94,8 +97,9 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope) {
             decorationBox = { inner -> Box { if (cmd.desc.isEmpty()) T("添加描述", 15.sp, color = C.Muted); inner() } })
         if (!cmd.auto) {
             val exec = state.executing[cmd.id] ?: 0
-            EditorPill(when (exec) { 1 -> "演示执行中…"; 2 -> "演示完成"; else -> "一键执行" }, "一键执行",
-                Modifier.fillMaxWidth()) { if (exec == 0) state.execute(cmd, scope) }
+            ExecButton(exec, Modifier.fillMaxWidth().testTag("editor-execute"), large = true) {
+                state.execute(cmd, scope)
+            }
             T("仅演示执行流程，不会操作系统", 12.sp, color = C.Muted)
         }
         val sections = if (cmd.auto) CommandSection.entries else listOf(CommandSection.ACTIONS)
@@ -148,7 +152,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope) {
         EditorGlassPanel(backdrop, when (active) { is EditorPanel.Add -> "添加${active.section.label}"; is EditorPanel.Parameter -> "编辑参数"; EditorPanel.Icons -> "选择图标" },
             bottom = active is EditorPanel.Add, onClose = { panel = null }) {
             when (active) {
-                EditorPanel.Icons -> Ic.entries.chunked(4).forEach { icons ->
+                EditorPanel.Icons -> CommandIcons.chunked(4).forEach { icons ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         icons.forEach { icon ->
                             Box(Modifier.weight(1f).height(64.dp).clip(PolygonShape(M3EShapes.Clover4))
@@ -203,6 +207,13 @@ internal val CommandSection.label: String
         CommandSection.CONDITIONS -> "条件"
         CommandSection.ACTIONS -> "任务"
     }
+
+// Deliberate whitelist: UI affordances must not become new command identities.
+private val CommandIcons = listOf(
+    Ic.Home, Ic.Bolt, Ic.Play, Ic.Bell, Ic.Shield, Ic.Wifi, Ic.Moon, Ic.Battery,
+    Ic.Timer, Ic.Location, Ic.Leaf, Ic.Gauge, Ic.Rocket, Ic.Clock, Ic.Phone,
+    Ic.Bluetooth, Ic.Message, Ic.Camera, Ic.Tap, Ic.Lock, Ic.Terminal, Ic.Puzzle, Ic.Key,
+)
 
 private val Ic.editorLabel: String
     get() = when (this) {
