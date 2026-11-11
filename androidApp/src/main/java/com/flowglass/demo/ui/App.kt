@@ -70,10 +70,29 @@ private val Dests = listOf(
 )
 
 @Composable
-fun FlowGlassApp() {
-    val state = remember { AppState() }
+fun FlowGlassApp(state: AppState = androidx.lifecycle.viewmodel.compose.viewModel()) {
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
+    RuleFileTransfers(state)
+    if (state.editor != null) {
+        Box(Modifier.fillMaxSize()) {
+            com.flowglass.demo.ui.editor.RuleEditorScreen(state.editor!!, state.globals, state::saveEditor, { state.editor = null })
+            AuthoringFeedback(state)
+        }
+        return
+    }
+    if (state.showGlobals) {
+        Box(Modifier.fillMaxSize()) {
+            com.flowglass.demo.ui.editor.GlobalVariablesScreen(state.globals, state::saveGlobal, state::deleteGlobal, { state.showGlobals = false })
+            AuthoringFeedback(state)
+        }
+        return
+    }
+    if (state.importPreview != null) {
+        ImportReviewScreen(state)
+        AuthoringFeedback(state)
+        return
+    }
     val backdrop = rememberLayerBackdrop()
-    var tab by remember { mutableIntStateOf(0) }
     val scrolls = remember { mutableMapOf<Int, ScrollState>() }
     // settings sub pages get their own page key so each keeps its own scroll position
     val pageKey = if (tab == 3) 30 + state.settingsPage else tab
@@ -136,8 +155,8 @@ fun FlowGlassApp() {
                 ) {
                     when {
                         page == 0 -> HomeScreen(state) { tab = it }
-                        page == 1 -> AutoCommandsScreen(state)
-                        page == 2 -> OneTapCommandsScreen(state)
+                        page == 1 -> { AuthoringSearch(state); AutoCommandsScreen(state); LibraryTools(state) }
+                        page == 2 -> { AuthoringSearch(state); OneTapCommandsScreen(state); LibraryTools(state) }
                         else -> SettingsHost(state, page - 30)
                     }
                 }
@@ -169,15 +188,18 @@ fun FlowGlassApp() {
         }
 
         // ---------------- top-right glass capsule with two actions
-        LiquidButton(
-            onClick = {},
-            backdrop = backdrop,
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = statusTop + 8.dp, end = 16.dp),
-            surfaceColor = Color.White.copy(alpha = 0.5f)
-        ) {
-            LineIcon(Ic.Search, C.OnSurface, 22.dp)
-            Box(Modifier.width(1.dp).height(18.dp).background(C.Divider))
-            LineIcon(Ic.Plus, C.OnSurface, 22.dp)
+        Row(Modifier.align(Alignment.TopEnd).padding(top = statusTop + 8.dp, end = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LiquidButton(
+                onClick = { state.showSearch = !state.showSearch; if (tab !in 1..2) tab = 1 },
+                backdrop = backdrop,
+                isInteractive = false,
+                surfaceColor = Color.White.copy(alpha = 0.5f)
+            ) { T("搜索", 13.sp, FontWeight.SemiBold) }
+            LiquidButton(
+                onClick = { state.create(tab != 2) }, backdrop = backdrop,
+                isInteractive = false,
+                surfaceColor = Color.White.copy(alpha = 0.5f)
+            ) { LineIcon(Ic.Plus, C.OnSurface, 22.dp); T("新建", 13.sp) }
         }
 
         // ---------------- thin capsule scrollbar on the grid page
@@ -213,6 +235,7 @@ fun FlowGlassApp() {
         )
         CommandMenuOverlay(state, backdrop)
         RenameOverlay(state, backdrop)
+        AuthoringFeedback(state)
     }
 }
 

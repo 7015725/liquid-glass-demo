@@ -19,6 +19,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -107,7 +112,8 @@ fun PressCard(
     foreground: Modifier? = null,
     content: @Composable () -> Unit,
 ) {
-    var pressed by remember { mutableStateOf(false) }
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     val p by animateFloatAsState(if (pressed) 1f else 0f, spatial(), label = "press")
     val shape = RoundedRectangle(radius + 6.dp * p)
     val click by rememberUpdatedState(onClick)
@@ -122,21 +128,15 @@ fun PressCard(
             }
             .clip(shape)
             .background(color)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        pressed = true
-                        tryAwaitRelease()
-                        pressed = false
-                    },
-                    onTap = { click?.invoke() },
-                    onLongPress = { local ->
-                        val c = coords
-                        val lp = longPress
-                        if (c != null && lp != null && c.isAttached) lp(c.positionInRoot() + local)
-                    }
-                )
-            }
+            .then(if (onClick != null || onLongPress != null) Modifier.combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = { click?.invoke() },
+                onLongClick = if (onLongPress == null) null else ({
+                    val c = coords
+                    if (c != null && c.isAttached) longPress?.invoke(c.positionInRoot() + Offset(c.size.width / 2f, c.size.height / 2f))
+                })
+            ) else Modifier)
     ) {
         background?.invoke(this)
         Box(Modifier.padding(contentPadding)) { content() }
@@ -162,7 +162,8 @@ fun Modifier.animatePlacement(): Modifier = composed {
 
 /** Shared press-scale behaviour for small controls. */
 fun Modifier.pressable(scaleTo: Float = 0.92f, onClick: () -> Unit): Modifier = composed {
-    var pressed by remember { mutableStateOf(false) }
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     val p by animateFloatAsState(if (pressed) 1f else 0f, spatial(), label = "pressable")
     val click by rememberUpdatedState(onClick)
     this
@@ -170,12 +171,8 @@ fun Modifier.pressable(scaleTo: Float = 0.92f, onClick: () -> Unit): Modifier = 
             val s = 1f - (1f - scaleTo) * p
             scaleX = s; scaleY = s
         }
-        .pointerInput(Unit) {
-            detectTapGestures(
-                onPress = { pressed = true; tryAwaitRelease(); pressed = false },
-                onTap = { click() }
-            )
-        }
+        .heightIn(min = 48.dp)
+        .clickable(interactionSource = interaction, indication = null, onClick = { click() })
 }
 
 // ---------------------------------------------------------------- pills & labels

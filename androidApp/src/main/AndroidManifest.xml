@@ -48,7 +48,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Keeps user-configured automation triggers listening in the background" />
+                android:value="Optional foreground presence for the rule authoring app; does not listen for or execute automation rules" />
         </service>
 
         <service

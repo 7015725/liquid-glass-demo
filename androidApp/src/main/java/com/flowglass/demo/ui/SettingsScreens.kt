@@ -45,7 +45,6 @@ import com.flowglass.demo.system.PermItem
 import com.flowglass.demo.system.Perms
 import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.SysTick
-import com.flowglass.demo.xposed.ModuleStatus
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -63,7 +62,7 @@ object SettingsPage {
     fun title(p: Int) = when (p) {
         KeepAlive -> "App 保活"
         Root -> "Root 激活"
-        LSPosed -> "LSPosed 激活"
+        LSPosed -> "LSPosed 说明"
         Permissions -> "权限声明管理"
         else -> "设置"
     }
@@ -244,13 +243,12 @@ private fun tick(): Int = SysTick.tick
 @Composable
 private fun SettingsMain(state: AppState) {
     val ctx = LocalContext.current
+    val version = remember(ctx) { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "未知" }
     val t = tick()
     val keepReady = remember(t) { keepAliveReady(ctx) }
     val granted = remember(t) { Perms.all.count { it.check(ctx) } }
-    val lsposed = remember(t) { ModuleStatus.isActive() }
     LaunchedEffect(t) { state.root = Root.check(request = false).let { if (state.root?.granted == true) state.root else it } }
     val root = state.root
-    val modes = listOf("省电", "均衡", "极速")
 
     var k = 0
     GroupTitle("运行与激活", k++)
@@ -261,21 +259,20 @@ private fun SettingsMain(state: AppState) {
             when { root?.granted == true -> "已授权"; root?.suFound == true -> "待授权"; else -> "未检测到" },
             sub = "执行 Shell 类指令",
             valueColor = if (root?.granted == true) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Root }, true)
-        ListRow(Row1(Ic.Puzzle, "LSPosed 激活", if (lsposed) "已激活" else "未激活", sub = "Xposed 模块增强",
-            valueColor = if (lsposed) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.LSPosed }, true)
+        ListRow(Row1(Ic.Puzzle, "LSPosed", "未接入", sub = LSPosedUnavailable), true)
         ListRow(Row1(Ic.Lock, "权限声明管理", "$granted/${Perms.all.size}", sub = "查看每项权限的用途并授权",
             valueColor = if (granted == Perms.all.size) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Permissions }, false)
     }
-    GroupTitle("通用", k++)
+    GroupTitle("规则资料库 · 编写版", k++)
     GroupCard(k++) {
-        ListRow(Row1(Ic.Bell, "通知提醒") {}, true)
-        ListRow(Row1(Ic.Gauge, "运行模式", modes[state.mode], upDown = true) { state.mode = (state.mode + 1) % 3 }, true)
-        ListRow(Row1(Ic.Moon, "夜间静默", "23:00", upDown = true) {}, false)
+        ListRow(Row1(Ic.Grid, "全局变量", sub = "跨指令共享，保存在本机") { state.showGlobals = true }, true)
+        ListRow(Row1(Ic.Share, "导入 JSON", sub = "预览确认后导入，全部保持停用") { state.importRequested++ }, true)
+        ListRow(Row1(Ic.Share, "导出全部", sub = "包含全局变量值，仅分享给信任的人") { state.requestExport() }, false)
     }
     GroupTitle("关于", k++)
     GroupCard(k++) {
-        ListRow(Row1(Ic.Info, "版本", "0.3.0"), true)
-        ListRow(Row1(Ic.Puzzle, "开源组件", sub = "AndroidLiquidGlass · graphics-shapes") {}, false)
+        ListRow(Row1(Ic.Info, "版本", version), true)
+        ListRow(Row1(Ic.Puzzle, "开源组件", sub = "AndroidLiquidGlass · graphics-shapes") { state.message = "UI：AndroidLiquidGlass（Apache-2.0）、graphics-shapes；编写器：Jetpack Compose、Room、kotlinx.serialization。当前不包含自动执行端。" }, false)
     }
 }
 
@@ -383,68 +380,12 @@ private fun RootPage(state: AppState) {
 
 // ================================================================ LSPosed
 
+private const val LSPosedUnavailable = "编写版未接入 Hook 执行，暂不支持激活。编写、保存和导出指令不需要 LSPosed。"
+
 @Composable
 private fun LSPosedPage() {
-    val ctx = LocalContext.current
-    val t = tick()
-    val active = remember(t) { ModuleStatus.isActive() }
-    val version = remember(t) { ModuleStatus.frameworkVersion() }
-    val managerInstalled = remember(t) {
-        runCatching { ctx.packageManager.getPackageInfo("org.lsposed.manager", 0); true }.getOrDefault(false)
-    }
-    var k = 0
-    StatusCard(
-        k++, Ic.Puzzle, "模块状态",
-        if (active) "已激活" else "未激活", active,
-        if (active) "已激活" else "未激活", "",
-        if (active) listOf("Xposed API $version", "作用域：本应用") else listOf("需要 LSPosed 框架"),
-        action = {
-            PrimaryButton("打开 LSPosed 管理器", Ic.Puzzle, {
-                val i = ctx.packageManager.getLaunchIntentForPackage("org.lsposed.manager")
-                if (i != null) Perms.open(ctx, i) else state_toast(ctx)
-            }, Modifier.fillMaxWidth())
-        }
-    )
-    GroupTitle("激活步骤", k++)
-    GroupCard(k++) {
-        val steps = listOf(
-            Triple("刷入 LSPosed 框架", "通过 Magisk / KernelSU 安装 LSPosed 模块并重启", managerInstalled || active),
-            Triple("在模块列表中启用", "打开 LSPosed 管理器 → 模块 → 流光自动化", active),
-            Triple("勾选作用域", "作用域勾选「流光自动化」本身", active),
-            Triple("重启本应用", "在多任务里划掉后重新打开，这里会显示已激活", active),
-        )
-        steps.forEachIndexed { i, (title, sub, done) ->
-            StepRow(i + 1, title, sub, done, i < steps.lastIndex)
-        }
-    }
-    NoteCard(k++, "新版 LSPosed 的管理器可能没有桌面图标，可以从通知栏的 LSPosed 通知进入。")
-}
-
-private fun state_toast(ctx: Context) {
-    android.widget.Toast.makeText(ctx, "未找到 LSPosed 管理器，请从通知栏进入", android.widget.Toast.LENGTH_SHORT).show()
-}
-
-@Composable
-private fun StepRow(n: Int, title: String, sub: String, done: Boolean, divider: Boolean) {
-    Column {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(26.dp), contentAlignment = Alignment.Center) {
-                if (done) {
-                    CheckBadge(true, 26.dp)
-                } else {
-                    Box(Modifier.size(26.dp).clip(Capsule()).background(C.Tonal), contentAlignment = Alignment.Center) {
-                        T("$n", 13.sp, FontWeight.Bold, C.OnSurfaceVar)
-                    }
-                }
-            }
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                T(title, 15.sp, FontWeight.SemiBold, if (done) C.OnSurface else C.OnSurfaceVar)
-                T(sub, 12.sp, color = C.Muted, lineHeight = 16.sp)
-            }
-        }
-        if (divider) Box(Modifier.padding(start = 60.dp, end = 20.dp).fillMaxWidth().height(1.dp).background(C.Divider))
-    }
+    GroupTitle("LSPosed · 未接入", 0)
+    NoteCard(1, LSPosedUnavailable)
 }
 
 // ================================================================ Permissions

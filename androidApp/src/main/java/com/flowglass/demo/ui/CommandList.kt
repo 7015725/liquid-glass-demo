@@ -99,10 +99,10 @@ fun AutoCommandsScreen(state: AppState) {
 
     FilterChips(AutoCategories, f, { state.autoFilter = it }, Modifier.staggerIn(0))
     ListHeader(
-        "已开启 $enabled / ${state.autoCmds.size} 条", "新建",
+        "已保存 ${state.autoCmds.size} 条", "新建",
         Modifier.staggerIn(1)
-    ) { state.renaming = state.create(auto = true) }
-    if (!state.running) EnginePausedBanner(state, Modifier.staggerIn(2))
+    ) { state.create(auto = true) }
+    T("编写版 · 指令保持停用，点卡片编辑", 13.sp, color = C.OnSurfaceVar)
     CommandColumn(list, state, auto = true, groupKey = f)
     if (list.isEmpty()) EmptyHint("这个分类下还没有指令")
 }
@@ -113,7 +113,7 @@ fun OneTapCommandsScreen(state: AppState) {
     ListHeader(
         "共 ${list.size} 条 · 置顶 ${list.count { it.pinned }}", "新建",
         Modifier.staggerIn(0)
-    ) { state.renaming = state.create(auto = false) }
+    ) { state.create(auto = false) }
     CommandColumn(list, state, auto = false, groupKey = 0)
     if (list.isEmpty()) EmptyHint("还没有一键指令，点右上角新建")
 }
@@ -138,13 +138,13 @@ private fun ListHeader(text: String, action: String, modifier: Modifier, onActio
 private fun EnginePausedBanner(state: AppState, modifier: Modifier) {
     Row(
         modifier.fillMaxWidth().clip(RoundedRectangle(22.dp)).background(C.Tonal)
-            .pressable(0.98f) { state.running = true }.padding(14.dp),
+            .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         LineIcon(Ic.Info, C.OnSurfaceVar, 18.dp)
         Spacer(Modifier.width(10.dp))
-        T("引擎已暂停，自动指令不会触发", 13.sp, color = C.OnSurfaceVar, modifier = Modifier.weight(1f))
-        T("恢复", 13.sp, FontWeight.Bold, C.Primary)
+        T("当前版本只编写和保存指令", 13.sp, color = C.OnSurfaceVar, modifier = Modifier.weight(1f))
+        T("编写版", 13.sp, FontWeight.Bold, C.Primary)
     }
 }
 
@@ -176,11 +176,10 @@ private fun CommandColumn(list: List<Cmd>, state: AppState, auto: Boolean, group
 @Composable
 fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
     val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
-    val exec = state.executing[cmd.id] ?: 0
+    val exec = 0
     val cardBackdrop = rememberLayerBackdrop()
     val dim by animateFloatAsState(
-        if (cmd.auto && (!cmd.enabled || !state.running)) 0.55f else 1f, effect(), label = "dim"
+        1f, effect(), label = "dim"
     )
     val menuOpen = state.menu?.cmdId == cmd.id
     val lift by animateFloatAsState(if (menuOpen) 1f else 0f, spatial(), label = "lift")
@@ -193,6 +192,7 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
         radius = 26.dp,
         color = Color.Transparent,
         contentPadding = 16.dp,
+        onClick = { state.edit(cmd.id) },
         onLongPress = { pos ->
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             state.menu = MenuReq(cmd.id, cmd.auto, pos)
@@ -226,7 +226,7 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     T(cmd.meta, 11.sp, FontWeight.Medium, C.Muted)
                     if (!cmd.auto) {
-                        T("  ·  上次 ${cmd.lastRun}", 11.sp, color = C.Muted)
+                        T("  ·  仅编写", 11.sp, color = C.Muted)
                     }
                 }
             }
@@ -234,44 +234,7 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
             if (cmd.auto) {
                 LiquidToggle({ cmd.enabled }, { state.setEnabled(cmd.id, it) }, cardBackdrop)
             } else {
-                ExecButton(exec) { state.execute(cmd, scope) }
-            }
-        }
-    }
-}
-
-/** Small "一键执行" pill: idle → spinner → done. */
-@Composable
-private fun ExecButton(exec: Int, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (exec == 2) C.GoodSoft else C.Primary, effect(), label = "execBg")
-    Box(
-        Modifier.height(34.dp).clip(Capsule()).background(bg).pressable(0.9f) { if (exec == 0) onClick() }
-            .padding(horizontal = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        AnimatedContent(
-            exec,
-            transitionSpec = { (fadeIn(effect()) + scaleIn(spatial(), 0.8f)) togetherWith (fadeOut(effect()) + scaleOut(spatial(), 0.8f)) },
-            label = "exec"
-        ) { s ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                when (s) {
-                    1 -> {
-                        Spinner(Color.White, 14.dp)
-                        Spacer(Modifier.width(6.dp))
-                        T("执行中", 12.sp, FontWeight.SemiBold, Color.White)
-                    }
-                    2 -> {
-                        CheckBadge(true, 16.dp)
-                        Spacer(Modifier.width(6.dp))
-                        T("已完成", 12.sp, FontWeight.SemiBold, C.GoodText)
-                    }
-                    else -> {
-                        LineIcon(Ic.Play, Color.White, 14.dp)
-                        Spacer(Modifier.width(4.dp))
-                        T("一键执行", 12.sp, FontWeight.SemiBold, Color.White)
-                    }
-                }
+                AuthoringButton("编辑", "edit-${cmd.id}", primary = false) { state.edit(cmd.id) }
             }
         }
     }
@@ -318,8 +281,9 @@ fun CommandMenuOverlay(state: AppState, backdrop: Backdrop) {
     val density = LocalDensity.current
     val actions = listOf(
         MenuAction(Ic.Pin, if (cmd.pinned) "取消置顶" else "置顶"),
+        MenuAction(Ic.Edit, "编写"),
         MenuAction(Ic.Edit, "重命名"),
-        MenuAction(Ic.Share, "分享"),
+        MenuAction(Ic.Share, "导出 JSON"),
         MenuAction(Ic.Copy, "创建副本"),
         MenuAction(Ic.Trash, "删除", danger = true),
     )
@@ -384,23 +348,9 @@ fun CommandMenuOverlay(state: AppState, backdrop: Backdrop) {
                             state.menu = null
                             when (a.label) {
                                 "置顶", "取消置顶" -> state.togglePin(cmd.id)
+                                "编写" -> state.edit(cmd.id)
                                 "重命名" -> state.renaming = cmd
-                                "分享" -> {
-                                    val text = buildString {
-                                        appendLine("【流光自动化】${cmd.title}")
-                                        appendLine(cmd.desc)
-                                        if (cmd.auto) {
-                                            appendLine("触发器：${cmd.triggers.joinToString("、")}")
-                                            if (cmd.conditions.isNotEmpty()) appendLine("条件：${cmd.conditions.joinToString("、")}")
-                                        }
-                                        append("任务：${cmd.actions.joinToString(" → ")}")
-                                    }
-                                    val send = Intent(Intent.ACTION_SEND).setType("text/plain")
-                                        .putExtra(Intent.EXTRA_TEXT, text)
-                                    runCatching {
-                                        ctx.startActivity(Intent.createChooser(send, "分享指令").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                                    }
-                                }
+                                "导出 JSON" -> state.requestExport(cmd.id)
                                 "创建副本" -> state.duplicate(cmd.id)
                                 "删除" -> state.delete(cmd.id)
                             }

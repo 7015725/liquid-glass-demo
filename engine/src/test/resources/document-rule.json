@@ -1,0 +1,26 @@
+{
+  "id": "uuid",
+  "name": "到家自动静音关闭",
+  "type": "auto",
+  "enabled": true,
+  "runMode": "drop",
+  "triggerMatch": { "mode": "any" },
+  "triggers": [
+    { "type": "trigger.wifi_connected", "params": { "ssid": "Home" } },
+    { "type": "trigger.bluetooth_connected", "params": { "name": "Car" } }
+  ],
+  "conditionMatch": { "mode": "all" },
+  "conditions": [
+    { "type": "condition.time_range", "params": { "from": "18:00", "to": "23:00" } },
+    { "type": "condition.variable", "params": { "name": "global.mode", "op": "eq", "value": "auto" } }
+  ],
+  "locals": [
+    { "name": "count", "type": "int", "initial": 0, "resetEachRun": false },
+    { "name": "history", "type": "list", "initial": [] }
+  ],
+  "actions": [
+    { "type": "action.set_ringer", "params": { "mode": "normal" }, "onError": "continue" },
+    { "type": "action.list_append", "params": { "target": "local.history", "value": "{event.time}" } },
+    { "type": "action.shell", "params": { "cmd": "svc bluetooth enable", "root": true } }
+  ]
+}
