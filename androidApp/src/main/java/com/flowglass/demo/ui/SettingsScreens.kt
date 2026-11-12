@@ -361,7 +361,7 @@ private fun RootPage(state: AppState) {
                 {
                     if (!busy) scope.launch {
                         busy = true
-                        state.root = Root.check(request = true)
+                        state.root = Root.check(request = true, refresh = true)
                         busy = false
                     }
                 },

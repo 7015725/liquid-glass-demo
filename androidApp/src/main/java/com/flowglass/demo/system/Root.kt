@@ -23,7 +23,7 @@ object Root {
         }
     }
     internal suspend fun runProcess(arguments: List<String>, timeoutMs: Long = 30_000) = access.runProcess(arguments, timeoutMs)
-    suspend fun check(request: Boolean): RootInfo = access.check(request)
+    suspend fun check(request: Boolean, refresh: Boolean = false): RootInfo = access.check(request, refresh)
     private val paths = listOf(
         "/system/bin/su", "/system/xbin/su", "/sbin/su", "/debug_ramdisk/su",
         "/data/adb/ksu/bin/su", "/data/adb/ap/bin/su", "/system_ext/bin/su", "/vendor/bin/su",
@@ -63,8 +63,8 @@ internal class RootAccess(
     }
 
     /** Without [request] only probes; with it runs `su -c id`, which shows the root manager's grant prompt. */
-    suspend fun check(request: Boolean): RootInfo = withContext(Dispatchers.IO) { mutex.withLock {
-        granted?.let { return@withLock it }
+    suspend fun check(request: Boolean, refresh: Boolean = false): RootInfo = withContext(Dispatchers.IO) { mutex.withLock {
+        if (!refresh) granted?.let { return@withLock it }
         val path = locateSu()
         val binary = path ?: "su"
         val version = run(binary, "-v", timeoutSec = 4)
@@ -82,6 +82,6 @@ internal class RootAccess(
             uidLine = id?.substringBefore(' ') ?: "—",
             manager = manager,
             suPath = path ?: if (version != null) "su" else "未找到",
-        ).also { if (it.granted) granted = it }
+        ).also { if (it.granted) granted = it else if (refresh) granted = null }
     } }
 }
