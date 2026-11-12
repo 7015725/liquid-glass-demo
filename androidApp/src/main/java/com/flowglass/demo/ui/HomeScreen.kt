@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -176,7 +177,9 @@ private fun QuickOneTaps(state: AppState, onOpenTab: (Int) -> Unit, modifier: Mo
 
 @Composable
 private fun RecentRuns(state: AppState, modifier: Modifier) {
-    PressCard(modifier.fillMaxWidth(), contentPadding = 0.dp) {
+    var selectedLog by remember { mutableStateOf<RunLog?>(null) }
+    val backdrop = rememberLayerBackdrop()
+    PressCard(modifier.fillMaxWidth().layerBackdrop(backdrop), contentPadding = 0.dp) {
         Column {
             SectionTitle("最近执行", Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 6.dp)) {
                 T("今日 ${state.todayRuns} 次", 13.sp, color = C.Muted)
@@ -186,7 +189,8 @@ private fun RecentRuns(state: AppState, modifier: Modifier) {
                 key(log.id) {
                     Column(Modifier.staggerIn(0)) {
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                            Modifier.fillMaxWidth().clickable { selectedLog = log }
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
@@ -197,6 +201,9 @@ private fun RecentRuns(state: AppState, modifier: Modifier) {
                             Column(Modifier.weight(1f)) {
                                 T(log.title, 15.sp, FontWeight.SemiBold, maxLines = 1)
                                 T("${log.reason} · ${log.time}", 12.sp, color = C.Muted)
+                                if (!log.ok && log.detail.isNotBlank()) {
+                                    T(log.detail, 12.sp, color = C.Bad, maxLines = 2)
+                                }
                             }
                             Row(
                                 Modifier.clip(Capsule()).background(if (log.ok) C.GoodSoft else Color(0xFFFDE4E4))
@@ -212,6 +219,7 @@ private fun RecentRuns(state: AppState, modifier: Modifier) {
             Spacer(Modifier.height(10.dp))
         }
     }
+    selectedLog?.let { log -> RunLogPanel(log, backdrop) { selectedLog = null } }
 }
 
 @Composable
