@@ -126,7 +126,7 @@ internal fun AppState.snapshot() = PersistedAppState(autoCmds, oneTaps, logs, ru
 
 internal object AppStateJson {
     fun encode(state: PersistedAppState): String = JSONObject().apply {
-        put("version", 1)
+        put("version", 2)
         put("autoCmds", array(state.autoCmds, ::commandJson))
         put("oneTaps", array(state.oneTaps, ::commandJson))
         put("logs", array(state.logs) { log -> JSONObject().apply {
@@ -147,9 +147,11 @@ internal object AppStateJson {
         val reader = JSONTokener(text)
         val root = reader.nextValue() as? JSONObject ?: error("存储内容不是对象")
         require(reader.nextClean() == '\u0000') { "存储内容含多余数据" }
-        require(root.long("version") == 1L) { "不支持的存储版本" }
-        val auto = root.objects("autoCmds", ::command)
-        val manual = root.objects("oneTaps", ::command)
+        val version = root.long("version")
+        require(version in 1L..2L) { "不支持的存储版本" }
+        val migrateLegacySeeds = version == 1L
+        val auto = root.objects("autoCmds") { command(it, migrateLegacySeeds) }
+        val manual = root.objects("oneTaps") { command(it, migrateLegacySeeds) }
         require(auto.all { it.auto } && manual.all { !it.auto && it.triggers.isEmpty() && it.conditions.isEmpty() })
         val logs = root.objects("logs") {
             val steps = if (it.has("steps")) it.objects("steps") { step ->
@@ -201,15 +203,32 @@ internal object AppStateJson {
         put("id", item.id); put("name", item.name); put("parameter", item.parameter); put("ic", item.ic.name)
     }
 
-    private fun command(o: JSONObject): Cmd {
+    private fun command(o: JSONObject, migrateLegacySeeds: Boolean): Cmd {
+        val id = o.long("id")
         val category = o.long("category")
         require(category in AutoCategories.indices.map { it.toLong() }) { "指令分类无效" }
-        return Cmd(o.long("id"), o.bool("auto"), o.icon(), o.string("title"), o.string("desc"),
-            o.objects("triggers", ::item), o.objects("conditions", ::item), o.objects("actions", ::item),
+        return Cmd(id, o.bool("auto"), o.icon(), o.string("title"), o.string("desc"),
+            o.objects("triggers", ::item), o.objects("conditions", ::item),
+            o.objects("actions", ::item).let { actions ->
+                if (migrateLegacySeeds) actions.map { migrateLegacySeedAction(id, it) } else actions
+            },
             category.toInt(), o.bool("enabled"), o.bool("pinned"), o.string("lastRun"), o.bool("descriptionEdited"))
     }
 
     private fun item(o: JSONObject) = CommandItem(o.long("id"), o.string("name"), o.string("parameter"), o.icon())
+    private fun migrateLegacySeedAction(commandId: Long, item: CommandItem): CommandItem {
+        val (name, fallback) = when (commandId to item.name) {
+            1L to "打开 WiFi" -> "开关 WiFi" to "开启"
+            3L to "开启勿扰", 3L to "勿扰模式" -> "开关勿扰" to "开启"
+            3L to "亮度降到 10%" -> "调节亮度" to "10%"
+            4L to "关闭蓝牙" -> "开关蓝牙" to "关闭"
+            101L to "亮度 30%" -> "调节亮度" to "30%"
+            102L to "勿扰模式", 102L to "开启勿扰" -> "开关勿扰" to "开启"
+            107L to "su -c 脚本" -> "执行 Shell(Root)" to "echo 流光"
+            else -> return item
+        }
+        return item.copy(name = name, parameter = item.parameter.ifEmpty { fallback })
+    }
     private fun JSONObject.string(key: String) = get(key) as? String ?: error("$key 不是文本")
     private fun JSONObject.bool(key: String) = get(key) as? Boolean ?: error("$key 不是布尔值")
     private fun JSONObject.long(key: String): Long = when (val value = get(key)) {

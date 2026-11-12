@@ -136,6 +136,9 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun bindExecutionContext(context: android.content.Context) {
         executionEngine = com.flowglass.demo.system.exec.ExecutionRuntime.engine(context)
     }
+    internal fun bindExecutionEngine(engine: com.flowglass.demo.system.exec.ExecutionEngine) {
+        executionEngine = engine
+    }
 
     var editing by mutableStateOf<Long?>(null)
     var storageError by mutableStateOf<String?>(null)
@@ -276,14 +279,14 @@ class AppState internal constructor(saved: PersistedAppState?) {
         return c
     }
 
-    fun execute(cmd: Cmd, scope: CoroutineScope, reason: String = "手动执行") {
-        if (executing[cmd.id] == 1) return
+    fun execute(cmd: Cmd, scope: CoroutineScope, reason: String = "手动执行"): kotlinx.coroutines.Job? {
+        if (executing.containsKey(cmd.id)) return null
         val engine = executionEngine
         val token = Any()
         executionTokens[cmd.id] = token
         executionMessages.remove(cmd.id)
         executing[cmd.id] = 1
-        com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch {
+        return com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch {
             try {
                 val result = engine?.run(cmd, reason) ?: com.flowglass.demo.system.exec.RunResult(
                     cmd.id, reason, listOf(com.flowglass.demo.system.exec.StepResult(

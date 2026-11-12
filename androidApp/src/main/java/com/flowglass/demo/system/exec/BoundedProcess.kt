@@ -21,6 +21,7 @@ internal object BoundedProcess {
     private val shell = if (android) "/system/bin/sh" else "/bin/sh"
     private val setsid = if (android) "/system/bin/setsid" else "/usr/bin/setsid"
     private val sleep = if (android) "/system/bin/sleep" else "/bin/sleep"
+    private val grep = if (android) "/system/bin/grep" else "/bin/grep"
 
     suspend fun run(arguments: List<String>, timeoutMs: Long = 30_000, outputLimit: Int = 500): ProcessResult =
         supervised(arguments, null, timeoutMs, outputLimit)
@@ -38,7 +39,7 @@ internal object BoundedProcess {
         // Executable discovery happens inside su: app-side visibility is not enough.
         val bootstrap = "if [ -x \"\$1\" ]; then exec \"\$@\"; else shift; exec \"\$@\"; fi"
         val launch = listOf(shell, "-c", bootstrap, "flowglass-launch", setsid, shell, "-c", guardian, "flowglass-guardian", token,
-            ((timeoutMs + 9) / 10).toString(), setsid, shell, sleep, worker) + arguments
+            ((timeoutMs + 9) / 10).toString(), setsid, shell, sleep, grep, worker) + arguments
         // Backgrounding prevents setsid's group-leader fork from making su return early.
         val command = "exec 3<&0; " + launch.joinToString(" ", transform = ::quote) + " <&3 3<&- & wait \$!"
         val transport = if (su == null) listOf(shell, "-c", command) else listOf(su, "-c", command)
@@ -151,6 +152,8 @@ internal object BoundedProcess {
     // argv, and keeps its group ID reserved until the guardian performs one kill.
     private val worker = """
         token=${'$'}1; shift
+        FLOWGLASS_EXECUTION_TOKEN=${'$'}token
+        export FLOWGLASS_EXECUTION_TOKEN
         if [ "${'$'}FG_ISOLATED" = 1 ]; then
             printf '\036%s:FG_PGID:%s\n' "${'$'}token" "${'$'}${'$'}"
         else
@@ -169,8 +172,8 @@ internal object BoundedProcess {
     // shared app process group. All privileged signals originate in this shell.
     private val guardian = """
         set +m
-        token=${'$'}1; ticks=${'$'}2; setsid=${'$'}3; shell=${'$'}4; sleeper=${'$'}5; body=${'$'}6
-        shift 6
+        token=${'$'}1; ticks=${'$'}2; setsid=${'$'}3; shell=${'$'}4; sleeper=${'$'}5; grep=${'$'}6; body=${'$'}7
+        shift 7
         stop=0; group=0
         trap 'stop=1' USR1 HUP INT TERM
         stat() {
@@ -192,6 +195,7 @@ internal object BoundedProcess {
         }
         # A zero exit with an empty/incompatible ps output is not a capability.
         list_processes "${'$'}${'$'}" || exit 125
+        [ -x "${'$'}grep" ] || exit 125
         stat ${'$'}${'$'} || exit 125
         own_group=0
         if [ "${'$'}pgid" = "${'$'}${'$'}" ] && [ "${'$'}sid" = "${'$'}${'$'}" ]; then own_group=1; fi
@@ -201,9 +205,9 @@ internal object BoundedProcess {
         if [ -x "${'$'}setsid" ]; then isolated=1; fi
         FG_ISOLATED=${'$'}isolated; export FG_ISOLATED
         if [ "${'$'}isolated" = 1 ]; then
-            "${'$'}setsid" "${'$'}shell" -c "${'$'}body" flowglass-worker "${'$'}token" "${'$'}@" 3<&- </dev/null &
+            FLOWGLASS_EXECUTION_TOKEN=${'$'}token "${'$'}setsid" "${'$'}shell" -c "${'$'}body" flowglass-worker "${'$'}token" "${'$'}@" 3<&- </dev/null &
         else
-            "${'$'}shell" -c "${'$'}body" flowglass-worker "${'$'}token" "${'$'}@" 3<&- </dev/null &
+            FLOWGLASS_EXECUTION_TOKEN=${'$'}token "${'$'}shell" -c "${'$'}body" flowglass-worker "${'$'}token" "${'$'}@" 3<&- </dev/null &
         fi
         group=${'$'}!
         n=0
@@ -220,6 +224,11 @@ internal object BoundedProcess {
             exit 125
         fi
         if [ "${'$'}isolated" = 1 ]; then kill -0 "-${'$'}group" || exit 125; fi
+        if ! "${'$'}grep" -z -F -x "FLOWGLASS_EXECUTION_TOKEN=${'$'}token" "/proc/${'$'}group/environ" >/dev/null 2>&1; then
+            kill -KILL "${'$'}group" 2>/dev/null
+            wait "${'$'}group" 2>/dev/null
+            exit 125
+        fi
         freeze_tree() {
             queue=${'$'}1; victims=; seen=" "
             while [ -n "${'$'}queue" ]; do
@@ -273,22 +282,76 @@ internal object BoundedProcess {
                 done
             done
         }
+        token_paths() {
+            "${'$'}grep" -l -z -F -x "FLOWGLASS_EXECUTION_TOKEN=${'$'}token" /proc/[0-9]*/environ 2>/dev/null
+        }
+        freeze_tokened() {
+            token_victims=; token_seen=" "; rounds=0
+            while [ "${'$'}rounds" -lt 100 ]; do
+                added=0
+                for path in ${'$'}(token_paths); do
+                    pid=${'$'}{path#/proc/}; pid=${'$'}{pid%/environ}
+                    case "${'$'}pid" in ''|*[!0-9]*) continue;; esac
+                    case "${'$'}token_seen" in *" ${'$'}pid "*) continue;; esac
+                    stat "${'$'}pid" 2>/dev/null || continue
+                    identity=${'$'}born
+                    if [ "${'$'}state" != Z ] && [ "${'$'}state" != X ]; then
+                        kill -STOP "${'$'}pid" 2>/dev/null || return 1
+                        tries=0
+                        while [ "${'$'}state" != T ] && [ "${'$'}state" != Z ] && [ "${'$'}state" != X ]; do
+                            [ "${'$'}tries" -lt 100 ] || return 1
+                            "${'$'}sleeper" 0.001 3<&- </dev/null
+                            stat "${'$'}pid" 2>/dev/null || return 1
+                            [ "${'$'}born" = "${'$'}identity" ] || return 1
+                            tries=${'$'}((tries+1))
+                        done
+                    fi
+                    token_victims="${'$'}pid:${'$'}identity ${'$'}token_victims"
+                    token_seen="${'$'}token_seen${'$'}pid "
+                    added=1
+                done
+                [ "${'$'}added" = 0 ] && return 0
+                rounds=${'$'}((rounds+1))
+            done
+            return 1
+        }
+        kill_tokened() {
+            protected=${'$'}{1:-0}
+            for entry in ${'$'}token_victims; do
+                victim=${'$'}{entry%%:*}; identity=${'$'}{entry#*:}
+                [ "${'$'}victim" = "${'$'}protected" ] && continue
+                stat "${'$'}victim" 2>/dev/null || continue
+                [ "${'$'}born" = "${'$'}identity" ] || return 1
+                [ "${'$'}state" = Z ] || [ "${'$'}state" = X ] || kill -KILL "${'$'}victim" || return 1
+            done
+        }
+        tokened_active() {
+            for path in ${'$'}(token_paths); do
+                pid=${'$'}{path#/proc/}; pid=${'$'}{pid%/environ}
+                stat "${'$'}pid" 2>/dev/null || continue
+                [ "${'$'}state" = Z ] || [ "${'$'}state" = X ] || return 0
+            done
+            return 1
+        }
         finish() {
             trap '' USR1 HUP INT TERM
             # Freeze before discovering children: stopped parents cannot fork
-            # or reap, so the recorded pid/starttime remains reserved. This also
-            # reaches a foreground child that escaped the worker PGID via setsid.
+            # or reap, so the recorded pid/starttime remains reserved. The
+            # inherited token also reaches a reparented session outside the tree.
             clean=1
             if [ "${'$'}isolated" = 1 ]; then kill -STOP "-${'$'}group" || clean=0; fi
             freeze_tree "${'$'}group" || clean=0
+            freeze_tokened || clean=0
             # Discovery failure is not success, but still kill every known ID.
             # Keep the group leader frozen/alive until the group signal so its
             # numeric PGID cannot be reused between leaf cleanup and that signal.
             if [ "${'$'}isolated" = 1 ]; then
                 kill_tree "${'$'}group" || clean=0
+                kill_tokened "${'$'}group" || clean=0
                 kill -KILL "-${'$'}group" 2>/dev/null || clean=0
             else
                 kill_tree || clean=0
+                kill_tokened || clean=0
             fi
             n=0; active=${'$'}isolated
             while [ "${'$'}active" = 1 ] && [ "${'$'}n" -lt 100 ]; do
@@ -303,6 +366,12 @@ internal object BoundedProcess {
                 n=${'$'}((n+1))
             done
             [ "${'$'}active" = 0 ] || clean=0
+            n=0
+            while tokened_active && [ "${'$'}n" -lt 100 ]; do
+                "${'$'}sleeper" 0.01 3<&- </dev/null || break
+                n=${'$'}((n+1))
+            done
+            if tokened_active; then clean=0; fi
             if [ "${'$'}clean" = 1 ]; then wait "${'$'}group" 2>/dev/null; fi
             # Also stop the EOF monitor, watchdog and control sleeps. A worker
             # stuck in kernel I/O produces no DONE, never a false cleanup pass.
