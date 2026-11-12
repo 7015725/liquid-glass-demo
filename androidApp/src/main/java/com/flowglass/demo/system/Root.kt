@@ -3,7 +3,6 @@ package com.flowglass.demo.system
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 data class RootInfo(
     val suFound: Boolean,
@@ -14,6 +13,8 @@ data class RootInfo(
 )
 
 object Root {
+    internal suspend fun runProcess(arguments: List<String>, timeoutMs: Long = 30_000): com.flowglass.demo.system.exec.ProcessResult =
+        com.flowglass.demo.system.exec.BoundedProcess.run(arguments, timeoutMs)
     private val paths = listOf(
         "/system/bin/su", "/system/xbin/su", "/sbin/su", "/debug_ramdisk/su",
         "/data/adb/ksu/bin/su", "/data/adb/ap/bin/su", "/system_ext/bin/su", "/vendor/bin/su",
@@ -21,22 +22,21 @@ object Root {
 
     fun findSu(): String? = paths.firstOrNull { runCatching { File(it).exists() }.getOrDefault(false) }
 
-    private fun run(vararg cmd: String, timeoutSec: Long = 12): String? = try {
-        val p = ProcessBuilder(*cmd).redirectErrorStream(true).start()
-        if (!p.waitFor(timeoutSec, TimeUnit.SECONDS)) {
-            p.destroy(); null
-        } else if (p.exitValue() == 0) {
-            p.inputStream.bufferedReader().readText().trim()
-        } else null
-    } catch (_: Throwable) {
+    private suspend fun run(vararg cmd: String, timeoutSec: Long = 12): String? = try {
+        val result = runProcess(cmd.toList(), timeoutSec * 1000)
+        if (!result.timedOut && result.exitCode == 0) result.output.trim() else null
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
         null
     }
 
     /** Without [request] only probes; with it runs `su -c id`, which shows the root manager's grant prompt. */
     suspend fun check(request: Boolean): RootInfo = withContext(Dispatchers.IO) {
         val path = findSu()
-        val version = if (path != null) run("su", "-v", timeoutSec = 4) else null
-        val id = if (request) run("su", "-c", "id") else null
+        val binary = path ?: "su"
+        val version = run(binary, "-v", timeoutSec = 4)
+        val id = if (request && (path != null || version != null)) run(binary, "-c", "id") else null
         val manager = when {
             version == null -> if (path != null) "未知" else "—"
             version.contains("MAGISK", true) -> "Magisk ${version.substringBefore(':')}"
@@ -49,7 +49,7 @@ object Root {
             granted = id?.contains("uid=0") == true,
             uidLine = id?.substringBefore(' ') ?: "—",
             manager = manager,
-            suPath = path ?: "未找到",
+            suPath = path ?: if (version != null) "su" else "未找到",
         )
     }
 }

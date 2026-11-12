@@ -10,8 +10,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import com.flowglass.demo.system.RootInfo
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -50,7 +48,8 @@ private fun Cmd.automaticDescription(): String {
     return "$trigger$condition，则 $tasks"
 }
 
-data class RunLog(val id: Long, val title: String, val reason: String, val time: String, val ok: Boolean, val ic: Ic)
+data class RunLog(val id: Long, val title: String, val reason: String, val time: String, val ok: Boolean, val ic: Ic,
+    val detail: String = "", val steps: List<com.flowglass.demo.system.exec.StepResult> = emptyList())
 
 data class MenuReq(val cmdId: Long, val auto: Boolean, val anchor: Offset)
 data class UndoInfo(val cmd: Cmd, val index: Int)
@@ -133,6 +132,10 @@ private fun seedOneTap() = listOf(
 @Stable
 class AppState internal constructor(saved: PersistedAppState?) {
     constructor() : this(null)
+    private var executionEngine: com.flowglass.demo.system.exec.ExecutionEngine? = null
+    fun bindExecutionContext(context: android.content.Context) {
+        executionEngine = com.flowglass.demo.system.exec.ExecutionRuntime.engine(context)
+    }
 
     var editing by mutableStateOf<Long?>(null)
     var storageError by mutableStateOf<String?>(null)
@@ -278,26 +281,30 @@ class AppState internal constructor(saved: PersistedAppState?) {
     }
 
     fun execute(cmd: Cmd, scope: CoroutineScope, reason: String = "手动执行") {
-        if (executing[cmd.id] == 1 || !scope.isActive) return
-        // Still a timing demo, not a privileged automation executor.
-        // Start immediately so two taps cannot both pass the running guard.
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            val token = Any()
-            executionTokens[cmd.id] = token
+        if (executing[cmd.id] == 1) return
+        val engine = executionEngine ?: return
+        val token = Any()
+        executionTokens[cmd.id] = token
+        executing[cmd.id] = 1
+        com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch {
             try {
-                executing[cmd.id] = 1
-                delay(900L + cmd.actions.size * 250L)
-                executing[cmd.id] = 2
-                todayRuns += 1
-                val t = now()
-                update(cmd.id) { it.copy(lastRun = t) }
-                logs.add(0, RunLog(newId(), cmd.title, reason, t, true, cmd.ic))
-                if (logs.size > 8) logs.removeAt(logs.lastIndex)
-                delay(1600)
+                val result = engine.run(cmd, reason)
+                if (result.ignored) return@launch
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    executing[cmd.id] = if (result.ok) 2 else 3
+                    todayRuns += 1
+                    val t = now()
+                    update(cmd.id) { it.copy(lastRun = t) }
+                    logs.add(0, RunLog(newId(), cmd.title, reason, t, result.ok, cmd.ic, result.detail, result.steps.toList()))
+                    if (logs.size > 8) logs.removeAt(logs.lastIndex)
+                }
+                delay(if (result.ok) 1600 else 2000)
             } finally {
-                if (executionTokens[cmd.id] === token) {
-                    executionTokens.remove(cmd.id)
-                    executing.remove(cmd.id)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    if (executionTokens[cmd.id] === token) {
+                        executionTokens.remove(cmd.id)
+                        executing.remove(cmd.id)
+                    }
                 }
             }
         }

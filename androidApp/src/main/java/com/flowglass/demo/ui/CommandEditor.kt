@@ -32,7 +32,7 @@ import com.kyant.shapes.RoundedRectangle
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 
-/** Kept in the app composition so demo execution survives leaving the editor. */
+/** Editor UI; native execution lifetime is owned by ExecutionRuntime. */
 @Composable
 fun CommandEditorHost(state: AppState) {
     val scope = rememberCoroutineScope()
@@ -95,13 +95,12 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope) {
             textStyle = TextStyle(color = C.OnSurfaceVar, fontSize = 15.sp, lineHeight = 22.sp),
             cursorBrush = SolidColor(C.Primary),
             decorationBox = { inner -> Box { if (cmd.desc.isEmpty()) T("添加描述", 15.sp, color = C.Muted); inner() } })
-        if (!cmd.auto) {
-            val exec = state.executing[cmd.id] ?: 0
-            ExecButton(exec, Modifier.fillMaxWidth().testTag("editor-execute"), large = true) {
-                state.execute(cmd, scope)
-            }
-            T("仅演示执行流程，不会操作系统", 12.sp, color = C.Muted)
+        val exec = state.executing[cmd.id] ?: 0
+        ExecButton(exec, Modifier.fillMaxWidth().testTag("editor-execute"), large = true,
+            idleLabel = if (cmd.auto) "立即运行" else "一键执行") {
+            state.execute(cmd, scope, if (cmd.auto) "手动测试" else "手动执行")
         }
+        if (cmd.auto) T("跳过触发器和条件，直接执行任务", 12.sp, color = C.Muted)
         val sections = if (cmd.auto) CommandSection.entries else listOf(CommandSection.ACTIONS)
         sections.forEachIndexed { i, section ->
             Column(Modifier.fillMaxWidth().testTag("section-${section.name}")
@@ -175,13 +174,9 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope) {
                     }
                 }
                 is EditorPanel.Parameter -> cmd.items(active.section).firstOrNull { it.id == active.itemId }?.let { item ->
-                    T(item.name, 16.sp, FontWeight.SemiBold)
-                    BasicTextField(item.parameter, { state.setItemParameter(cmd.id, active.section, item.id, it) },
-                        Modifier.fillMaxWidth().heightIn(min = 80.dp).testTag("item-parameter")
-                            .clip(RoundedRectangle(24.dp)).background(C.Card).padding(16.dp),
-                        textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 24.sp),
-                        cursorBrush = SolidColor(C.Primary))
-                    EditorPill("完成", "完成") { panel = null }
+                    ActionParameterEditor(active.section, item,
+                        onParameter = { state.setItemParameter(cmd.id, active.section, item.id, it) },
+                        onDone = { panel = null })
                 }
             }
         }

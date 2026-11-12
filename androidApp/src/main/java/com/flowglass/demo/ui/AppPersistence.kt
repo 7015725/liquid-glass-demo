@@ -40,6 +40,7 @@ fun rememberStoredAppState(): AppState? {
     var state by remember(store) { mutableStateOf<AppState?>(null) }
     LaunchedEffect(store) { state = storageQueue.submit { store.load() }.await().appState() }
     val current = state ?: return null
+    current.bindExecutionContext(context)
     val session = remember(current, store) { StoredStateSession(current, store, storageQueue) }
     val lifecycleOwner = LocalView.current.findViewTreeLifecycleOwner()
     DisposableEffect(session) {
@@ -108,7 +109,7 @@ internal class PersistedAppState(
 ) {
     val autoCmds = immutableCommands(autoCmds)
     val oneTaps = immutableCommands(oneTaps)
-    val logs: List<RunLog> = immutableList(logs)
+    val logs: List<RunLog> = immutableList(logs.map { it.copy(steps = immutableList(it.steps)) })
 
     override fun equals(other: Any?): Boolean = other is PersistedAppState &&
         autoCmds == other.autoCmds && oneTaps == other.oneTaps && logs == other.logs &&
@@ -131,6 +132,11 @@ internal object AppStateJson {
         put("logs", array(state.logs) { log -> JSONObject().apply {
             put("id", log.id); put("title", log.title); put("reason", log.reason)
             put("time", log.time); put("ok", log.ok); put("ic", log.ic.name)
+            put("detail", log.detail)
+            put("steps", array(log.steps) { step -> JSONObject().apply {
+                put("itemId", step.itemId); put("name", step.name); put("status", step.status.name)
+                put("detail", step.detail); put("durationMs", step.durationMs)
+            } })
         } })
         put("running", state.running)
         put("mode", state.mode)
@@ -146,7 +152,14 @@ internal object AppStateJson {
         val manual = root.objects("oneTaps", ::command)
         require(auto.all { it.auto } && manual.all { !it.auto && it.triggers.isEmpty() && it.conditions.isEmpty() })
         val logs = root.objects("logs") {
-            RunLog(it.long("id"), it.string("title"), it.string("reason"), it.string("time"), it.bool("ok"), it.icon())
+            val steps = if (it.has("steps")) it.objects("steps") { step ->
+                val duration = step.long("durationMs")
+                require(duration >= 0) { "任务耗时无效" }
+                com.flowglass.demo.system.exec.StepResult(step.long("itemId"), step.string("name"),
+                    com.flowglass.demo.system.exec.StepStatus.valueOf(step.string("status")), step.string("detail"), duration)
+            } else emptyList()
+            RunLog(it.long("id"), it.string("title"), it.string("reason"), it.string("time"), it.bool("ok"), it.icon(),
+                if (it.has("detail")) it.string("detail") else "", steps)
         }
         val mode = root.long("mode")
         require(mode in 0L..2L) { "运行模式无效" }
