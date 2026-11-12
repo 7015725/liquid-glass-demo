@@ -63,7 +63,7 @@ class DampedDragAnimation(
     val scaleY: Float get() = scaleYAnimation.value
     val velocity: Float get() = velocityAnimation.value
 
-    val modifier: Modifier = Modifier.pointerInput(Unit) {
+    val modifier: Modifier = Modifier.pointerInput(this@DampedDragAnimation) {
         inspectDragGestures(
             onDragStart = { down ->
                 onDragStarted(down.position)

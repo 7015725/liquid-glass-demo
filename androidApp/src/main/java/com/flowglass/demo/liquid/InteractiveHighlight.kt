@@ -94,7 +94,7 @@ half4 main(float2 coord) {
         }
 
     val gestureModifier: Modifier =
-        Modifier.pointerInput(animationScope) {
+        Modifier.pointerInput(this) {
             inspectDragGestures(
                 onDragStart = { down ->
                     startPosition = down.position
