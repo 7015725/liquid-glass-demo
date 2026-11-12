@@ -36,9 +36,28 @@ object Perms {
         add(PermItem(
             "notify", Ic.Bell, "通知",
             "显示常驻通知、指令执行结果提醒", true,
-            { c -> Build.VERSION.SDK_INT < 33 || c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED },
+            { c -> (Build.VERSION.SDK_INT < 33 || c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
+                c.getSystemService(android.app.NotificationManager::class.java)?.areNotificationsEnabled() == true },
             if (Build.VERSION.SDK_INT >= 33) Grant.Runtime(Manifest.permission.POST_NOTIFICATIONS)
             else Grant.Page { c -> Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, c.packageName) }
+        ))
+        add(PermItem(
+            "write_settings", Ic.Gauge, "修改系统设置",
+            "调节屏幕亮度并切换手动亮度模式", false,
+            { c -> Settings.System.canWrite(c) },
+            Grant.Page { c -> Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, pkgUri(c)) }
+        ))
+        add(PermItem(
+            "dnd", Ic.Moon, "勿扰权限",
+            "开启、关闭或切换勿扰模式", false,
+            { c -> c.getSystemService(android.app.NotificationManager::class.java)?.isNotificationPolicyAccessGranted == true },
+            Grant.Page { Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS) }
+        ))
+        if (Build.VERSION.SDK_INT >= 31) add(PermItem(
+            "bluetooth_connect", Ic.Bluetooth, "蓝牙连接",
+            "切换蓝牙时读取当前开关状态；自动切换仍需要 Root", false,
+            { c -> c.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED },
+            Grant.Runtime(Manifest.permission.BLUETOOTH_CONNECT)
         ))
         add(PermItem(
             "battery", Ic.Battery, "忽略电池优化",
