@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +30,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -143,11 +150,16 @@ private fun QuickOneTaps(state: AppState, onOpenTab: (Int) -> Unit, modifier: Mo
                 picks.forEach { cmd ->
                     val exec = state.executing[cmd.id] ?: 0
                     val bg by animateColorAsState(
-                        when (exec) { 1 -> C.PrimarySoft; 2 -> C.GoodSoft; else -> C.Tonal }, effect(), label = "qBg"
+                        when (exec) { 1 -> C.PrimarySoft; 2 -> C.GoodSoft; 3 -> C.Bad; else -> C.Tonal }, effect(), label = "qBg"
                     )
                     Column(
-                        Modifier.weight(1f).height(112.dp).clip(RoundedRectangle(24.dp)).background(bg)
-                            .pressable(0.94f) { state.execute(cmd, scope) }
+                        Modifier.weight(1f).height(112.dp).testTag("quick-execute-${cmd.id}")
+                            .clip(RoundedRectangle(24.dp)).background(bg)
+                            .semantics(mergeDescendants = true) {
+                                role = Role.Button
+                                if (exec == 0) onClick { state.execute(cmd, scope); true } else disabled()
+                            }
+                            .pressable(0.94f) { if (exec == 0) state.execute(cmd, scope) }
                             .padding(12.dp)
                     ) {
                         Box(
@@ -157,14 +169,15 @@ private fun QuickOneTaps(state: AppState, onOpenTab: (Int) -> Unit, modifier: Mo
                             when (exec) {
                                 1 -> Spinner(C.Primary, 16.dp)
                                 2 -> CheckBadge(true, 18.dp)
+                                3 -> LineIcon(Ic.Info, C.Bad, 18.dp)
                                 else -> LineIcon(cmd.ic, C.OnSurface, 18.dp)
                             }
                         }
                         Spacer(Modifier.weight(1f))
-                        T(cmd.title, 14.sp, FontWeight.Bold, maxLines = 1)
+                        T(cmd.title, 14.sp, FontWeight.Bold, if (exec == 3) Color.White else C.OnSurface, maxLines = 1)
                         T(
-                            when (exec) { 1 -> "执行中…"; 2 -> "已完成"; else -> "轻点执行" },
-                            12.sp, color = if (exec == 2) C.GoodText else C.Muted
+                            when (exec) { 1 -> "执行中…"; 2 -> "已完成"; 3 -> "失败"; else -> "轻点执行" },
+                            12.sp, color = when (exec) { 2 -> C.GoodText; 3 -> Color.White; else -> C.Muted }
                         )
                     }
                 }
@@ -176,7 +189,9 @@ private fun QuickOneTaps(state: AppState, onOpenTab: (Int) -> Unit, modifier: Mo
 
 @Composable
 private fun RecentRuns(state: AppState, modifier: Modifier) {
-    PressCard(modifier.fillMaxWidth(), contentPadding = 0.dp) {
+    var selectedLog by remember { mutableStateOf<RunLog?>(null) }
+    val backdrop = rememberLayerBackdrop()
+    PressCard(modifier.fillMaxWidth().layerBackdrop(backdrop), contentPadding = 0.dp) {
         Column {
             SectionTitle("最近执行", Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 6.dp)) {
                 T("今日 ${state.todayRuns} 次", 13.sp, color = C.Muted)
@@ -186,7 +201,8 @@ private fun RecentRuns(state: AppState, modifier: Modifier) {
                 key(log.id) {
                     Column(Modifier.staggerIn(0)) {
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                            Modifier.fillMaxWidth().clickable { selectedLog = log }
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
@@ -197,6 +213,9 @@ private fun RecentRuns(state: AppState, modifier: Modifier) {
                             Column(Modifier.weight(1f)) {
                                 T(log.title, 15.sp, FontWeight.SemiBold, maxLines = 1)
                                 T("${log.reason} · ${log.time}", 12.sp, color = C.Muted)
+                                if (!log.ok && log.detail.isNotBlank()) {
+                                    T(log.detail, 12.sp, color = C.Bad, maxLines = 2)
+                                }
                             }
                             Row(
                                 Modifier.clip(Capsule()).background(if (log.ok) C.GoodSoft else Color(0xFFFDE4E4))
@@ -212,6 +231,7 @@ private fun RecentRuns(state: AppState, modifier: Modifier) {
             Spacer(Modifier.height(10.dp))
         }
     }
+    selectedLog?.let { log -> RunLogPanel(log, backdrop) { selectedLog = null } }
 }
 
 @Composable

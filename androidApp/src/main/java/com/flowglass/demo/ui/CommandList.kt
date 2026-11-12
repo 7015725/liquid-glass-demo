@@ -257,7 +257,8 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
                         onClick { state.setEnabled(cmd.id, !cmd.enabled); true }
                     })
             } else {
-                ExecButton(exec, Modifier.testTag("command-execute-${cmd.id}")) { state.execute(cmd, scope) }
+                ExecButton(exec, Modifier.testTag("command-execute-${cmd.id}"),
+                    failureLabel = if (state.executionMessages[cmd.id] == "执行环境未就绪") "执行环境未就绪" else "失败") { state.execute(cmd, scope) }
             }
         }
     }
@@ -265,11 +266,11 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
 
 /** Shared execution action: compact card pill or prominent editor button. */
 @Composable
-internal fun ExecButton(exec: Int, modifier: Modifier = Modifier, large: Boolean = false, onClick: () -> Unit) {
-    val bg by animateColorAsState(if (exec == 2) C.GoodSoft else C.Primary, effect(), label = "execBg")
+internal fun ExecButton(exec: Int, modifier: Modifier = Modifier, large: Boolean = false, idleLabel: String = "一键执行", failureLabel: String = "失败", onClick: () -> Unit) {
+    val bg by animateColorAsState(when (exec) { 2 -> C.GoodSoft; 3 -> C.Bad; else -> C.Primary }, effect(), label = "execBg")
     Box(
         modifier.height(if (large) 56.dp else 34.dp).clip(Capsule()).background(bg)
-            .semantics { role = Role.Button; contentDescription = "一键执行"; if (exec != 0) disabled() else onClick { onClick(); true } }
+            .semantics(mergeDescendants = true) { role = Role.Button; contentDescription = idleLabel; if (exec != 0) disabled() else onClick { onClick(); true } }
             .pressable(0.9f) { if (exec == 0) onClick() }
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center
@@ -291,11 +292,16 @@ internal fun ExecButton(exec: Int, modifier: Modifier = Modifier, large: Boolean
                         Spacer(Modifier.width(6.dp))
                         T("已完成", if (large) 16.sp else 12.sp, FontWeight.SemiBold, C.GoodText)
                     }
+                    3 -> {
+                        LineIcon(Ic.Info, Color.White, if (large) 20.dp else 14.dp)
+                        Spacer(Modifier.width(6.dp))
+                        T(failureLabel, if (large) 16.sp else 12.sp, FontWeight.SemiBold, Color.White)
+                    }
                     else -> {
                         LineIcon(Ic.Play, Color.White, if (large) 20.dp else 14.dp,
                             modifier = if (large) Modifier.testTag("editor-execute-play") else Modifier)
                         Spacer(Modifier.width(4.dp))
-                        T("一键执行", if (large) 16.sp else 12.sp, FontWeight.SemiBold, Color.White)
+                        T(idleLabel, if (large) 16.sp else 12.sp, FontWeight.SemiBold, Color.White)
                     }
                 }
             }

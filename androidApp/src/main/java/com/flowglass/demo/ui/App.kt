@@ -242,7 +242,12 @@ fun FlowGlassApp() {
         }
 
         }
-        CommandEditorHost(state)
+        CommandEditorHost(state) { destination ->
+            // Edits are already in the persisted AppState; close overlays before changing tabs.
+            state.closeEditor()
+            state.settingsPage = destination
+            tab = 3
+        }
 
         // ---------------- undo bar, long-press menu and rename dialog float above everything
         UndoBar(

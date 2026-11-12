@@ -274,7 +274,7 @@ private fun SettingsMain(state: AppState) {
     }
     GroupTitle("关于", k++)
     GroupCard(k++) {
-        ListRow(Row1(Ic.Info, "版本", "0.4.2"), true)
+        ListRow(Row1(Ic.Info, "版本", "0.5.0"), true)
         ListRow(Row1(Ic.Puzzle, "开源组件", sub = "AndroidLiquidGlass · graphics-shapes") {}, false)
     }
 }
@@ -361,7 +361,7 @@ private fun RootPage(state: AppState) {
                 {
                     if (!busy) scope.launch {
                         busy = true
-                        state.root = Root.check(request = true)
+                        state.root = Root.check(request = true, refresh = true)
                         busy = false
                     }
                 },
@@ -461,6 +461,12 @@ private fun PermissionsPage() {
     val progress by animateFloatAsState(granted / total.toFloat(), spatial(), label = "permProgress")
 
     fun request(p: PermItem) {
+        if (p.key == "notify" && (Build.VERSION.SDK_INT < 33 ||
+                ctx.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED)) {
+            Perms.open(ctx, android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName))
+            return
+        }
         when (val g = p.grant) {
             is Grant.Runtime -> launcher.launch(g.permission)
             is Grant.Page -> Perms.open(ctx, g.intent(ctx))

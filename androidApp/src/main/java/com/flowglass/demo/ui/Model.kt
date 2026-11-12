@@ -10,8 +10,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import com.flowglass.demo.system.RootInfo
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -50,7 +48,8 @@ private fun Cmd.automaticDescription(): String {
     return "$trigger$condition，则 $tasks"
 }
 
-data class RunLog(val id: Long, val title: String, val reason: String, val time: String, val ok: Boolean, val ic: Ic)
+data class RunLog(val id: Long, val title: String, val reason: String, val time: String, val ok: Boolean, val ic: Ic,
+    val detail: String = "", val steps: List<com.flowglass.demo.system.exec.StepResult> = emptyList())
 
 data class MenuReq(val cmdId: Long, val auto: Boolean, val anchor: Offset)
 data class UndoInfo(val cmd: Cmd, val index: Int)
@@ -94,13 +93,13 @@ private fun seedItems(vararg names: String) = names.map { display ->
 
 private fun seedAuto() = listOf(
     Cmd(1, true, Ic.Location, "到公司自动连 WiFi", "工作日到达公司附近时，打开 WiFi 并切换到振动模式",
-        seedItems("进入地点：公司"), seedItems("工作日 08:00–10:00"), seedItems("打开 WiFi", "振动模式"), 4, pinned = true),
+        seedItems("进入地点：公司"), seedItems("工作日 08:00–10:00"), seedItems("开关 WiFi：开启", "振动模式"), 4, pinned = true),
     Cmd(2, true, Ic.Bell, "验证码自动复制", "收到含「验证码」的短信或通知时，提取数字并复制到剪贴板",
         seedItems("通知：包含「验证码」"), emptyList(), seedItems("正则提取数字", "写入剪贴板", "弹出提示"), 3),
-    Cmd(3, true, Ic.Moon, "夜间自动静音", "每天 23:00 开启勿扰，早上 7:00 自动恢复",
-        seedItems("时间：23:00"), seedItems("非节假日"), seedItems("开启勿扰", "亮度降到 10%"), 2),
+    Cmd(3, true, Ic.Moon, "夜间自动静音", "手动测试会开启勿扰并将亮度调至 10%；自动触发与恢复尚未接入",
+        seedItems("时间：23:00"), seedItems("非节假日"), seedItems("开关勿扰：开启", "调节亮度：10%"), 2),
     Cmd(4, true, Ic.Battery, "低电量省电", "电量低于 20% 且未充电时，关闭 5G、蓝牙并降低刷新率",
-        seedItems("电量 < 20%"), seedItems("未在充电"), seedItems("关闭 5G", "关闭蓝牙", "刷新率 60Hz"), 5),
+        seedItems("电量 < 20%"), seedItems("未在充电"), seedItems("关闭 5G", "开关蓝牙：关闭", "刷新率 60Hz"), 5),
     Cmd(5, true, Ic.Bluetooth, "耳机连上放音乐", "连接蓝牙耳机后自动打开音乐 App 继续播放",
         seedItems("蓝牙已连接：耳机"), emptyList(), seedItems("打开音乐", "媒体键：播放"), 5, enabled = false),
     Cmd(6, true, Ic.Wifi, "断网自动重连", "WiFi 断开超过 30 秒时自动重新连接，失败则切换移动数据",
@@ -115,24 +114,31 @@ private fun seedAuto() = listOf(
 
 private fun seedOneTap() = listOf(
     Cmd(101, false, Ic.Leaf, "一键省电", "关闭 5G、降低亮度、限制后台活动",
-        actions = seedItems("关闭 5G", "亮度 30%", "限制后台"), pinned = true, lastRun = "08:12"),
-    Cmd(102, false, Ic.Moon, "一键勿扰", "静音并屏蔽通知 2 小时，结束后自动恢复",
-        actions = seedItems("勿扰模式", "2 小时后恢复"), pinned = true, lastRun = "昨天"),
+        actions = seedItems("关闭 5G", "调节亮度：30%", "限制后台"), pinned = true),
+    Cmd(102, false, Ic.Moon, "一键勿扰", "开启勿扰；定时恢复任务暂不支持，执行时会跳过",
+        actions = seedItems("开关勿扰：开启", "2 小时后恢复"), pinned = true),
     Cmd(103, false, Ic.Rocket, "清理后台", "结束除白名单外的后台应用",
-        actions = seedItems("强制停止后台应用", "释放内存"), lastRun = "07:40"),
+        actions = seedItems("强制停止后台应用", "释放内存")),
     Cmd(104, false, Ic.Wifi, "开启热点", "打开热点并通过二维码分享密码",
-        actions = seedItems("打开热点", "显示二维码"), lastRun = "周日"),
+        actions = seedItems("打开热点", "显示二维码")),
     Cmd(105, false, Ic.Location, "发送定位", "把当前位置以短信发给家人",
         actions = seedItems("获取定位", "生成地图链接", "发送短信")),
     Cmd(106, false, Ic.Camera, "扫码付款", "直接打开支付 App 的付款码页面",
-        actions = seedItems("打开付款码"), pinned = true, lastRun = "12:31"),
-    Cmd(107, false, Ic.Terminal, "执行脚本", "以 Root 身份运行自定义 Shell 脚本",
-        actions = seedItems("su -c 脚本"), lastRun = "3 天前"),
+        actions = seedItems("打开付款码"), pinned = true),
+    Cmd(107, false, Ic.Terminal, "执行脚本", "以 Root 身份运行示例命令 echo 流光，可在编辑页修改",
+        actions = seedItems("执行 Shell(Root)：echo 流光")),
 )
 
 @Stable
 class AppState internal constructor(saved: PersistedAppState?) {
     constructor() : this(null)
+    private var executionEngine: com.flowglass.demo.system.exec.ExecutionEngine? = null
+    fun bindExecutionContext(context: android.content.Context) {
+        executionEngine = com.flowglass.demo.system.exec.ExecutionRuntime.engine(context)
+    }
+    internal fun bindExecutionEngine(engine: com.flowglass.demo.system.exec.ExecutionEngine) {
+        executionEngine = engine
+    }
 
     var editing by mutableStateOf<Long?>(null)
     var storageError by mutableStateOf<String?>(null)
@@ -186,8 +192,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     // engine
     var running by mutableStateOf(saved?.running ?: true)
-    var uptime by mutableIntStateOf(2 * 3600 + 41 * 60 + 7)
-    var todayRuns by mutableIntStateOf(86)
+    var uptime by mutableIntStateOf(0)
+    var todayRuns by mutableIntStateOf(0)
     var mode by mutableIntStateOf(saved?.mode ?: 1)
     var accessibility by mutableStateOf(true)
 
@@ -196,13 +202,9 @@ class AppState internal constructor(saved: PersistedAppState?) {
     val oneTaps = mutableStateListOf<Cmd>().apply { addAll(saved?.oneTaps ?: seedOneTap()) }
     var autoFilter by mutableIntStateOf(0)
     private val executionTokens = mutableMapOf<Long, Any>()
-    val executing = mutableStateMapOf<Long, Int>() // id -> 1 running, 2 done
-    val logs = mutableStateListOf<RunLog>().apply { addAll(saved?.logs ?: listOf(
-        RunLog(-1, "验证码自动复制", "通知触发", "21:47", true, Ic.Bell),
-        RunLog(-2, "一键省电", "手动执行", "20:15", true, Ic.Leaf),
-        RunLog(-3, "断网自动重连", "WiFi 断开", "18:02", false, Ic.Wifi),
-        RunLog(-4, "到公司自动连 WiFi", "进入地点", "08:56", true, Ic.Location),
-    )) }
+    val executing = mutableStateMapOf<Long, Int>() // id -> 1 running, 2 done, 3 failed
+    val executionMessages = mutableStateMapOf<Long, String>()
+    val logs = mutableStateListOf<RunLog>().apply { addAll(saved?.logs.orEmpty()) }
 
     init { if (saved != null) reserveIds(saved) }
 
@@ -277,27 +279,37 @@ class AppState internal constructor(saved: PersistedAppState?) {
         return c
     }
 
-    fun execute(cmd: Cmd, scope: CoroutineScope, reason: String = "手动执行") {
-        if (executing[cmd.id] == 1 || !scope.isActive) return
-        // Still a timing demo, not a privileged automation executor.
-        // Start immediately so two taps cannot both pass the running guard.
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            val token = Any()
-            executionTokens[cmd.id] = token
+    fun execute(cmd: Cmd, scope: CoroutineScope, reason: String = "手动执行"): kotlinx.coroutines.Job? {
+        if (executing.containsKey(cmd.id)) return null
+        val engine = executionEngine
+        val token = Any()
+        executionTokens[cmd.id] = token
+        executionMessages.remove(cmd.id)
+        executing[cmd.id] = 1
+        return com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch {
             try {
-                executing[cmd.id] = 1
-                delay(900L + cmd.actions.size * 250L)
-                executing[cmd.id] = 2
-                todayRuns += 1
-                val t = now()
-                update(cmd.id) { it.copy(lastRun = t) }
-                logs.add(0, RunLog(newId(), cmd.title, reason, t, true, cmd.ic))
-                if (logs.size > 8) logs.removeAt(logs.lastIndex)
-                delay(1600)
+                val result = engine?.run(cmd, reason) ?: com.flowglass.demo.system.exec.RunResult(
+                    cmd.id, reason, listOf(com.flowglass.demo.system.exec.StepResult(
+                        cmd.id, "执行环境检查", com.flowglass.demo.system.exec.StepStatus.FAILURE,
+                        "执行环境未就绪", 0)), 0)
+                if (result.ignored) return@launch
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    executionMessages[cmd.id] = result.detail
+                    executing[cmd.id] = if (result.ok) 2 else 3
+                    todayRuns += 1
+                    val t = now()
+                    update(cmd.id) { it.copy(lastRun = t) }
+                    logs.add(0, RunLog(newId(), cmd.title, reason, t, result.ok, cmd.ic, result.detail, result.steps.toList()))
+                    if (logs.size > 8) logs.removeAt(logs.lastIndex)
+                }
+                delay(if (result.ok) 1600 else 2000)
             } finally {
-                if (executionTokens[cmd.id] === token) {
-                    executionTokens.remove(cmd.id)
-                    executing.remove(cmd.id)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    if (executionTokens[cmd.id] === token) {
+                        executionTokens.remove(cmd.id)
+                        executing.remove(cmd.id)
+                        executionMessages.remove(cmd.id)
+                    }
                 }
             }
         }

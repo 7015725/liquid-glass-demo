@@ -32,9 +32,12 @@ import com.kyant.shapes.RoundedRectangle
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 
-/** Kept in the app composition so demo execution survives leaving the editor. */
+/** Editor UI; native execution lifetime is owned by ExecutionRuntime. */
 @Composable
-fun CommandEditorHost(state: AppState) {
+fun CommandEditorHost(state: AppState, onAuthorization: (Int) -> Unit = { page ->
+    state.closeEditor()
+    state.settingsPage = page
+}) {
     val scope = rememberCoroutineScope()
     val cmd = state.editing?.let(state::find)
     var last by remember { mutableStateOf<Cmd?>(null) }
@@ -43,12 +46,13 @@ fun CommandEditorHost(state: AppState) {
     AnimatedVisibility(cmd != null,
         enter = fadeIn(effect()) + scaleIn(spatial(), initialScale = 0.96f),
         exit = fadeOut(effect()) + scaleOut(spatial(), targetScale = 0.96f)) {
-        if (shown != null) key(shown.id) { CommandEditor(state, shown, scope) }
+        if (shown != null) key(shown.id) { CommandEditor(state, shown, scope, onAuthorization) }
     }
 }
 
 @Composable
-private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope) {
+private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAuthorization: (Int) -> Unit) {
+    RefreshEditorRoot(state, cmd)
     var panel by remember { mutableStateOf<EditorPanel?>(null) }
     val backdrop = rememberLayerBackdrop()
     fun back() { if (panel != null) panel = null else state.closeEditor() }
@@ -95,13 +99,13 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope) {
             textStyle = TextStyle(color = C.OnSurfaceVar, fontSize = 15.sp, lineHeight = 22.sp),
             cursorBrush = SolidColor(C.Primary),
             decorationBox = { inner -> Box { if (cmd.desc.isEmpty()) T("添加描述", 15.sp, color = C.Muted); inner() } })
-        if (!cmd.auto) {
-            val exec = state.executing[cmd.id] ?: 0
-            ExecButton(exec, Modifier.fillMaxWidth().testTag("editor-execute"), large = true) {
-                state.execute(cmd, scope)
-            }
-            T("仅演示执行流程，不会操作系统", 12.sp, color = C.Muted)
+        val exec = state.executing[cmd.id] ?: 0
+        ExecButton(exec, Modifier.fillMaxWidth().testTag("editor-execute"), large = true,
+            idleLabel = if (cmd.auto) "立即运行" else "一键执行",
+            failureLabel = if (state.executionMessages[cmd.id] == "执行环境未就绪") "执行环境未就绪" else "失败") {
+            state.execute(cmd, scope, if (cmd.auto) "手动测试" else "手动执行")
         }
+        if (cmd.auto) T("跳过触发器和条件，直接执行任务", 12.sp, color = C.Muted)
         val sections = if (cmd.auto) CommandSection.entries else listOf(CommandSection.ACTIONS)
         sections.forEachIndexed { i, section ->
             Column(Modifier.fillMaxWidth().testTag("section-${section.name}")
@@ -125,10 +129,15 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope) {
                                 Spacer(Modifier.width(10.dp))
                                 Column(Modifier.weight(1f)) {
                                     T(item.name, 15.sp, FontWeight.SemiBold)
-                                    T(item.parameter.ifEmpty { "点按设置参数" }, 13.sp, color = C.OnSurfaceVar)
+                                    T(itemParameterLabel(section, item), 13.sp, color = C.OnSurfaceVar)
                                 }
                             }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                TaskAuthorizationBadge(state, section, item) { destination ->
+                                    panel = null
+                                    onAuthorization(destination)
+                                }
+                                Spacer(Modifier.weight(1f))
                                 if (index > 0) EditorIconButton(Ic.ArrowUp, "上移第${index + 1}项") {
                                     state.moveItem(cmd.id, section, item.id, -1)
                                 }
@@ -175,13 +184,9 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope) {
                     }
                 }
                 is EditorPanel.Parameter -> cmd.items(active.section).firstOrNull { it.id == active.itemId }?.let { item ->
-                    T(item.name, 16.sp, FontWeight.SemiBold)
-                    BasicTextField(item.parameter, { state.setItemParameter(cmd.id, active.section, item.id, it) },
-                        Modifier.fillMaxWidth().heightIn(min = 80.dp).testTag("item-parameter")
-                            .clip(RoundedRectangle(24.dp)).background(C.Card).padding(16.dp),
-                        textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 24.sp),
-                        cursorBrush = SolidColor(C.Primary))
-                    EditorPill("完成", "完成") { panel = null }
+                    ActionParameterEditor(active.section, item,
+                        onParameter = { state.setItemParameter(cmd.id, active.section, item.id, it) },
+                        onDone = { panel = null }, commandTitle = cmd.title)
                 }
             }
         }
