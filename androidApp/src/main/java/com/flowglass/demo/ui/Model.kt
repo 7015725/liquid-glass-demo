@@ -65,7 +65,7 @@ fun newId(): Long {
 private fun reserveIds(saved: PersistedAppState) {
     val maximum = ((saved.autoCmds + saved.oneTaps).flatMap { cmd ->
         listOf(cmd.id) + (cmd.triggers + cmd.conditions + cmd.actions).map { it.id }
-    } + saved.logs.map { it.id }).maxOrNull() ?: 0L
+    } + saved.logs.map { it.id } + saved.logs.flatMap { log -> log.steps.map { it.itemId } }).maxOrNull() ?: 0L
     require(maximum < Long.MAX_VALUE) { "存储标识超出范围" }
     nextId = maxOf(nextId, maximum + 1)
 }
@@ -88,7 +88,13 @@ private fun seedItems(vararg names: String) = names.map { display ->
         "新文件" -> Ic.Camera
         else -> Ic.Bolt
     }
-    CommandItem(newId(), name, parameter, icon)
+    val typeId = CommandSection.entries.asSequence().flatMap { CommandCatalog.options(it).asSequence() }
+        .firstOrNull { it.name == name }?.typeId
+    val meta = typeId?.let { id -> com.flowglass.engine.BuiltInComponents.registry().find(id) }
+    val seedType = if (meta != null && runCatching {
+        com.flowglass.engine.ParameterCodec.parseComponent(meta, parameter)
+    }.isSuccess) typeId else "legacy.unknown"
+    CommandItem(newId(), name, parameter, icon, seedType)
 }
 
 private fun seedAuto() = listOf(
@@ -142,6 +148,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     var editing by mutableStateOf<Long?>(null)
     var storageError by mutableStateOf<String?>(null)
+    internal var engineRules by mutableStateOf(saved?.engineRules.orEmpty())
+    internal var engineUi by mutableStateOf(saved?.engineUi ?: com.flowglass.engine.RuleUiMetadata())
     fun openEditor(id: Long) { if (find(id) != null) editing = id }
     fun closeEditor() {
         editing?.let { id ->
@@ -155,7 +163,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun setDescription(id: Long, text: String) = update(id) { it.copy(desc = text, descriptionEdited = true) }
     fun setIcon(id: Long, ic: Ic) = update(id) { it.copy(ic = ic) }
     fun addItem(cmdId: Long, section: CommandSection, option: CommandOption) {
-        editItems(cmdId, section) { it + CommandItem(newId(), option.name, option.defaultParameter, option.ic) }
+        editItems(cmdId, section) { it + CommandItem(newId(), option.name, option.defaultParameter, option.ic, option.typeId) }
         if (section == CommandSection.TRIGGERS) update(cmdId) {
             if (it.auto && it.triggers.size == 1) it.copy(category = option.category) else it
         }

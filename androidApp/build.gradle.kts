@@ -12,8 +12,8 @@ android {
         applicationId = "com.flowglass.demo"
         minSdk = 26
         targetSdk = 37
-        versionCode = 8
-        versionName = "0.5.0"
+        versionCode = 9
+        versionName = "0.6.0-alpha1"
         androidResources.localeFilters += arrayOf("zh", "en")
     }
 
@@ -48,9 +48,14 @@ android {
     lint {
         checkReleaseBuilds = false
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
+    implementation(project(":engine"))
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.graphics.shapes)
@@ -60,4 +65,7 @@ dependencies {
     implementation(libs.kyant.shapes)
     implementation(project(":backdrop"))
     compileOnly("de.robv.android.xposed:api:82")
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
 }

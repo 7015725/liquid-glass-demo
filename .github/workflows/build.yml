@@ -30,6 +30,36 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Prepare Gradle wrapper
+        run: chmod +x gradlew
+
+      - name: Test report guard
+        run: python3 -m unittest discover -s .github/scripts -p 'test_test_report.py'
+
+      - name: Run engine unit tests
+        run: ./gradlew :engine:testAndroidHostTest --stacktrace --no-configuration-cache
+
+      - name: Run Android app unit tests
+        run: ./gradlew :androidApp:testDebugUnitTest --stacktrace --no-configuration-cache
+
+      - name: Verify test counts
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/test_report.py
+
+      - name: Upload unit test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          if-no-files-found: error
+          path: |
+            engine/build/test-results/testAndroidHostTest/TEST-*.xml
+            androidApp/build/test-results/testDebugUnitTest/TEST-*.xml
+            out/unit-test-summary.json
+
+      - name: Lint release
+        run: ./gradlew :androidApp:lintRelease --stacktrace --no-configuration-cache
+
       - name: Build release APK
         run: |
           chmod +x gradlew
