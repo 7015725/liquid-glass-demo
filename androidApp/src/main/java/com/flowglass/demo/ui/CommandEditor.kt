@@ -173,14 +173,29 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                         repeat(4 - icons.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
-                is EditorPanel.Add -> CommandCatalog.options(active.section).forEachIndexed { index, option ->
-                    Row(Modifier.fillMaxWidth().staggerIn(index.coerceAtMost(8)).clip(RoundedRectangle(24.dp))
-                        .editorAction(option.name) { state.addItem(cmd.id, active.section, option); panel = null }
-                        .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        LineIcon(option.ic, C.Primary, 22.dp)
-                        Spacer(Modifier.width(12.dp))
-                        T(option.name, 16.sp, modifier = Modifier.weight(1f))
-                        LineIcon(Ic.Plus, C.Primary, 20.dp)
+                is EditorPanel.Add -> {
+                    val activeTier = if (state.root?.granted == true) com.flowglass.engine.Tier.ROOT
+                        else com.flowglass.engine.Tier.NORMAL
+                    var rowIndex = 0
+                    CommandCatalog.options(active.section).groupBy { it.categoryName }.forEach { (category, options) ->
+                        T(category, 13.sp, FontWeight.Bold, C.Muted, modifier = Modifier.padding(top = 8.dp, start = 6.dp))
+                        options.forEach { option ->
+                            val locked = option.minTier.ordinal > activeTier.ordinal
+                            Row(Modifier.fillMaxWidth().staggerIn(rowIndex++.coerceAtMost(8))
+                                .clip(RoundedRectangle(24.dp))
+                                .then(if (locked) Modifier else Modifier.editorAction(option.name) {
+                                    state.addItem(cmd.id, active.section, option)
+                                    panel = null
+                                })
+                                .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                LineIcon(option.ic, if (locked) C.Muted else C.Primary, 22.dp)
+                                Spacer(Modifier.width(12.dp))
+                                T(option.name, 16.sp, color = if (locked) C.Muted else C.OnSurface,
+                                    modifier = Modifier.weight(1f))
+                                if (locked) T("需要 Root", 12.sp, color = C.Muted)
+                                else LineIcon(Ic.Plus, C.Primary, 20.dp)
+                            }
+                        }
                     }
                 }
                 is EditorPanel.Parameter -> cmd.items(active.section).firstOrNull { it.id == active.itemId }?.let { item ->

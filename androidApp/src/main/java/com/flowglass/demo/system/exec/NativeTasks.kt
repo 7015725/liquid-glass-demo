@@ -9,18 +9,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal object NativeTasks {
-    suspend fun run(context: Context, cmd: Cmd, task: CommandItem): TaskOutcome = when (task.name) {
-        "复制到剪贴板" -> withContext(Dispatchers.Main.immediate) {
+    suspend fun run(context: Context, cmd: Cmd, task: CommandItem): TaskOutcome {
+        val typeId = task.typeId ?: com.flowglass.engine.BuiltInActions.metadata
+            .firstOrNull { it.name == task.name }?.typeId
+        return when (typeId) {
+        "action.copy_clipboard" -> withContext(Dispatchers.Main.immediate) {
             val manager = checkNotNull(context.getSystemService(ClipboardManager::class.java)) { "剪贴板服务不可用" }
             manager.setPrimaryClip(ClipData.newPlainText(cmd.title, task.parameter))
             TaskOutcome(StepStatus.SUCCESS, "已复制到剪贴板")
         }
-        "延时等待" -> {
+        "action.delay" -> {
             val millis = TaskParameters.delayMillis(task.parameter)
             kotlinx.coroutines.delay(millis)
             TaskOutcome(StepStatus.SUCCESS, "已等待 $millis 毫秒")
         }
-        "调节音量" -> {
+        "action.set_volume" -> {
             val percent = TaskParameters.percent(task.parameter)
             val audio = checkNotNull(context.getSystemService(android.media.AudioManager::class.java)) { "音频服务不可用" }
             val stream = android.media.AudioManager.STREAM_MUSIC
@@ -28,7 +31,7 @@ internal object NativeTasks {
             audio.setStreamVolume(stream, value, 0)
             TaskOutcome(StepStatus.SUCCESS, "媒体音量已设为 $percent%")
         }
-        "发送通知" -> {
+        "action.post_notification" -> {
             val missing = android.os.Build.VERSION.SDK_INT >= 33 &&
                 context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
             val manager = checkNotNull(context.getSystemService(android.app.NotificationManager::class.java)) { "通知服务不可用" }
@@ -46,7 +49,7 @@ internal object NativeTasks {
                 TaskOutcome(StepStatus.SUCCESS, "已发送通知")
             }
         }
-        "开关勿扰" -> {
+        "action.dnd_switch" -> {
             val mode = TaskParameters.mode(task.parameter)
             val manager = checkNotNull(context.getSystemService(android.app.NotificationManager::class.java)) { "通知服务不可用" }
             if (!manager.isNotificationPolicyAccessGranted) TaskOutcome(StepStatus.FAILURE, "缺少勿扰权限")
@@ -62,7 +65,7 @@ internal object NativeTasks {
                 TaskOutcome(StepStatus.SUCCESS, if (enabled) "勿扰已开启" else "勿扰已关闭")
             }
         }
-        "调节亮度" -> withContext(Dispatchers.IO) {
+        "action.set_brightness" -> withContext(Dispatchers.IO) {
             val percent = TaskParameters.percent(task.parameter)
             if (!android.provider.Settings.System.canWrite(context)) TaskOutcome(StepStatus.FAILURE, "缺少修改系统设置权限")
             else {
@@ -74,7 +77,7 @@ internal object NativeTasks {
                 TaskOutcome(StepStatus.SUCCESS, "亮度已设为 $percent%")
             }
         }
-        "启动应用" -> {
+        "action.launch_app" -> {
             val requested = task.parameter.trim()
             require(requested.isNotEmpty()) { "参数格式不正确：期望 应用包名或应用名称" }
             val intent = withContext(Dispatchers.IO) {
@@ -93,8 +96,8 @@ internal object NativeTasks {
                 TaskOutcome(StepStatus.SUCCESS, "已启动应用：$requested")
             }
         }
-        "HTTP 请求" -> HttpTask.run(TaskParameters.http(task.parameter))
-        "执行 Shell(Root)" -> {
+        "action.http_request" -> HttpTask.run(TaskParameters.http(task.parameter))
+        "action.root_shell" -> {
             require(task.parameter.isNotBlank()) { "参数格式不正确：期望 非空 Shell 命令" }
             val root = com.flowglass.demo.system.Root.check(request = true)
             if (!root.granted) TaskOutcome(StepStatus.FAILURE, "缺少 Root 权限")
@@ -107,7 +110,9 @@ internal object NativeTasks {
                 }
             }
         }
-        "开关 WiFi", "开关蓝牙" -> RadioTask.run(context, task.name, task.parameter)
+        "action.wifi_switch" -> RadioTask.run(context, "开关 WiFi", task.parameter)
+        "action.bluetooth_switch" -> RadioTask.run(context, "开关蓝牙", task.parameter)
         else -> TaskOutcome(StepStatus.SKIPPED, "暂不支持该任务")
+        }
     }
 }

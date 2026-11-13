@@ -3,6 +3,7 @@ package com.flowglass.demo.ui
 import android.util.AtomicFile
 import java.io.File
 import java.io.InputStreamReader
+import com.flowglass.engine.LegacyFileMigration
 
 internal data class StoreLoad(val saved: PersistedAppState?, val error: String? = null) {
     fun appState(): AppState = AppState(
@@ -27,10 +28,15 @@ internal class CommandStore(private val file: File) {
             if (!file.exists() && !File(file.path + ".bak").exists() && !File(file.path + ".new").exists()) {
                 StoreLoad(null)
             } else {
-                val text = atomic.openRead().use { stream ->
-                    InputStreamReader(stream, Charsets.UTF_8.newDecoder()).readText()
+                val original = atomic.openRead().use { it.readBytes() }
+                val text = Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(original)).toString()
+                val decoded = AppStateJson.decodeDocument(text)
+                if (decoded.migrated) {
+                    LegacyFileMigration.backupBeforeWrite(original, File(file.parentFile, "commands.v1.bak.json")) {
+                        writeAtomic(AppStateJson.encode(decoded.state).toByteArray(Charsets.UTF_8))
+                    }
                 }
-                StoreLoad(AppStateJson.decode(text))
+                StoreLoad(decoded.state)
             }
         } catch (_: Exception) {
             blocked = true
@@ -40,7 +46,11 @@ internal class CommandStore(private val file: File) {
 
     fun save(snapshot: PersistedAppState) = synchronized(storeLock) {
         check(loaded && !blocked) { "本地数据尚未安全恢复，已停止写入。" }
-        val bytes = AppStateJson.encode(snapshot).toByteArray(Charsets.UTF_8)
+        writeAtomic(AppStateJson.encode(snapshot).toByteArray(Charsets.UTF_8))
+    }
+
+
+    private fun writeAtomic(bytes: ByteArray) {
         val stream = atomic.startWrite()
         try {
             stream.write(bytes)

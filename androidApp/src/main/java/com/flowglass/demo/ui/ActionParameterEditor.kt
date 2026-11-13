@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.shapes.RoundedRectangle
@@ -31,42 +33,54 @@ import com.kyant.shapes.RoundedRectangle
 @Composable
 internal fun ActionParameterEditor(section: CommandSection, item: CommandItem,
     onParameter: (String) -> Unit, onDone: () -> Unit, commandTitle: String = "") {
+    val meta = item.typeId?.let { id -> com.flowglass.engine.BuiltInComponents.registry().find(id) }
+    val parameter = meta?.params?.firstOrNull()
     T(item.name, 16.sp, FontWeight.SemiBold)
-    if (section == CommandSection.ACTIONS && item.name == "发送通知") {
-        NotificationParameterEditor(item, commandTitle, onParameter, onDone)
-        return
-    }
-    if (section == CommandSection.ACTIONS && item.name in setOf("开关 WiFi", "开关蓝牙", "开关勿扰")) {
-        val choices = listOf("开启", "关闭", "切换")
-        Box(Modifier.fillMaxWidth().clip(RoundedRectangle(22.dp))) {
-            SegmentedSelector(choices.map { item.ic to it }, choices.indexOf(item.parameter)) {
-                onParameter(choices[it])
+
+    when {
+        section == CommandSection.ACTIONS && item.typeId == "action.post_notification" -> {
+            NotificationParameterEditor(item, commandTitle, onParameter, onDone)
+            return
+        }
+        section == CommandSection.ACTIONS && parameter?.type == com.flowglass.engine.ParamType.TRI_STATE -> {
+            val choices = listOf("开启", "关闭", "切换")
+            Box(Modifier.fillMaxWidth().clip(RoundedRectangle(22.dp))) {
+                SegmentedSelector(choices.map { item.ic to it }, choices.indexOf(item.parameter)) { onParameter(choices[it]) }
             }
         }
-    } else if (section == CommandSection.ACTIONS && item.name in setOf("调节音量", "调节亮度")) {
-        val percent = item.parameter.trim().removeSuffix("%").trim().toIntOrNull()?.takeIf { it in 0..100 }
-        T(percent?.let { "$it%" } ?: item.parameter.ifBlank { "未设置百分比" }, 20.sp, FontWeight.SemiBold)
-        PercentSlider((percent ?: 0).toFloat()) { onParameter("${it.roundToInt().coerceIn(0, 100)}%") }
-    } else if (section == CommandSection.ACTIONS && item.name == "启动应用") {
-        ApplicationParameterPicker(item, onParameter)
-    } else {
-        BasicTextField(item.parameter, onParameter,
-            Modifier.fillMaxWidth().heightIn(min = 80.dp).testTag("item-parameter")
-                .clip(RoundedRectangle(24.dp)).background(C.Card).padding(16.dp),
-            textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 24.sp),
-            cursorBrush = SolidColor(C.Primary))
-        val help = when (item.name) {
-            "HTTP 请求" -> "格式：GET <URL> 或 POST <URL> <内容>。URL 使用 http:// 或 https://；GET 不携带正文，POST 内容可换行。\n示例：GET https://example.com\nPOST https://example.com/api {\"ok\":true}"
-            "执行 Shell(Root)" -> "格式：非空 Shell 命令，执行前需要 Root 授权。\n示例：echo 流光\n请仅执行你理解其作用的命令。"
-            "延时等待" -> "格式：非负数字 + 单位（毫秒 / 秒 / 分钟），支持小数；超过 10 分钟按 10 分钟等待。\n示例：500 毫秒、1 秒、2 分钟"
-            "复制到剪贴板" -> "格式：纯文本，支持换行；按原文复制，不解析命令。\n示例：流光自动化\n任务已完成"
-            else -> null
+        parameter?.type == com.flowglass.engine.ParamType.PERCENTAGE -> {
+            val percent = item.parameter.trim().removeSuffix("%").trim().toIntOrNull()?.takeIf { it in 0..100 }
+            T(percent?.let { "$it%" } ?: item.parameter.ifBlank { "未设置百分比" }, 20.sp, FontWeight.SemiBold)
+            PercentSlider((percent ?: 0).toFloat()) { onParameter("${it.roundToInt().coerceIn(0, 100)}%") }
         }
-        if (section == CommandSection.ACTIONS && help != null) {
-            T(help, 13.sp, color = C.OnSurfaceVar, lineHeight = 20.sp, modifier = Modifier.testTag("parameter-help"))
-        } else {
-            CommandCatalog.options(section).firstOrNull { it.name == item.name }?.let { option ->
-                T("示例：${option.defaultParameter}", 13.sp, color = C.OnSurfaceVar,
+        parameter?.type == com.flowglass.engine.ParamType.APPLICATION -> {
+            ApplicationParameterPicker(item, onParameter)
+        }
+        parameter?.type == com.flowglass.engine.ParamType.ENUM -> {
+            val choices = parameter.options
+            if (choices.isNotEmpty()) {
+                SegmentedSelector(choices.map { item.ic to it }, choices.indexOf(item.parameter).coerceAtLeast(0)) {
+                    onParameter(choices[it])
+                }
+            } else {
+                ParameterTextField(item.parameter, "item-parameter", onParameter)
+            }
+        }
+        else -> {
+            val multiline = parameter?.type == com.flowglass.engine.ParamType.MULTILINE_TEXT
+            val integer = parameter?.type == com.flowglass.engine.ParamType.INTEGER
+            BasicTextField(item.parameter, onParameter,
+                Modifier.fillMaxWidth().heightIn(min = if (multiline) 120.dp else 64.dp).testTag("item-parameter")
+                    .clip(RoundedRectangle(24.dp)).background(C.Card).padding(16.dp),
+                textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 24.sp),
+                cursorBrush = SolidColor(C.Primary),
+                keyboardOptions = KeyboardOptions(keyboardType = if (integer) KeyboardType.Number else KeyboardType.Text))
+            val hint = parameter?.hint?.takeIf { it.isNotBlank() }
+            if (hint != null) {
+                T(hint, 13.sp, color = C.OnSurfaceVar, lineHeight = 20.sp, modifier = Modifier.testTag("parameter-help"))
+            } else {
+                val default = (parameter?.defaultValue as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+                if (default.isNotEmpty()) T("示例：$default", 13.sp, color = C.OnSurfaceVar,
                     lineHeight = 20.sp, modifier = Modifier.testTag("parameter-help"))
             }
         }

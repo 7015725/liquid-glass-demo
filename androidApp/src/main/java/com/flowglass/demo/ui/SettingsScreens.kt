@@ -274,7 +274,7 @@ private fun SettingsMain(state: AppState) {
     }
     GroupTitle("关于", k++)
     GroupCard(k++) {
-        ListRow(Row1(Ic.Info, "版本", "0.5.0"), true)
+        ListRow(Row1(Ic.Info, "版本", "0.6.0-alpha1"), true)
         ListRow(Row1(Ic.Puzzle, "开源组件", sub = "AndroidLiquidGlass · graphics-shapes") {}, false)
     }
 }

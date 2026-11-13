@@ -24,10 +24,14 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import java.io.File
-import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.util.Collections
+import com.flowglass.engine.LegacyCommandMigration
+import com.flowglass.engine.LegacyFileMigration
+import com.flowglass.engine.RuleJson
+import com.flowglass.engine.Rule
+import com.flowglass.engine.RuleUiMetadata
 
 private val storageQueue = StorageQueue()
 private val storageCallbacks = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -106,15 +110,18 @@ internal suspend fun observeStoredState(state: AppState, save: () -> Unit) {
 internal class PersistedAppState(
     autoCmds: List<Cmd>, oneTaps: List<Cmd>, logs: List<RunLog>,
     val running: Boolean, val mode: Int,
+    engineRules: List<Rule> = emptyList(),
+    val engineUi: RuleUiMetadata = RuleUiMetadata(running = running, mode = mode),
 ) {
     val autoCmds = immutableCommands(autoCmds)
     val oneTaps = immutableCommands(oneTaps)
     val logs: List<RunLog> = immutableList(logs.map { it.copy(steps = immutableList(it.steps)) })
+    val engineRules: List<Rule> = immutableList(engineRules)
 
     override fun equals(other: Any?): Boolean = other is PersistedAppState &&
         autoCmds == other.autoCmds && oneTaps == other.oneTaps && logs == other.logs &&
-        running == other.running && mode == other.mode
-    override fun hashCode(): Int = listOf(autoCmds, oneTaps, logs, running, mode).hashCode()
+        running == other.running && mode == other.mode && engineRules == other.engineRules
+    override fun hashCode(): Int = listOf(autoCmds, oneTaps, logs, running, mode, engineRules).hashCode()
 }
 
 private fun <T> immutableList(values: List<T>): List<T> = Collections.unmodifiableList(ArrayList(values))
@@ -122,54 +129,29 @@ private fun immutableCommands(commands: List<Cmd>) = immutableList(commands.map 
     it.copy(triggers = immutableList(it.triggers), conditions = immutableList(it.conditions), actions = immutableList(it.actions))
 })
 
-internal fun AppState.snapshot() = PersistedAppState(autoCmds, oneTaps, logs, running, mode)
+internal fun AppState.snapshot() = PersistedAppState(autoCmds, oneTaps, logs, running, mode, engineRules, engineUi)
 
 internal object AppStateJson {
-    fun encode(state: PersistedAppState): String = JSONObject().apply {
-        put("version", 2)
-        put("autoCmds", array(state.autoCmds, ::commandJson))
-        put("oneTaps", array(state.oneTaps, ::commandJson))
-        put("logs", array(state.logs) { log -> JSONObject().apply {
-            put("id", log.id); put("title", log.title); put("reason", log.reason)
-            put("time", log.time); put("ok", log.ok); put("ic", log.ic.name)
-            put("detail", log.detail)
-            put("steps", array(log.steps) { step -> JSONObject().apply {
-                put("itemId", step.itemId); put("name", step.name); put("status", step.status.name)
-                put("detail", step.detail); put("durationMs", step.durationMs)
-            } })
-        } })
-        put("running", state.running)
-        put("mode", state.mode)
-    }.toString()
+    data class Decoded(val state: PersistedAppState, val migrated: Boolean)
+
+    fun encode(state: PersistedAppState): String = RuleJson.encode(state.toRuleDocument())
 
     fun decode(text: String): PersistedAppState {
+        checkNesting(text)
+        return decodeDocument(text).state
+    }
+
+    fun decodeDocument(text: String): Decoded {
         checkNesting(text)
         val reader = JSONTokener(text)
         val root = reader.nextValue() as? JSONObject ?: error("存储内容不是对象")
         require(reader.nextClean() == '\u0000') { "存储内容含多余数据" }
-        val version = root.long("version")
-        require(version in 1L..2L) { "不支持的存储版本" }
-        val migrateLegacySeeds = version == 1L
-        val auto = root.objects("autoCmds") { command(it, migrateLegacySeeds) }
-        val manual = root.objects("oneTaps") { command(it, migrateLegacySeeds) }
-        require(auto.all { it.auto } && manual.all { !it.auto && it.triggers.isEmpty() && it.conditions.isEmpty() })
-        val logs = root.objects("logs") {
-            val steps = if (it.has("steps")) it.objects("steps") { step ->
-                val duration = step.long("durationMs")
-                require(duration >= 0) { "任务耗时无效" }
-                com.flowglass.demo.system.exec.StepResult(step.long("itemId"), step.string("name"),
-                    com.flowglass.demo.system.exec.StepStatus.valueOf(step.string("status")), step.string("detail"), duration)
-            } else emptyList()
-            RunLog(it.long("id"), it.string("title"), it.string("reason"), it.string("time"), it.bool("ok"), it.icon(),
-                if (it.has("detail")) it.string("detail") else "", steps)
+        return if (root.has("formatVersion")) {
+            Decoded(RuleJson.decode(text).toPersistedAppState(), migrated = false)
+        } else {
+            val document = LegacyCommandMigration.migrate(text)
+            Decoded(document.toPersistedAppState(), migrated = true)
         }
-        val mode = root.long("mode")
-        require(mode in 0L..2L) { "运行模式无效" }
-        val ids = (auto + manual).flatMap { cmd ->
-            listOf(cmd.id) + (cmd.triggers + cmd.conditions + cmd.actions).map { it.id }
-        } + logs.map { it.id }
-        require(ids.all { it < Long.MAX_VALUE } && ids.distinct().size == ids.size) { "存储标识无效或重复" }
-        return PersistedAppState(auto, manual, logs, root.bool("running"), mode.toInt())
     }
 
     // The on-disk schema is shallow. Guard before org.json's recursive parser,
@@ -191,57 +173,4 @@ internal object AppStateJson {
         }
     }
 
-    private fun commandJson(c: Cmd) = JSONObject().apply {
-        put("id", c.id); put("auto", c.auto); put("ic", c.ic.name)
-        put("title", c.title); put("desc", c.desc); put("descriptionEdited", c.descriptionEdited)
-        put("triggers", array(c.triggers, ::itemJson)); put("conditions", array(c.conditions, ::itemJson))
-        put("actions", array(c.actions, ::itemJson)); put("category", c.category)
-        put("enabled", c.enabled); put("pinned", c.pinned); put("lastRun", c.lastRun)
-    }
-
-    private fun itemJson(item: CommandItem) = JSONObject().apply {
-        put("id", item.id); put("name", item.name); put("parameter", item.parameter); put("ic", item.ic.name)
-    }
-
-    private fun command(o: JSONObject, migrateLegacySeeds: Boolean): Cmd {
-        val id = o.long("id")
-        val category = o.long("category")
-        require(category in AutoCategories.indices.map { it.toLong() }) { "指令分类无效" }
-        return Cmd(id, o.bool("auto"), o.icon(), o.string("title"), o.string("desc"),
-            o.objects("triggers", ::item), o.objects("conditions", ::item),
-            o.objects("actions", ::item).let { actions ->
-                if (migrateLegacySeeds) actions.map { migrateLegacySeedAction(id, it) } else actions
-            },
-            category.toInt(), o.bool("enabled"), o.bool("pinned"), o.string("lastRun"), o.bool("descriptionEdited"))
-    }
-
-    private fun item(o: JSONObject) = CommandItem(o.long("id"), o.string("name"), o.string("parameter"), o.icon())
-    private fun migrateLegacySeedAction(commandId: Long, item: CommandItem): CommandItem {
-        val (name, fallback) = when (commandId to item.name) {
-            1L to "打开 WiFi" -> "开关 WiFi" to "开启"
-            3L to "开启勿扰", 3L to "勿扰模式" -> "开关勿扰" to "开启"
-            3L to "亮度降到 10%" -> "调节亮度" to "10%"
-            4L to "关闭蓝牙" -> "开关蓝牙" to "关闭"
-            101L to "亮度 30%" -> "调节亮度" to "30%"
-            102L to "勿扰模式", 102L to "开启勿扰" -> "开关勿扰" to "开启"
-            107L to "su -c 脚本" -> "执行 Shell(Root)" to "echo 流光"
-            else -> return item
-        }
-        return item.copy(name = name, parameter = item.parameter.ifEmpty { fallback })
-    }
-    private fun JSONObject.string(key: String) = get(key) as? String ?: error("$key 不是文本")
-    private fun JSONObject.bool(key: String) = get(key) as? Boolean ?: error("$key 不是布尔值")
-    private fun JSONObject.long(key: String): Long = when (val value = get(key)) {
-        is Long -> value
-        is Int -> value.toLong()
-        else -> error("$key 不是整数")
-    }
-    private fun JSONObject.icon() = Ic.valueOf(string("ic"))
-    private fun <T> JSONObject.objects(key: String, decode: (JSONObject) -> T): List<T> {
-        val values = getJSONArray(key)
-        return List(values.length()) { decode(values.getJSONObject(it)) }
-    }
-    private fun <T> array(values: List<T>, encode: (T) -> JSONObject) = JSONArray().apply {
-        values.forEach { put(encode(it)) }
-    }
 }

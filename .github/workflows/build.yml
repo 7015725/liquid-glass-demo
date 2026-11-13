@@ -30,6 +30,15 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Prepare Gradle wrapper
+        run: chmod +x gradlew
+
+      - name: Run engine unit tests
+        run: ./gradlew :engine:testAndroidHostTest --stacktrace --no-configuration-cache
+
+      - name: Run Android app unit tests
+        run: ./gradlew :androidApp:testDebugUnitTest --stacktrace --no-configuration-cache
+
       - name: Build release APK
         run: |
           chmod +x gradlew

@@ -28,3 +28,4 @@ dependencyResolutionManagement {
 rootProject.name = "LiquidGlassDemo"
 include(":backdrop")
 include(":androidApp")
+include(":engine")
