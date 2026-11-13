@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "autoCmds": [{
+    "id": 9001, "auto": true, "ic": "Bolt", "title": "午间提醒", "desc": "规范化迁移验收",
+    "triggers": [{"id":9002,"name":"时间","parameter":"12:00","ic":"Clock"}],
+    "conditions": [
+      {"id":9003,"name":"时间段","parameter":"08:00–22:00","ic":"Clock"},
+      {"id":9004,"name":"电量范围","parameter":"20%–80%","ic":"Battery"},
+      {"id":9005,"name":"网络类型","parameter":"WiFi","ic":"Wifi"},
+      {"id":9006,"name":"星期","parameter":"工作日","ic":"Clock"}
+    ],
+    "actions": [
+      {"id":9007,"name":"开关 WiFi","parameter":"开启","ic":"Wifi"},
+      {"id":9008,"name":"调节亮度","parameter":"50%","ic":"Gauge"},
+      {"id":9009,"name":"延时等待","parameter":"1.5 秒","ic":"Timer"},
+      {"id":9010,"name":"发送通知","parameter":"午间提醒|开始休息","ic":"Bell"},
+      {"id":9011,"name":"延时等待","parameter":"无法解析的时长 | 保留原文","ic":"Timer"}
+    ]
+  }],
+  "oneTaps": [], "logs": [], "running": true, "mode": 1
+}

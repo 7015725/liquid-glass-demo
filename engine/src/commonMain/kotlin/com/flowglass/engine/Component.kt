@@ -17,11 +17,17 @@ enum class ParamType {
     MULTILINE_TEXT,
     INTEGER,
     PERCENTAGE,
+    DURATION,
     TRI_STATE,
     TIME,
+    TIME_RANGE,
+    INT_RANGE,
     APPLICATION,
     ENUM,
 }
+
+@Serializable
+data class ParamOption(val value: String, val label: String)
 
 @Serializable
 data class ParamSpec(
@@ -30,8 +36,11 @@ data class ParamSpec(
     val type: ParamType = ParamType.TEXT,
     val required: Boolean = true,
     val defaultValue: JsonElement = JsonNull,
-    val options: List<String> = emptyList(),
+    val options: List<ParamOption> = emptyList(),
     val hint: String = "",
+    val minValue: Long? = null,
+    val maxValue: Long? = null,
+    val suffix: String = "",
 )
 
 @Serializable
@@ -51,14 +60,12 @@ data class ComponentMeta(
 data class RuleComponent(
     val type: String,
     val params: Map<String, JsonElement> = emptyMap(),
-    val onError: String = "stop",
+    val onError: OnError = OnError.STOP,
 )
 
 @Serializable
 data class ComponentPresentation(
     val id: Long,
-    val name: String,
-    val parameter: String,
     val icon: String,
 )
 

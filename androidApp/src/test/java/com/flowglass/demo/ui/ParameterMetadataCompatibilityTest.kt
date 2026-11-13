@@ -43,8 +43,8 @@ class ParameterMetadataCompatibilityTest {
         val metadata = requireNotNull(BuiltInComponents.registry().find(requireNotNull(option.typeId)))
         assertEquals("20%–80%", option.defaultParameter)
         assertEquals("range", metadata.params.single().key)
-        assertEquals(JsonPrimitive(option.defaultParameter), metadata.params.single().defaultValue)
-        assertEquals(ParamType.TEXT, metadata.params.single().type)
+        assertEquals(RuleJson.format.parseToJsonElement("{\"min\":20,\"max\":80}"), metadata.params.single().defaultValue)
+        assertEquals(ParamType.INT_RANGE, metadata.params.single().type)
         listOf("trigger.battery_low", "action.set_brightness", "action.set_volume").forEach { type ->
             assertEquals(type, ParamType.PERCENTAGE, BuiltInComponents.registry().find(type)?.params?.first()?.type)
         }
@@ -104,7 +104,7 @@ class ParameterMetadataCompatibilityTest {
             val disk = RuleJson.decode(file.readText())
             val rule = disk.rules.single { disk.ui.presentation[it.id]?.legacyId == command.id }
             assertEquals("condition.battery_range", rule.conditions.single().type)
-            assertEquals(JsonPrimitive("25%–75%"), rule.conditions.single().params["range"])
+            assertEquals(RuleJson.format.parseToJsonElement("{\"min\":25,\"max\":75}"), rule.conditions.single().params["range"])
 
             val reopened = loaded.appState()
             activity.setContent {

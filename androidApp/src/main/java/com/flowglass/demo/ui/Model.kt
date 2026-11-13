@@ -65,7 +65,7 @@ fun newId(): Long {
 private fun reserveIds(saved: PersistedAppState) {
     val maximum = ((saved.autoCmds + saved.oneTaps).flatMap { cmd ->
         listOf(cmd.id) + (cmd.triggers + cmd.conditions + cmd.actions).map { it.id }
-    } + saved.logs.map { it.id }).maxOrNull() ?: 0L
+    } + saved.logs.map { it.id } + saved.logs.flatMap { log -> log.steps.map { it.itemId } }).maxOrNull() ?: 0L
     require(maximum < Long.MAX_VALUE) { "存储标识超出范围" }
     nextId = maxOf(nextId, maximum + 1)
 }
@@ -90,7 +90,11 @@ private fun seedItems(vararg names: String) = names.map { display ->
     }
     val typeId = CommandSection.entries.asSequence().flatMap { CommandCatalog.options(it).asSequence() }
         .firstOrNull { it.name == name }?.typeId
-    CommandItem(newId(), name, parameter, icon, typeId)
+    val meta = typeId?.let { id -> com.flowglass.engine.BuiltInComponents.registry().find(id) }
+    val seedType = if (meta != null && runCatching {
+        com.flowglass.engine.ParameterCodec.parseComponent(meta, parameter)
+    }.isSuccess) typeId else "legacy.unknown"
+    CommandItem(newId(), name, parameter, icon, seedType)
 }
 
 private fun seedAuto() = listOf(

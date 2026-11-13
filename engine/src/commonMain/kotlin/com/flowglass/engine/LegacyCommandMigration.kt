@@ -118,12 +118,12 @@ object LegacyCommandMigration {
             id = legacyUuid(id),
             name = title,
             description = desc,
-            type = if (auto) "auto" else "manual",
+            type = if (auto) RuleType.AUTO else RuleType.MANUAL,
             enabled = enabled,
-            runMode = "drop",
-            triggerMatch = MatchSpec(mode = "any"),
+            runMode = RunMode.DROP,
+            triggerMatch = MatchSpec(mode = MatchMode.ANY),
             triggers = triggerParts.map { it.first },
-            conditionMatch = MatchSpec(mode = "all"),
+            conditionMatch = MatchSpec(mode = MatchMode.ALL),
             conditions = conditionParts.map { it.first },
             actions = actionParts.map { it.first },
         )
@@ -155,25 +155,17 @@ object LegacyCommandMigration {
             ComponentKind.CONDITION -> conditionTypes[displayName]
             ComponentKind.ACTION -> actionTypes[displayName]
         }
-        val component = if (type == null) {
-            RuleComponent(
-                type = "legacy.unknown",
-                params = kotlinx.serialization.json.buildJsonObject {
-                    put("raw", JsonPrimitive("$displayName：$displayParameter"))
-                    put("name", JsonPrimitive(displayName))
-                    put("parameter", JsonPrimitive(displayParameter))
-                    put("icon", JsonPrimitive(ic))
-                },
-                onError = "stop",
-            )
-        } else {
-            RuleComponent(
-                type = type,
-                params = mapParameter(type, displayParameter),
-                onError = "stop",
-            )
-        }
-        return component to ComponentPresentation(id, displayName, displayParameter, ic)
+        val meta = BuiltInComponents.all.firstOrNull { it.typeId == type }
+        val params = if (meta == null) null else try {
+            ParameterCodec.parseComponent(meta, displayParameter)
+        } catch (_: IllegalArgumentException) { null }
+        val component = if (meta == null || params == null) {
+            RuleComponent("legacy.unknown", mapOf(
+                "raw" to JsonPrimitive("$name：$parameter"),
+                "name" to JsonPrimitive(name), "parameter" to JsonPrimitive(parameter), "icon" to JsonPrimitive(ic),
+            ))
+        } else RuleComponent(meta.typeId, params)
+        return component to ComponentPresentation(id, ic)
     }
 
     // v0.5 aliases are exact command/action pairs; the editable title is not identity.
@@ -186,39 +178,6 @@ object LegacyCommandMigration {
         102L to "勿扰模式", 102L to "开启勿扰" -> "开关勿扰" to parameter.ifEmpty { "开启" }
         107L to "su -c 脚本" -> "执行 Shell(Root)" to parameter.ifEmpty { "echo 流光" }
         else -> name to parameter
-    }
-
-    private fun mapParameter(type: String, value: String): Map<String, JsonElement> {
-        if (type == "action.post_notification") {
-            val split = value.indexOf('|')
-            return mapOf(
-                "content" to JsonPrimitive(if (split < 0) value else value.substring(split + 1)),
-                "title" to JsonPrimitive(if (split < 0) "" else value.substring(0, split)),
-            )
-        }
-        val key = when (type) {
-            "action.wifi_switch", "action.bluetooth_switch", "action.dnd_switch" -> "mode"
-            "action.set_brightness", "action.set_volume" -> "value"
-            "action.launch_app" -> "package"
-            "action.copy_clipboard" -> "text"
-            "action.delay" -> "duration"
-            "action.root_shell" -> "command"
-            "action.http_request" -> "request"
-            "trigger.wifi_changed" -> "ssid"
-            "trigger.bluetooth_connected" -> "name"
-            "trigger.notification_received" -> "text"
-            "trigger.time" -> "time"
-            "trigger.battery_low" -> "threshold"
-            "trigger.charging" -> "state"
-            "trigger.location_enter", "trigger.location_exit" -> "location"
-            "trigger.application_started" -> "package"
-            "condition.time_range", "condition.battery_range" -> "range"
-            "condition.weekday" -> "days"
-            "condition.network_type" -> "network"
-            "condition.screen_state", "condition.dnd_state" -> "state"
-            else -> "value"
-        }
-        return mapOf(key to JsonPrimitive(value))
     }
 
     private fun LegacyLog.toPersistedLog() = PersistedLog(

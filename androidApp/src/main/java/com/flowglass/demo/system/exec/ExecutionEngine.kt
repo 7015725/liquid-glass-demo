@@ -45,24 +45,20 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
             running = true,
             mode = 1,
         )
-        val document = state.toRuleDocument()
+        val document = try {
+            state.toRuleDocument()
+        } catch (invalid: IllegalArgumentException) {
+            return RunResult(cmd.id, reason, listOf(StepResult(cmd.id, "参数校验", StepStatus.FAILURE,
+                "参数无效：${invalid.message.orEmpty()}", 0)), 0)
+        }
         val rule = document.rules.single()
         val registry = BuiltInComponents.registry()
         val handlers = BuiltInActions.metadata.associate { meta ->
             meta.typeId to Action { _, component ->
                 val index = rule.actions.indexOfFirst { it === component }
                 val source = cmd.actions.getOrNull(index)
-                val parameter = when (component.type) {
-                    "action.post_notification" -> {
-                        val title = (component.params["title"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
-                        val content = (component.params["content"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
-                        "$title|$content"
-                    }
-                    else -> component.params.values.firstOrNull()?.let { json ->
-                        (json as? kotlinx.serialization.json.JsonPrimitive)?.content ?: json.toString()
-                    }.orEmpty()
-                }
-                val item = source ?: CommandItem(
+                val parameter = com.flowglass.engine.ParameterCodec.formatComponent(meta, component.params)
+                val item = source?.copy(name = meta.name, parameter = parameter) ?: CommandItem(
                     id = System.nanoTime(),
                     name = meta.name,
                     parameter = parameter,

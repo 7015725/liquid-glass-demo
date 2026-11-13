@@ -143,10 +143,10 @@ class RuleDocumentValidationTest {
     )
 
     private fun document() = RuleDocument(
-        rules = listOf(EngineRule(id = ruleId, name = "校验", type = "manual", actions = listOf(RuleComponent("action.delay")))),
+        rules = listOf(EngineRule(id = ruleId, name = "校验", type = com.flowglass.engine.RuleType.MANUAL, actions = listOf(RuleComponent("action.delay")))),
         ui = RuleUiMetadata(presentation = mapOf(ruleId to RulePresentation(
             legacyId = 1,
-            actions = listOf(ComponentPresentation(2, "延时等待", "", "Bolt")),
+            actions = listOf(ComponentPresentation(2, "Bolt")),
         ))),
     )
 

@@ -28,12 +28,12 @@ class EngineCoreTest {
 
     @Test
     fun ruleJsonRoundTripsVersionTwoAndRejectsUnsupportedVersions() {
-        val rule = RuleFactory.create("manual", "测试规则").copy(
+        val rule = RuleFactory.create(RuleType.MANUAL, "测试规则").copy(
             enabled = true,
-            runMode = "queue",
-            triggerMatch = MatchSpec(mode = "custom", atLeast = 1, windowSeconds = 42),
+            runMode = RunMode.QUEUE,
+            triggerMatch = MatchSpec(mode = MatchMode.CUSTOM, atLeast = 1, windowSeconds = 42),
             locals = listOf(LocalVariable("counter", "int", JsonPrimitive(3), resetEachRun = false)),
-            actions = listOf(RuleComponent("action.delay", mapOf("duration" to JsonPrimitive("2 秒")), "continue")),
+            actions = listOf(RuleComponent("action.delay", mapOf("duration" to JsonPrimitive(2000)), OnError.CONTINUE)),
         )
         val document = RuleDocument(
             rules = listOf(rule),
@@ -51,13 +51,13 @@ class EngineCoreTest {
 
     @Test
     fun ruleFactoryCreatesUuidIdsAndManualRulesHaveNoTriggersOrConditions() {
-        val first = RuleFactory.create("manual")
-        val second = RuleFactory.create("manual")
+        val first = RuleFactory.create(RuleType.MANUAL)
+        val second = RuleFactory.create(RuleType.MANUAL)
         assertTrue(Regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$").matches(first.id))
         assertNotEquals(first.id, second.id)
         assertTrue(first.triggers.isEmpty())
         assertTrue(first.conditions.isEmpty())
-        assertFailsWith<IllegalArgumentException> { RuleFactory.create("other") }
+        assertFailsWith<IllegalArgumentException> { RuleJson.decode("""{"formatVersion":2,"rules":[{"id":"x","type":"other"}]}""") }
     }
 
     @Test
@@ -87,7 +87,7 @@ class EngineCoreTest {
     fun validatorChecksManualShapeAndRequiredParameters() {
         val registry = ComponentRegistry()
         BuiltInActions.registerInto(registry)
-        val rule = RuleFactory.create("manual", "通知").copy(
+        val rule = RuleFactory.create(RuleType.MANUAL, "通知").copy(
             actions = listOf(RuleComponent("action.post_notification", emptyMap())),
             triggers = listOf(RuleComponent("trigger.any")),
         )
@@ -124,12 +124,12 @@ class EngineCoreTest {
         )
 
         val continueResult = runSuspend {
-            executor.run(RuleFactory.create("manual", "continue").copy(actions = listOf(
-                RuleComponent("action.first", onError = "continue"), RuleComponent("action.second"),
+            executor.run(RuleFactory.create(RuleType.MANUAL, "continue").copy(actions = listOf(
+                RuleComponent("action.first", onError = OnError.CONTINUE), RuleComponent("action.second"),
             )), "manual")
         }
         val stopResult = runSuspend {
-            executor.run(RuleFactory.create("manual", "stop").copy(actions = listOf(
+            executor.run(RuleFactory.create(RuleType.MANUAL, "stop").copy(actions = listOf(
                 RuleComponent("action.first"), RuleComponent("action.second"),
             )), "manual")
         }

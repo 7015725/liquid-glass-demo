@@ -9,8 +9,19 @@ object BuiltInComponents {
         default: String = "",
         type: ParamType = ParamType.TEXT,
         required: Boolean = false,
-        options: List<String> = emptyList(),
-    ) = ParamSpec(key, label, type, required, JsonPrimitive(default), options)
+        options: List<ParamOption> = emptyList(),
+    ) = ParamSpec(key, label, type, required, when (type) {
+        ParamType.PERCENTAGE -> JsonPrimitive(default.removeSuffix("%").toInt())
+        ParamType.TIME_RANGE -> kotlinx.serialization.json.buildJsonObject {
+            put("from", JsonPrimitive("08:00")); put("to", JsonPrimitive("22:00"))
+        }
+        ParamType.INT_RANGE -> kotlinx.serialization.json.buildJsonObject {
+            put("min", JsonPrimitive(20)); put("max", JsonPrimitive(80))
+        }
+        else -> JsonPrimitive(default)
+    }, options, minValue = if (type == ParamType.INT_RANGE) 0 else null,
+        maxValue = if (type == ParamType.INT_RANGE) 100 else null,
+        suffix = if (type == ParamType.INT_RANGE) "%" else "")
 
     val triggers = listOf(
         ComponentMeta("trigger.time", "时间", "定时", ComponentKind.TRIGGER,
@@ -24,7 +35,7 @@ object BuiltInComponents {
         ComponentMeta("trigger.battery_low", "电量低于", "设备", ComponentKind.TRIGGER,
             listOf(param("threshold", "电量", "20%", ParamType.PERCENTAGE))),
         ComponentMeta("trigger.charging", "充电状态", "设备", ComponentKind.TRIGGER,
-            listOf(param("state", "状态", "开始充电", ParamType.ENUM, options = listOf("开始充电", "停止充电")))),
+            listOf(param("state", "状态", "charging", ParamType.ENUM, options = listOf(ParamOption("charging", "开始充电"), ParamOption("stopped", "停止充电"))))),
         ComponentMeta("trigger.bluetooth_connected", "蓝牙连接", "网络", ComponentKind.TRIGGER,
             listOf(param("name", "设备名称", "耳机")), permissions = listOf("bluetooth_connect")),
         ComponentMeta("trigger.wifi_changed", "WiFi 连接/断开", "网络", ComponentKind.TRIGGER,
@@ -37,18 +48,18 @@ object BuiltInComponents {
 
     val conditions = listOf(
         ComponentMeta("condition.time_range", "时间段", "定时", ComponentKind.CONDITION,
-            listOf(param("range", "时间范围", "08:00–22:00", ParamType.TIME))),
+            listOf(param("range", "时间范围", "08:00–22:00", ParamType.TIME_RANGE))),
         ComponentMeta("condition.weekday", "星期", "定时", ComponentKind.CONDITION,
-            listOf(param("days", "星期", "工作日", ParamType.ENUM, options = listOf("每天", "工作日", "周末")))),
+            listOf(param("days", "星期", "workday", ParamType.ENUM, options = listOf(ParamOption("everyday", "每天"), ParamOption("workday", "工作日"), ParamOption("weekend", "周末"))))),
         ComponentMeta("condition.battery_range", "电量范围", "设备", ComponentKind.CONDITION,
-            // A range must use the text editor, not the scalar percentage slider.
-            listOf(param("range", "电量范围", "20%–80%", ParamType.TEXT))),
+            // A range keeps both numeric endpoints and uses the range text editor.
+            listOf(param("range", "电量范围", "20%–80%", ParamType.INT_RANGE))),
         ComponentMeta("condition.network_type", "网络类型", "网络", ComponentKind.CONDITION,
-            listOf(param("network", "网络类型", "WiFi", ParamType.ENUM, options = listOf("WiFi", "移动网络", "无网络")))),
+            listOf(param("network", "网络类型", "wifi", ParamType.ENUM, options = listOf(ParamOption("wifi", "WiFi"), ParamOption("mobile", "移动网络"), ParamOption("none", "无网络"))))),
         ComponentMeta("condition.screen_state", "屏幕状态", "设备", ComponentKind.CONDITION,
-            listOf(param("state", "屏幕状态", "已亮屏", ParamType.ENUM, options = listOf("已亮屏", "已熄屏")))),
+            listOf(param("state", "屏幕状态", "on", ParamType.ENUM, options = listOf(ParamOption("on", "已亮屏"), ParamOption("off", "已熄屏"))))),
         ComponentMeta("condition.dnd_state", "勿扰状态", "设备", ComponentKind.CONDITION,
-            listOf(param("state", "勿扰状态", "已关闭", ParamType.ENUM, options = listOf("已开启", "已关闭")))),
+            listOf(param("state", "勿扰状态", "off", ParamType.ENUM, options = listOf(ParamOption("on", "已开启"), ParamOption("off", "已关闭"))))),
     )
 
     val all: List<ComponentMeta> = triggers + conditions + BuiltInActions.metadata

@@ -2,6 +2,10 @@ package com.flowglass.demo.ui
 
 import android.util.AtomicFile
 import com.flowglass.engine.ComponentPresentation
+import com.flowglass.engine.RuleType
+import com.flowglass.engine.RunMode
+import com.flowglass.engine.MatchMode
+import com.flowglass.engine.OnError
 import com.flowglass.engine.LegacyCommandMigration
 import com.flowglass.engine.Rule as EngineRule
 import com.flowglass.engine.RuleComponent
@@ -31,7 +35,7 @@ class RuleDocumentRoundTripTest {
 
     @Test fun knownParameterKeyWinsOverExtensionOrder() {
         val document = document(RuleComponent("action.delay", linkedMapOf(
-            "extension" to JsonPrimitive("KEEP"), "duration" to JsonPrimitive("1 秒"),
+            "extension" to JsonPrimitive("KEEP"), "duration" to JsonPrimitive(1000),
         )))
         val store = open(document)
         val state = requireNotNull(store.load().saved)
@@ -55,16 +59,16 @@ class RuleDocumentRoundTripTest {
             RuleJson.format.parseToJsonElement("[1,false,null,{\"x\":2}]"),
             RuleJson.format.parseToJsonElement("{\"nested\":[true,3]}"), JsonPrimitive(""),
         )
-        val actions = values.map { RuleComponent("action.copy_clipboard", mapOf("text" to it), onError = "continue") } +
-            RuleComponent("action.post_notification", mapOf("title" to JsonPrimitive(false), "content" to values[3])) +
+        val actions = values.map { RuleComponent("action.copy_clipboard", mapOf("text" to JsonPrimitive("保留"), "extension" to it), onError = OnError.CONTINUE) } +
+            RuleComponent("action.post_notification", mapOf("title" to JsonPrimitive("标题"), "content" to JsonPrimitive("正文"), "extension" to values[3])) +
             RuleComponent("legacy.unknown", mapOf("raw" to values[4]))
         val original = document(actions.first()).let { base -> base.copy(
             rules = listOf(base.rules.single().copy(
-                type = "auto", runMode = "queue",
-                triggerMatch = com.flowglass.engine.MatchSpec(mode = "custom", atLeast = 1, windowSeconds = 37),
-                conditionMatch = com.flowglass.engine.MatchSpec(mode = "all", windowSeconds = 91),
-                triggers = listOf(RuleComponent("trigger.time", mapOf("time" to values[4]))),
-                conditions = listOf(RuleComponent("condition.weekday", mapOf("days" to values[3]))),
+                type = RuleType.AUTO, runMode = RunMode.QUEUE,
+                triggerMatch = com.flowglass.engine.MatchSpec(mode = MatchMode.CUSTOM, atLeast = 1, windowSeconds = 37),
+                conditionMatch = com.flowglass.engine.MatchSpec(mode = MatchMode.ALL, windowSeconds = 91),
+                triggers = listOf(RuleComponent("trigger.time", mapOf("time" to JsonPrimitive("08:00"), "extension" to values[4]))),
+                conditions = listOf(RuleComponent("condition.weekday", mapOf("days" to JsonPrimitive("workday"), "extension" to values[3]))),
                 locals = listOf(com.flowglass.engine.LocalVariable("payload", "object", values[4], true)),
                 actions = actions,
             )),
@@ -86,9 +90,9 @@ class RuleDocumentRoundTripTest {
 
     @Test fun editingNotificationBodyKeepsUntouchedTypedTitleAndExtensions() {
         val action = RuleComponent("action.post_notification", mapOf(
-            "title" to JsonPrimitive(false), "content" to JsonPrimitive("old body"),
+            "title" to JsonPrimitive("false"), "content" to JsonPrimitive("old body"),
             "extension" to RuleJson.format.parseToJsonElement("{\"keep\":[1,null]}"),
-        ), "retry")
+        ), OnError.RETRY)
         val original = document(action)
         val store = open(original)
         val app = store.load().appState()
@@ -100,8 +104,9 @@ class RuleDocumentRoundTripTest {
 
     @Test fun editingNotificationTitleKeepsUntouchedStructuredBody() {
         val action = RuleComponent("action.post_notification", mapOf(
-            "title" to JsonPrimitive("old title"), "content" to RuleJson.format.parseToJsonElement("[1,false,null]"),
-        ), "continue")
+            "title" to JsonPrimitive("old title"), "content" to JsonPrimitive("[1,false,null]"),
+            "extension" to RuleJson.format.parseToJsonElement("[1,false,null]"),
+        ), OnError.CONTINUE)
         val store = open(document(action))
         val app = store.load().appState()
         val command = app.oneTaps.single()
@@ -125,15 +130,15 @@ class RuleDocumentRoundTripTest {
     }
 
     @Test fun editingOneParameterAfterReorderingKeepsOtherJsonAndRuleFields() {
-        val untouched = RuleComponent("action.copy_clipboard", mapOf("text" to JsonPrimitive(false)), "continue")
+        val untouched = RuleComponent("action.copy_clipboard", mapOf("text" to JsonPrimitive("false"), "extension" to JsonPrimitive(false)), OnError.CONTINUE)
         val edited = RuleComponent("action.delay", mapOf(
             "duration" to JsonPrimitive(1), "extension" to RuleJson.format.parseToJsonElement("{\"keep\":[true,null]}"),
-        ), "retry")
+        ), OnError.RETRY)
         val base = document(untouched)
         val rule = base.rules.single().copy(
-            runMode = "queue", actions = listOf(untouched, edited),
+            runMode = RunMode.QUEUE, actions = listOf(untouched, edited),
             triggerMatch = com.flowglass.engine.MatchSpec(windowSeconds = 17),
-            conditionMatch = com.flowglass.engine.MatchSpec(mode = "all", windowSeconds = 29),
+            conditionMatch = com.flowglass.engine.MatchSpec(mode = MatchMode.ALL, windowSeconds = 29),
             locals = listOf(com.flowglass.engine.LocalVariable("n", "integer", JsonPrimitive(7))),
         )
         val store = open(base.copy(rules = listOf(rule), ui = RuleUiMetadata()))
@@ -144,7 +149,7 @@ class RuleDocumentRoundTripTest {
         app.setTitle(command.id, "改名")
         store.save(app.snapshot())
         val expected = rule.copy(name = "改名", actions = listOf(
-            edited.copy(params = edited.params + ("duration" to JsonPrimitive("2 秒"))), untouched,
+            edited.copy(params = edited.params + ("duration" to JsonPrimitive(2000))), untouched,
         ))
         assertEquals(expected, readDocument().rules.single())
         val reloaded = CommandStore(file)
@@ -163,10 +168,10 @@ class RuleDocumentRoundTripTest {
     }
 
     private fun document(action: RuleComponent, sidecarParameter: String = "stale") = RuleDocument(
-        rules = listOf(EngineRule(id = ruleId, name = "往返", type = "manual", actions = listOf(action))),
+        rules = listOf(EngineRule(id = ruleId, name = "往返", type = RuleType.MANUAL, actions = listOf(action))),
         ui = RuleUiMetadata(presentation = mapOf(ruleId to RulePresentation(
             legacyId = 1,
-            actions = listOf(ComponentPresentation(2, "任务", sidecarParameter, "Bolt")),
+            actions = listOf(ComponentPresentation(2, "Bolt")),
         ))),
     )
 

@@ -89,6 +89,7 @@ internal class StoredStateSession(
         val snapshot = state.snapshot()
         queue.submit {
             val error = try { store.save(snapshot); null }
+            catch (invalid: IllegalArgumentException) { "参数无效：${invalid.message.orEmpty()}；原存档已保留，请修正后保存。" }
             catch (_: Exception) { "本地保存失败，请检查可用空间；修改尚未保存。" }
             storageCallbacks.launch { state.storageError = error }
         }

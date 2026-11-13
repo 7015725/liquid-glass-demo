@@ -43,7 +43,7 @@ internal fun ActionParameterEditor(section: CommandSection, item: CommandItem,
             return
         }
         section == CommandSection.ACTIONS && parameter?.type == com.flowglass.engine.ParamType.TRI_STATE -> {
-            val choices = listOf("开启", "关闭", "切换")
+            val choices = parameter.options.map { it.label }
             Box(Modifier.fillMaxWidth().clip(RoundedRectangle(22.dp))) {
                 SegmentedSelector(choices.map { item.ic to it }, choices.indexOf(item.parameter)) { onParameter(choices[it]) }
             }
@@ -57,7 +57,7 @@ internal fun ActionParameterEditor(section: CommandSection, item: CommandItem,
             ApplicationParameterPicker(item, onParameter)
         }
         parameter?.type == com.flowglass.engine.ParamType.ENUM -> {
-            val choices = parameter.options
+            val choices = parameter.options.map { it.label }
             if (choices.isNotEmpty()) {
                 SegmentedSelector(choices.map { item.ic to it }, choices.indexOf(item.parameter).coerceAtLeast(0)) {
                     onParameter(choices[it])
@@ -79,7 +79,7 @@ internal fun ActionParameterEditor(section: CommandSection, item: CommandItem,
             if (hint != null) {
                 T(hint, 13.sp, color = C.OnSurfaceVar, lineHeight = 20.sp, modifier = Modifier.testTag("parameter-help"))
             } else {
-                val default = (parameter?.defaultValue as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+                val default = parameter?.let { com.flowglass.engine.ParameterCodec.format(it, it.defaultValue) }.orEmpty()
                 if (default.isNotEmpty()) T("示例：$default", 13.sp, color = C.OnSurfaceVar,
                     lineHeight = 20.sp, modifier = Modifier.testTag("parameter-help"))
             }

@@ -37,15 +37,15 @@ class LegacyCommandMigrationTest {
         val rule = document.rules.single()
 
         assertEquals(2, document.formatVersion)
-        assertEquals("auto", rule.type)
+        assertEquals(RuleType.AUTO, rule.type)
         assertEquals("夜间自动静音", rule.name)
         assertEquals("保留描述", rule.description)
         assertEquals("action.set_brightness", rule.actions[0].type)
-        assertEquals("10%", rule.actions[0].params["value"].toString().trim('"'))
+        assertEquals(JsonPrimitive(10), rule.actions[0].params["value"])
         assertEquals("legacy.unknown", rule.actions[1].type)
         assertTrue(rule.actions[1].params["raw"].toString().contains("未知动作"))
         assertTrue(rule.enabled)
-        assertEquals("drop", rule.runMode)
+        assertEquals(RunMode.DROP, rule.runMode)
         assertTrue(Regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$").matches(rule.id))
         assertTrue(rule.id != LegacyCommandMigration.uuidForLegacyId(2L))
     }

@@ -47,13 +47,18 @@ class LegacyAliasCompatibilityTest {
     }
 
     @Test fun editedParametersAreNeverReplacedByAliasDefaults() {
-        aliases.forEach { assertMapped(it, it.title, "用户参数 | 保留\n第二行", "用户参数 | 保留\n第二行") }
+        aliases.forEach { alias ->
+            val value = "用户参数 | 保留\n第二行"
+            if (alias.type == "action.root_shell") assertMapped(alias, alias.title, value, value)
+            else assertUnknown(load(alias.commandId, alias.title, alias.oldName, value), alias.oldName, value)
+        }
     }
 
     @Test fun whitespaceParametersRemainByteForByteUnchanged() {
         aliases.forEach { alias ->
             listOf(" ", "\t\n", "\u3000").forEach { whitespace ->
-                assertMapped(alias, alias.title, whitespace, whitespace)
+                if (alias.type == "action.root_shell") assertMapped(alias, alias.title, whitespace, whitespace)
+                else assertUnknown(load(alias.commandId, alias.title, alias.oldName, whitespace), alias.oldName, whitespace)
             }
         }
     }
@@ -98,8 +103,10 @@ class LegacyAliasCompatibilityTest {
     @Test fun canonicalActionWithEmptyParameterDoesNotReceiveAnAliasDefault() {
         aliases.forEach { alias ->
             val saved = load(alias.commandId, alias.title, alias.name, "")
-            assertEquals(alias.type, saved.engineRules.single().actions.single().type)
-            assertEquals(JsonPrimitive(""), saved.engineRules.single().actions.single().params[alias.parameterKey])
+            if (alias.type == "action.root_shell") {
+                assertEquals(alias.type, saved.engineRules.single().actions.single().type)
+                assertEquals(JsonPrimitive(""), saved.engineRules.single().actions.single().params[alias.parameterKey])
+            } else assertUnknown(saved, alias.name, "")
             assertEquals("", commands(saved).single().actions.single().parameter)
         }
     }
@@ -115,7 +122,12 @@ class LegacyAliasCompatibilityTest {
         assertEquals(context, alias.type, action.typeId)
         assertEquals(context, expected, action.parameter)
         assertEquals(context, alias.type, typed.type)
-        assertEquals(context, JsonPrimitive(expected), typed.params[alias.parameterKey])
+        val canonical = when (alias.parameterKey) {
+            "mode" -> JsonPrimitive(if (expected == "开启") "on" else "off")
+            "value" -> JsonPrimitive(expected.removeSuffix("%").toInt())
+            else -> JsonPrimitive(expected)
+        }
+        assertEquals(context, canonical, typed.params[alias.parameterKey])
     }
 
     private fun assertUnknown(saved: PersistedAppState, name: String, parameter: String) {

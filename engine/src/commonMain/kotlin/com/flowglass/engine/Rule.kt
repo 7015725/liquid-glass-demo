@@ -1,6 +1,7 @@
 package com.flowglass.engine
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -15,8 +16,36 @@ internal fun newIdString(): String {
 }
 
 @Serializable
+enum class RuleType {
+    @SerialName("auto") AUTO,
+    @SerialName("manual") MANUAL,
+}
+
+@Serializable
+enum class RunMode {
+    @SerialName("drop") DROP,
+    @SerialName("queue") QUEUE,
+    @SerialName("restart") RESTART,
+    @SerialName("parallel") PARALLEL,
+}
+
+@Serializable
+enum class MatchMode {
+    @SerialName("all") ALL,
+    @SerialName("any") ANY,
+    @SerialName("custom") CUSTOM,
+}
+
+@Serializable
+enum class OnError {
+    @SerialName("stop") STOP,
+    @SerialName("continue") CONTINUE,
+    @SerialName("retry") RETRY,
+}
+
+@Serializable
 data class MatchSpec(
-    val mode: String = "any",
+    val mode: MatchMode = MatchMode.ANY,
     val windowSeconds: Int = 60,
     val atLeast: Int? = null,
     val tree: MatchNode? = null,
@@ -34,9 +63,9 @@ data class Rule(
     val id: String,
     val name: String = "",
     val description: String = "",
-    val type: String = "auto",
+    val type: RuleType = RuleType.AUTO,
     val enabled: Boolean = false,
-    val runMode: String = "drop",
+    val runMode: RunMode = RunMode.DROP,
     val triggerMatch: MatchSpec = MatchSpec(),
     val triggers: List<RuleComponent> = emptyList(),
     val conditionMatch: MatchSpec = MatchSpec(),
@@ -103,8 +132,7 @@ data class PersistedLogStep(
 )
 
 object RuleFactory {
-    fun create(type: String, name: String = ""): Rule {
-        require(type == "auto" || type == "manual") { "规则类型必须为 auto 或 manual" }
+    fun create(type: RuleType, name: String = ""): Rule {
         return Rule(id = newIdString(), type = type, name = name)
     }
 }
@@ -118,13 +146,14 @@ object RuleJson {
 
     fun encode(document: RuleDocument): String {
         require(document.formatVersion == CURRENT_FORMAT_VERSION) { "不支持的格式版本" }
+        ParameterCodec.validateDocument(document)
         return format.encodeToString(document)
     }
 
     fun decode(text: String): RuleDocument {
         val document = format.decodeFromString<RuleDocument>(text)
         require(document.formatVersion == CURRENT_FORMAT_VERSION) { "不支持的格式版本 ${document.formatVersion}" }
-        require(document.rules.all { it.type == "auto" || it.type == "manual" }) { "规则类型必须为 auto 或 manual" }
+        ParameterCodec.validateDocument(document)
         return document
     }
 }

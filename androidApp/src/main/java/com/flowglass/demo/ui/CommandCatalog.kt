@@ -2,7 +2,10 @@ package com.flowglass.demo.ui
 
 enum class CommandSection { TRIGGERS, CONDITIONS, ACTIONS }
 data class CommandItem(val id: Long, val name: String, val parameter: String, val ic: Ic, val typeId: String? = null) {
-    val display: String get() = if (parameter.isEmpty()) name else "$name：$parameter"
+    val display: String get() {
+        val text = if (typeId == "action.post_notification" && parameter.startsWith('|')) parameter.substring(1) else parameter
+        return if (text.isEmpty()) name else "$name：$text"
+    }
     override fun toString() = display
 }
 data class CommandOption(
@@ -42,8 +45,8 @@ object CommandCatalog {
     private val registry = com.flowglass.engine.BuiltInComponents.registry()
     private val optionsByKind = registry.all().groupBy { it.kind }
         .mapValues { (_, metas) -> metas.map { meta ->
-            val default = meta.params.firstOrNull()?.defaultValue
-                ?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }.orEmpty()
+            val default = com.flowglass.engine.ParameterCodec.formatComponent(meta,
+                meta.params.associate { it.key to it.defaultValue })
             CommandOption(
                 name = meta.name,
                 ic = icon(meta.typeId),

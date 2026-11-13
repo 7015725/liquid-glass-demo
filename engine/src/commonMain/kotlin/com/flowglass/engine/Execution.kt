@@ -66,7 +66,6 @@ class RuleExecutor(
 ) {
     suspend fun run(rule: Rule, reason: String): RunLog {
         cancellationCheckpoint.ensureActive()
-        require(rule.type == "auto" || rule.type == "manual") { "规则类型必须为 auto 或 manual" }
         val start = clock.nowEpochMs()
         val monotonicStart = kotlin.time.TimeSource.Monotonic.markNow()
         val steps = mutableListOf<StepResult>()

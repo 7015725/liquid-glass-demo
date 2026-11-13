@@ -44,7 +44,7 @@ class CommandStoreMigrationTest {
         assertEquals("用户改过的标题", rule.name)
         assertEquals("用户改过的说明", rule.description)
         assertEquals("action.set_brightness", rule.actions[0].type)
-        assertEquals("37%", rule.actions[0].params.getValue("value").toString().trim('"'))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(37), rule.actions[0].params["value"])
         assertEquals("legacy.unknown", rule.actions[1].type)
         assertEquals("自建任务：原始参数 | 保留", rule.actions[1].params.getValue("raw").toString().trim('"'))
     }
@@ -100,8 +100,8 @@ class CommandStoreMigrationTest {
 
         val action = requireNotNull(CommandStore(file).load().saved).engineRules.single().actions.single()
 
-        assertEquals("action.delay", action.type)
-        assertEquals("\"\"", action.params.getValue("duration").toString())
+        assertEquals("legacy.unknown", action.type)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(""), action.params["parameter"])
     }
 
     @Test fun v2FileIsLoadedWithoutRemigrationOrBackup() {
