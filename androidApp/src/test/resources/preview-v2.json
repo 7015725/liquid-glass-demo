@@ -1,0 +1,89 @@
+{
+  "formatVersion": 2,
+  "rules": [
+    {
+      "id": "0d6c1c1e-1111-4222-8333-444455556666",
+      "name": "到公司自动连 WiFi",
+      "description": "工作日到达公司附近时，打开 WiFi 并调节亮度",
+      "type": "auto",
+      "enabled": true,
+      "runMode": "drop",
+      "triggerMatch": {"mode": "any", "windowSeconds": 60, "atLeast": null, "tree": null},
+      "triggers": [
+        {"type": "trigger.location_enter", "params": {"place": "公司"}, "onError": "stop"}
+      ],
+      "conditionMatch": {"mode": "all", "windowSeconds": 60, "atLeast": null, "tree": null},
+      "conditions": [],
+      "actions": [
+        {"type": "action.wifi_switch", "params": {"mode": "开启"}, "onError": "stop"},
+        {"type": "action.set_brightness", "params": {"value": "10%"}, "onError": "stop"}
+      ],
+      "locals": []
+    },
+    {
+      "id": "0d6c1c1e-2222-4333-8444-555566667777",
+      "name": "一键省电",
+      "description": "降低亮度",
+      "type": "manual",
+      "enabled": true,
+      "runMode": "drop",
+      "triggerMatch": {"mode": "any", "windowSeconds": 60, "atLeast": null, "tree": null},
+      "triggers": [],
+      "conditionMatch": {"mode": "all", "windowSeconds": 60, "atLeast": null, "tree": null},
+      "conditions": [],
+      "actions": [
+        {"type": "action.set_brightness", "params": {"value": "30%"}, "onError": "stop"}
+      ],
+      "locals": []
+    }
+  ],
+  "ui": {
+    "running": true,
+    "mode": 1,
+    "logs": [
+      {
+        "id": 1001,
+        "title": "一键省电",
+        "reason": "手动执行",
+        "time": "08:12",
+        "ok": true,
+        "icon": "Leaf",
+        "detail": "",
+        "steps": [
+          {"itemId": 1004, "name": "调节亮度", "status": "SUCCESS", "detail": "完成", "durationMs": 12}
+        ]
+      }
+    ],
+    "presentation": {
+      "0d6c1c1e-1111-4222-8333-444455556666": {
+        "category": 4,
+        "icon": "Location",
+        "pinned": true,
+        "lastRun": "08:56",
+        "descriptionEdited": true,
+        "legacyId": 1,
+        "triggers": [
+          {"id": 1000, "name": "进入地点", "parameter": "公司", "icon": "Location"}
+        ],
+        "conditions": [],
+        "actions": [
+          {"id": 1002, "name": "开关 WiFi", "parameter": "开启", "icon": "Wifi"},
+          {"id": 1003, "name": "调节亮度", "parameter": "10%", "icon": "Gauge"}
+        ]
+      },
+      "0d6c1c1e-2222-4333-8444-555566667777": {
+        "category": 0,
+        "icon": "Leaf",
+        "pinned": false,
+        "lastRun": "08:12",
+        "descriptionEdited": true,
+        "legacyId": 101,
+        "triggers": [],
+        "conditions": [],
+        "actions": [
+          {"id": 1004, "name": "调节亮度", "parameter": "30%", "icon": "Gauge"}
+        ]
+      }
+    }
+  }
+}

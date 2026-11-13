@@ -38,9 +38,11 @@ internal class CommandStore(private val file: File) {
                 }
                 StoreLoad(decoded.state)
             }
-        } catch (_: Exception) {
+        } catch (error: Exception) {
             blocked = true
-            StoreLoad(null, "本地数据读取失败，原文件已保留；为避免覆盖，暂不保存修改。")
+            // 带上简短原因，现场反馈截图即可定位是哪一类解码失败；不含路径与堆栈。
+            val reason = error.message?.replace('\n', ' ')?.take(80)?.takeIf { it.isNotBlank() }
+            StoreLoad(null, "本地数据读取失败${reason?.let { "（$it）" }.orEmpty()}，原文件已保留；为避免覆盖，暂不保存修改。")
         }
     }
 

@@ -148,7 +148,10 @@ internal object AppStateJson {
         val root = reader.nextValue() as? JSONObject ?: error("存储内容不是对象")
         require(reader.nextClean() == '\u0000') { "存储内容含多余数据" }
         return if (root.has("formatVersion")) {
-            Decoded(RuleJson.decode(text).toPersistedAppState(), migrated = false)
+            if (PreviewV2Migration.looksLikePreview(root)) {
+                // Pre-release 0.6.0-alpha1 bytes: same formatVersion, old presentation sidecar.
+                Decoded(LegacyCommandMigration.migrate(PreviewV2Migration.toLegacyJson(root)).toPersistedAppState(), migrated = true)
+            } else Decoded(RuleJson.decode(text).toPersistedAppState(), migrated = false)
         } else {
             val document = LegacyCommandMigration.migrate(text)
             Decoded(document.toPersistedAppState(), migrated = true)
