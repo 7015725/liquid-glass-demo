@@ -20,7 +20,7 @@ import com.flowglass.engine.RulePresentation
 import com.flowglass.engine.RuleUiMetadata
 import kotlinx.serialization.json.JsonPrimitive
 
-internal fun PersistedAppState.toRuleDocument(): RuleDocument = RuleDocument(
+internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Boolean = true): RuleDocument = RuleDocument(
     rules = (autoCmds + oneTaps).map { command ->
         val oldRuleId = engineUi.presentation.entries.firstOrNull { it.value.legacyId == command.id }?.key
         val oldRule = engineRules.firstOrNull { it.id == oldRuleId }
@@ -51,8 +51,12 @@ internal fun PersistedAppState.toRuleDocument(): RuleDocument = RuleDocument(
             triggerMatch = oldRule?.triggerMatch ?: com.flowglass.engine.MatchSpec(mode = MatchMode.ANY),
             conditionMatch = oldRule?.conditionMatch ?: com.flowglass.engine.MatchSpec(mode = MatchMode.ALL),
             locals = oldRule?.locals.orEmpty(),
-            triggers = prior(command.triggers, ComponentKind.TRIGGER, oldRule?.triggers.orEmpty(), oldPresentation?.triggers.orEmpty()),
-            conditions = prior(command.conditions, ComponentKind.CONDITION, oldRule?.conditions.orEmpty(), oldPresentation?.conditions.orEmpty()),
+            triggers = if (includeTriggersAndConditions) {
+                prior(command.triggers, ComponentKind.TRIGGER, oldRule?.triggers.orEmpty(), oldPresentation?.triggers.orEmpty())
+            } else emptyList(),
+            conditions = if (includeTriggersAndConditions) {
+                prior(command.conditions, ComponentKind.CONDITION, oldRule?.conditions.orEmpty(), oldPresentation?.conditions.orEmpty())
+            } else emptyList(),
             actions = prior(command.actions, ComponentKind.ACTION, oldRule?.actions.orEmpty(), oldPresentation?.actions.orEmpty()),
         )
     },

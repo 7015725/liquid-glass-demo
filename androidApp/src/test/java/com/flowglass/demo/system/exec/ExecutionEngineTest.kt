@@ -67,6 +67,28 @@ class ExecutionEngineTest {
         assertEquals(StepStatus.SKIPPED, injected.steps.single().status)
     }
 
+    @Test fun manualRunSkipsInvalidTriggersAndConditions() = runTest {
+        val invoked = mutableListOf<Long>()
+        val command = Cmd(
+            id = 703,
+            auto = true,
+            ic = Ic.Bolt,
+            title = "手动测试自动指令",
+            desc = "",
+            triggers = listOf(CommandItem(10, "时间", "不是合法时刻", Ic.Clock, "trigger.time")),
+            conditions = listOf(CommandItem(11, "时间段", "不是合法时间段", Ic.Clock, "condition.time_range")),
+            actions = listOf(CommandItem(12, "复制到剪贴板", "手动测试内容", Ic.Copy, "action.copy_clipboard")),
+        )
+        val result = ExecutionEngine(RuntimeEnvironment.getApplication()) { _, task ->
+            invoked += task.id
+            TaskOutcome(StepStatus.SUCCESS, "完成")
+        }.run(command, "手动测试")
+
+        assertEquals(listOf(12L), invoked)
+        assertTrue(result.ok)
+        assertEquals(listOf(StepStatus.SUCCESS), result.steps.map { it.status })
+    }
+
     @Test fun aRepeatedInstructionIsIgnoredUntilTheFirstRunFinishes() = runTest {
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()

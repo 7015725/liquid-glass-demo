@@ -46,7 +46,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
             mode = 1,
         )
         val document = try {
-            state.toRuleDocument()
+            state.toRuleDocument(includeTriggersAndConditions = false)
         } catch (invalid: IllegalArgumentException) {
             return RunResult(cmd.id, reason, listOf(StepResult(cmd.id, "参数校验", StepStatus.FAILURE,
                 "参数无效：${invalid.message.orEmpty()}", 0)), 0)
