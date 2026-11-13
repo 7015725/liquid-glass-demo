@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "autoCmds": [{
+    "id": 10, "auto": true, "ic": "Clock", "title": "保留的自动指令", "desc": "用户说明：不丢失",
+    "descriptionEdited": true,
+    "triggers": [{"id": 1000, "name": "时间", "parameter": "08:00", "ic": "Clock"}],
+    "conditions": [],
+    "actions": [{"id": 1001, "name": "复制到剪贴板", "parameter": "原文\n第二行", "ic": "Copy"}],
+    "category": 2, "enabled": false, "pinned": true, "lastRun": "昨天"
+  }],
+  "oneTaps": [{
+    "id": 101, "auto": false, "ic": "Tap", "title": "保留的一键指令", "desc": "手动说明",
+    "descriptionEdited": true, "triggers": [], "conditions": [],
+    "actions": [{"id": 1002, "name": "调节亮度", "parameter": "30%", "ic": "Gauge"}],
+    "category": 0, "enabled": true, "pinned": false, "lastRun": "08:12"
+  }],
+  "logs": [
+    {"id": -1, "title": "验证码自动复制", "reason": "通知触发", "time": "21:47", "ok": true, "ic": "Bell"},
+    {"id": -2, "title": "一键省电", "reason": "手动执行", "time": "20:15", "ok": true, "ic": "Leaf"},
+    {"id": -3, "title": "断网自动重连", "reason": "WiFi 断开", "time": "18:02", "ok": false, "ic": "Wifi"},
+    {"id": -4, "title": "到公司自动连 WiFi", "reason": "进入地点", "time": "08:56", "ok": true, "ic": "Location"}
+  ],
+  "running": true,
+  "mode": 1
+}

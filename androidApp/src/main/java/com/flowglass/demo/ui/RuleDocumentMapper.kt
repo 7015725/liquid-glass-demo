@@ -102,13 +102,23 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
         "一键指令不能包含触发器或条件"
     }
     require(metadata.presentation.values.all { it.category in 0..6 }) { "指令分类无效" }
-    // Command/item/log IDs declare identities. Step IDs only reference them and may repeat.
-    val declaredIds = metadata.logs.map { it.id } + metadata.presentation.values.flatMap { sidecar ->
-        listOfNotNull(sidecar.legacyId) + (sidecar.triggers + sidecar.conditions + sidecar.actions).map { it.id }
+    val commandIds = metadata.presentation.values.mapNotNull { it.legacyId }
+    require(commandIds.all { it > 0L && it < Long.MAX_VALUE } && commandIds.distinct().size == commandIds.size) {
+        "指令 id 必须为正数、小于 Long.MAX_VALUE 且不重复"
     }
-    require(declaredIds.all { it > 0L && it < Long.MAX_VALUE } && declaredIds.distinct().size == declaredIds.size) {
-        "存储标识无效或重复"
+    val itemIds = metadata.presentation.values.flatMap { it.triggers + it.conditions + it.actions }.map { it.id }
+    val commandIdSet = commandIds.toSet()
+    require(itemIds.all { it > 0L && it < Long.MAX_VALUE && it !in commandIdSet } && itemIds.distinct().size == itemIds.size) {
+        "条目 id 必须为正数、小于 Long.MAX_VALUE、不重复且不与指令 id 冲突"
     }
+    val logIds = metadata.logs.map { it.id }
+    val commandAndItemIds = (commandIds + itemIds).toSet()
+    // Legacy nonpositive log IDs have already been replaced by the migration.
+    // Canonical v2 declarations stay strict; only references may repeat.
+    require(logIds.all { it > 0L && it < Long.MAX_VALUE && it !in commandAndItemIds } && logIds.distinct().size == logIds.size) {
+        "执行记录 id 必须为正数、小于 Long.MAX_VALUE、不重复且不与指令、条目 id 冲突"
+    }
+    val declaredIds = commandIds + itemIds + logIds
     val steps = metadata.logs.flatMap { it.steps }
     require(steps.all { it.itemId > 0L && it.itemId < Long.MAX_VALUE && it.durationMs >= 0L }) {
         "执行记录步骤标识或耗时无效"

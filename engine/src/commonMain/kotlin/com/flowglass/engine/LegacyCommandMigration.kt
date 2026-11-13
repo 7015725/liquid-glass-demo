@@ -75,18 +75,38 @@ object LegacyCommandMigration {
             throw IllegalArgumentException("旧指令文件格式无效", error)
         }
         require(source.version in 1L..2L) { "不支持的旧存储版本 ${source.version}" }
+        val commands = source.autoCmds + source.oneTaps
+        val commandIds = commands.map { it.id }
+        require(commandIds.all { it > 0L && it < Long.MAX_VALUE } && commandIds.distinct().size == commandIds.size) {
+            "旧指令 id 必须为正数、小于 Long.MAX_VALUE 且不重复"
+        }
+        val itemIds = commands.flatMap { it.triggers + it.conditions + it.actions }.map { it.id }
+        val commandIdSet = commandIds.toSet()
+        require(itemIds.all { it > 0L && it < Long.MAX_VALUE && it !in commandIdSet } && itemIds.distinct().size == itemIds.size) {
+            "旧条目 id 必须为正数、小于 Long.MAX_VALUE、不重复且不与指令 id 冲突"
+        }
+        val positiveLogIds = source.logs.map { it.id }.filter { it > 0L }
+        val commandAndItemIds = (commandIds + itemIds).toSet()
+        require(positiveLogIds.all { it < Long.MAX_VALUE && it !in commandAndItemIds } && positiveLogIds.distinct().size == positiveLogIds.size) {
+            "旧执行记录 id 必须小于 Long.MAX_VALUE；正数 id 不得重复或与指令、条目 id 冲突"
+        }
+        val steps = source.logs.flatMap { it.steps }
+        require(steps.all { it.itemId > 0L && it.itemId < Long.MAX_VALUE && it.durationMs >= 0L }) {
+            "执行记录步骤标识或耗时无效"
+        }
+        // Released v0.4.x persisted negative seed log IDs. Only those log identities
+        // are replaced; reserve even references to deleted items before allocating.
+        var maximumId = (commandIds + itemIds + positiveLogIds + steps.map { it.itemId }).maxOrNull() ?: 0L
+        val logs = source.logs.map { log ->
+            val id = if (log.id > 0L) log.id else {
+                require(maximumId < Long.MAX_VALUE - 1L) { "旧执行记录 id 分配失败：正数标识已用尽" }
+                ++maximumId
+            }
+            log.toPersistedLog(id)
+        }
         val migrateSeedAliases = source.version == 1L
         val converted = source.autoCmds.map { it.toRule(true, migrateSeedAliases) } +
             source.oneTaps.map { it.toRule(false, migrateSeedAliases) }
-        val legacyIds = source.autoCmds.flatMap { it.allIds() } +
-            source.oneTaps.flatMap { it.allIds() } +
-            source.logs.map { it.id }
-        require(legacyIds.all { it > 0L && it < Long.MAX_VALUE } && legacyIds.distinct().size == legacyIds.size) {
-            "旧存储标识无效或重复"
-        }
-        require(source.logs.flatMap { log -> log.steps }.all { it.itemId > 0L && it.durationMs >= 0L }) {
-            "执行记录步骤标识或耗时无效"
-        }
         require(source.mode in 0L..2L) { "运行模式无效" }
         return RuleDocument(
             formatVersion = CURRENT_FORMAT_VERSION,
@@ -94,16 +114,13 @@ object LegacyCommandMigration {
             ui = RuleUiMetadata(
                 running = source.running,
                 mode = source.mode.toInt(),
-                logs = source.logs.map { it.toPersistedLog() },
+                logs = logs,
                 presentation = converted.associate { it.first.id to it.second },
             ),
         )
     }
 
     fun uuidForLegacyId(id: Long): String = legacyUuid(id)
-
-    private fun LegacyCommand.allIds(): List<Long> = listOf(id) +
-        (triggers + conditions + actions).map { it.id }
 
     private fun LegacyCommand.toRule(auto: Boolean, migrateSeedAliases: Boolean): Pair<Rule, RulePresentation> {
         require(this.auto == auto) { "旧指令类型与所在列表不一致" }
@@ -180,7 +197,7 @@ object LegacyCommandMigration {
         else -> name to parameter
     }
 
-    private fun LegacyLog.toPersistedLog() = PersistedLog(
+    private fun LegacyLog.toPersistedLog(id: Long) = PersistedLog(
         id = id,
         title = title,
         reason = reason,
