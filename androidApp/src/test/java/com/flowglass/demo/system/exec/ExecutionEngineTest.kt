@@ -24,7 +24,7 @@ class ExecutionEngineTest {
         ic = Ic.Bolt,
         title = "引擎测试",
         desc = "",
-        actions = ids.map { CommandItem(it, "任务$it", "", Ic.Bolt) },
+        actions = ids.map { CommandItem(it, "任务$it", "", Ic.Bolt, "action.copy_clipboard") },
     )
 
     @Test fun failureStopsExecutorAndMarksLaterTasksSkipped() = runTest {
@@ -49,6 +49,22 @@ class ExecutionEngineTest {
 
         assertEquals(StepStatus.SKIPPED, result.steps.single().status)
         assertTrue(result.steps.single().detail.contains("暂不支持"))
+    }
+
+    @Test fun injectedExecutorSkipsUnknownTypesJustLikeNativeExecution() = runTest {
+        val invoked = mutableListOf<Long>()
+        val command = command(1).copy(actions = listOf(
+            CommandItem(1, "复制到剪贴板", "must not execute", Ic.Bolt, "future.action"),
+        ))
+        val injected = ExecutionEngine(RuntimeEnvironment.getApplication()) { _, task ->
+            invoked += task.id
+            TaskOutcome(StepStatus.SUCCESS, "should not run")
+        }.run(command, "测试")
+        val native = ExecutionEngine(RuntimeEnvironment.getApplication()).run(command, "测试")
+
+        assertTrue("unknown types must not reach the injected executor", invoked.isEmpty())
+        assertEquals(native.steps, injected.steps)
+        assertEquals(StepStatus.SKIPPED, injected.steps.single().status)
     }
 
     @Test fun aRepeatedInstructionIsIgnoredUntilTheFirstRunFinishes() = runTest {

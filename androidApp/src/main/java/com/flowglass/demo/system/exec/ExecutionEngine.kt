@@ -11,10 +11,9 @@ import com.flowglass.engine.Action
 import com.flowglass.engine.ActionOutcome
 import com.flowglass.engine.BuiltInActions
 import com.flowglass.engine.BuiltInComponents
-import com.flowglass.engine.ComponentRegistry
+import com.flowglass.engine.CancellationCheckpoint
 import com.flowglass.engine.RuleExecutor
 import com.flowglass.engine.StepStatus as EngineStepStatus
-import com.flowglass.engine.Clock
 
 enum class StepStatus { SUCCESS, FAILURE, SKIPPED }
 data class StepResult(val itemId: Long, val name: String, val status: StepStatus, val detail: String, val durationMs: Long)
@@ -32,30 +31,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
         currentCoroutineContext().ensureActive()
         if (!active.add(cmd.id)) return RunResult(cmd.id, reason, emptyList(), 0, ignored = true)
         try {
-            if (executor == null) return runWithRuleExecutor(cmd, reason)
-            val started = System.nanoTime()
-            val steps = mutableListOf<StepResult>()
-            var stopped = false
-            for (task in cmd.actions.toList()) {
-                if (stopped) {
-                    steps += StepResult(task.id, task.name, StepStatus.SKIPPED, "前序任务失败，未执行", 0)
-                    continue
-                }
-                val stepStarted = System.nanoTime()
-                val outcome = try {
-                    executor?.invoke(cmd, task) ?: NativeTasks.run(context, cmd, task)
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    TaskOutcome(StepStatus.FAILURE, error.message?.take(500) ?: "任务执行失败")
-                }
-                currentCoroutineContext().ensureActive()
-                steps += StepResult(task.id, task.name, outcome.status, outcome.detail,
-                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - stepStarted))
-                stopped = outcome.status == StepStatus.FAILURE
-            }
-            return RunResult(cmd.id, reason, steps,
-                java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started))
+            return runWithRuleExecutor(cmd, reason)
         } finally {
             active.remove(cmd.id)
         }
@@ -112,7 +88,11 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
             }
         }
         val startedNanos = System.nanoTime()
-        val log = RuleExecutor(registry, handlers, Clock { System.currentTimeMillis() }).run(rule, reason)
+        val log = RuleExecutor(
+            registry,
+            handlers,
+            CancellationCheckpoint { currentCoroutineContext().ensureActive() },
+        ).run(rule, reason)
         val steps = log.steps.mapIndexed { index, step ->
             val item = cmd.actions.getOrNull(index)
             StepResult(

@@ -75,7 +75,9 @@ object LegacyCommandMigration {
             throw IllegalArgumentException("旧指令文件格式无效", error)
         }
         require(source.version in 1L..2L) { "不支持的旧存储版本 ${source.version}" }
-        val converted = source.autoCmds.map { it.toRule(true) } + source.oneTaps.map { it.toRule(false) }
+        val migrateSeedAliases = source.version == 1L
+        val converted = source.autoCmds.map { it.toRule(true, migrateSeedAliases) } +
+            source.oneTaps.map { it.toRule(false, migrateSeedAliases) }
         val legacyIds = source.autoCmds.flatMap { it.allIds() } +
             source.oneTaps.flatMap { it.allIds() } +
             source.logs.map { it.id }
@@ -103,14 +105,14 @@ object LegacyCommandMigration {
     private fun LegacyCommand.allIds(): List<Long> = listOf(id) +
         (triggers + conditions + actions).map { it.id }
 
-    private fun LegacyCommand.toRule(auto: Boolean): Pair<Rule, RulePresentation> {
+    private fun LegacyCommand.toRule(auto: Boolean, migrateSeedAliases: Boolean): Pair<Rule, RulePresentation> {
         require(this.auto == auto) { "旧指令类型与所在列表不一致" }
         require(auto || (triggers.isEmpty() && conditions.isEmpty())) { "一键指令不能包含触发器或条件" }
         require(category in 0L..6L) { "指令分类无效" }
         val triggerParts = triggers.map { it.toComponent(ComponentKind.TRIGGER) }
         val conditionParts = conditions.map { it.toComponent(ComponentKind.CONDITION) }
         val actionParts = actions.map {
-            it.toComponent(ComponentKind.ACTION, allowSeedAliases = legacySeedAliasTitles[id] == title)
+            it.toComponent(ComponentKind.ACTION, legacyCommandId = id.takeIf { migrateSeedAliases })
         }
         val rule = Rule(
             id = legacyUuid(id),
@@ -141,10 +143,10 @@ object LegacyCommandMigration {
 
     private fun LegacyItem.toComponent(
         kind: ComponentKind,
-        allowSeedAliases: Boolean = false,
+        legacyCommandId: Long? = null,
     ): Pair<RuleComponent, ComponentPresentation> {
-        val (displayName, displayParameter) = if (kind == ComponentKind.ACTION && allowSeedAliases) {
-            migrateKnownAlias(name, parameter)
+        val (displayName, displayParameter) = if (kind == ComponentKind.ACTION && legacyCommandId != null) {
+            migrateKnownAlias(legacyCommandId, name, parameter)
         } else {
             name to parameter
         }
@@ -174,24 +176,17 @@ object LegacyCommandMigration {
         return component to ComponentPresentation(id, displayName, displayParameter, ic)
     }
 
-    private fun migrateKnownAlias(name: String, parameter: String): Pair<String, String> = when (name) {
-        "打开 WiFi" -> "开关 WiFi" to parameter.ifEmpty { "开启" }
-        "开启勿扰", "勿扰模式" -> "开关勿扰" to parameter.ifEmpty { "开启" }
-        "亮度降到 10%" -> "调节亮度" to parameter.ifEmpty { "10%" }
-        "关闭蓝牙" -> "开关蓝牙" to parameter.ifEmpty { "关闭" }
-        "亮度 30%" -> "调节亮度" to parameter.ifEmpty { "30%" }
-        "su -c 脚本" -> "执行 Shell(Root)" to parameter.ifEmpty { "echo 流光" }
+    // v0.5 aliases are exact command/action pairs; the editable title is not identity.
+    private fun migrateKnownAlias(commandId: Long, name: String, parameter: String): Pair<String, String> = when (commandId to name) {
+        1L to "打开 WiFi" -> "开关 WiFi" to parameter.ifEmpty { "开启" }
+        3L to "开启勿扰", 3L to "勿扰模式" -> "开关勿扰" to parameter.ifEmpty { "开启" }
+        3L to "亮度降到 10%" -> "调节亮度" to parameter.ifEmpty { "10%" }
+        4L to "关闭蓝牙" -> "开关蓝牙" to parameter.ifEmpty { "关闭" }
+        101L to "亮度 30%" -> "调节亮度" to parameter.ifEmpty { "30%" }
+        102L to "勿扰模式", 102L to "开启勿扰" -> "开关勿扰" to parameter.ifEmpty { "开启" }
+        107L to "su -c 脚本" -> "执行 Shell(Root)" to parameter.ifEmpty { "echo 流光" }
         else -> name to parameter
     }
-
-    private val legacySeedAliasTitles = mapOf(
-        1L to "到公司自动连 WiFi",
-        3L to "夜间自动静音",
-        4L to "低电量省电",
-        101L to "一键省电",
-        102L to "一键勿扰",
-        107L to "执行脚本",
-    )
 
     private fun mapParameter(type: String, value: String): Map<String, JsonElement> {
         if (type == "action.post_notification") {

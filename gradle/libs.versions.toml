@@ -9,8 +9,8 @@ kyantShapes = "1.2.1"
 graphicsShapes = "1.0.1"
 serialization = "1.13.0"
 junit = "4.13.2"
-coroutinesTest = "1.10.2"
-robolectric = "4.15.1"
+coroutinesTest = "1.11.0"
+robolectric = "4.17"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core" }

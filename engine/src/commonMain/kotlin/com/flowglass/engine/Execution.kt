@@ -53,12 +53,19 @@ fun interface Clock {
     fun nowEpochMs(): Long
 }
 
+/** The host must throw CancellationException when the current execution is cancelled. */
+fun interface CancellationCheckpoint {
+    suspend fun ensureActive()
+}
+
 class RuleExecutor(
     private val registry: ComponentRegistry,
     private val actions: Map<String, Action>,
+    private val cancellationCheckpoint: CancellationCheckpoint,
     private val clock: Clock = Clock { System.currentTimeMillis() },
 ) {
     suspend fun run(rule: Rule, reason: String): RunLog {
+        cancellationCheckpoint.ensureActive()
         require(rule.type == "auto" || rule.type == "manual") { "规则类型必须为 auto 或 manual" }
         val start = clock.nowEpochMs()
         val monotonicStart = kotlin.time.TimeSource.Monotonic.markNow()
@@ -67,6 +74,7 @@ class RuleExecutor(
         val context = RunContext(rule, reason)
 
         for (component in rule.actions) {
+            cancellationCheckpoint.ensureActive()
             if (failed) {
                 steps += StepResult(component.type, StepStatus.SKIPPED, "前序动作失败，未执行", 0)
                 continue
@@ -85,6 +93,8 @@ class RuleExecutor(
             } catch (error: Exception) {
                 ActionOutcome(StepStatus.FAILURE, error.message?.take(500) ?: "动作执行失败")
             }
+            // A suspend action may complete synchronously after cancelling its caller.
+            cancellationCheckpoint.ensureActive()
             val duration = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
                 stepStart.elapsedNow().inWholeNanoseconds.coerceAtLeast(0),
             )

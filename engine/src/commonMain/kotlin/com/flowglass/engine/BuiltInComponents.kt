@@ -41,7 +41,8 @@ object BuiltInComponents {
         ComponentMeta("condition.weekday", "星期", "定时", ComponentKind.CONDITION,
             listOf(param("days", "星期", "工作日", ParamType.ENUM, options = listOf("每天", "工作日", "周末")))),
         ComponentMeta("condition.battery_range", "电量范围", "设备", ComponentKind.CONDITION,
-            listOf(param("range", "电量范围", "20%–80%", ParamType.PERCENTAGE))),
+            // A range must use the text editor, not the scalar percentage slider.
+            listOf(param("range", "电量范围", "20%–80%", ParamType.TEXT))),
         ComponentMeta("condition.network_type", "网络类型", "网络", ComponentKind.CONDITION,
             listOf(param("network", "网络类型", "WiFi", ParamType.ENUM, options = listOf("WiFi", "移动网络", "无网络")))),
         ComponentMeta("condition.screen_state", "屏幕状态", "设备", ComponentKind.CONDITION,

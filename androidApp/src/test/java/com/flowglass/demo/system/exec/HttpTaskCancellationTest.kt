@@ -34,6 +34,8 @@ class HttpTaskCancellationTest {
     private class BlockedConnection(url: URL) : HttpURLConnection(url) {
         val readStarted = CompletableDeferred<Unit>()
         val readFinished = CompletableDeferred<Unit>()
+        val disconnected = CompletableDeferred<Unit>()
+        val cleanupFinished = CompletableDeferred<Unit>()
         val disconnectCalls = AtomicInteger()
         private val releaseRead = CountDownLatch(1)
         private val body = object : InputStream() {
@@ -67,7 +69,11 @@ class HttpTaskCancellationTest {
         fun unblock() = releaseRead.countDown()
         override fun getResponseCode() = 200
         override fun getInputStream(): InputStream = body
-        override fun disconnect() { disconnectCalls.incrementAndGet() }
+        override fun disconnect() {
+            val calls = disconnectCalls.incrementAndGet()
+            disconnected.complete(Unit)
+            if (calls >= 2) cleanupFinished.complete(Unit)
+        }
         override fun usingProxy() = false
         override fun connect() = Unit
     }
@@ -106,19 +112,32 @@ class HttpTaskCancellationTest {
             val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
 
             assertTrue("cancelled caller should return promptly: ${elapsedMs}ms", elapsedMs < 200)
+            withTimeout(2_000) { connection.disconnected.await() }
             assertTrue("cancelled request must disconnect the active connection", connection.disconnectCalls.get() >= 1)
             assertTrue("cancelled request must not return an outcome", outcomes.isEmpty())
             assertTrue("cancelled instruction must not write execution logs", state.logs.isEmpty())
             assertTrue("cancelled instruction must not increment run count", state.todayRuns == 0)
         } finally {
+            job.cancel()
             connection.unblock()
-            withTimeout(2_000) { connection.readFinished.await() }
-            delay(50)
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
-            assertTrue("worker completion after cancellation must not return an outcome", outcomes.isEmpty())
-            assertTrue("worker completion after cancellation must not write logs", state.logs.isEmpty())
-            assertTrue("worker completion after cancellation must not increment run count", state.todayRuns == 0)
-            scope.cancel()
+            try {
+                withTimeout(2_000) {
+                    while (!job.isCompleted) {
+                        Shadows.shadowOf(Looper.getMainLooper()).idle()
+                        delay(1)
+                    }
+                    if (connection.readStarted.isCompleted) {
+                        connection.readFinished.await()
+                        connection.cleanupFinished.await()
+                    }
+                }
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                assertTrue("worker completion after cancellation must not return an outcome", outcomes.isEmpty())
+                assertTrue("worker completion after cancellation must not write logs", state.logs.isEmpty())
+                assertTrue("worker completion after cancellation must not increment run count", state.todayRuns == 0)
+            } finally {
+                scope.cancel()
+            }
         }
     }
 }

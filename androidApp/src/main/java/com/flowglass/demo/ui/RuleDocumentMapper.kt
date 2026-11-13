@@ -97,13 +97,28 @@ internal fun PersistedAppState.toRuleDocument(): RuleDocument = RuleDocument(
 internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
     require(formatVersion == com.flowglass.engine.CURRENT_FORMAT_VERSION)
     val metadata = ui
-    val usedIds = (metadata.logs.flatMap { log -> listOf(log.id) + log.steps.map { it.itemId } } +
-        metadata.presentation.values.flatMap { sidecar ->
-            listOfNotNull(sidecar.legacyId) + (sidecar.triggers + sidecar.conditions + sidecar.actions).map { it.id }
-        }).toMutableSet()
+    require(metadata.mode in 0..2) { "运行模式无效" }
+    require(rules.map { it.id }.distinct().size == rules.size) { "规则标识重复" }
+    require(rules.all { it.type != "manual" || (it.triggers.isEmpty() && it.conditions.isEmpty()) }) {
+        "一键指令不能包含触发器或条件"
+    }
+    require(metadata.presentation.values.all { it.category in 0..6 }) { "指令分类无效" }
+    // Command/item/log IDs declare identities. Step IDs only reference them and may repeat.
+    val declaredIds = metadata.logs.map { it.id } + metadata.presentation.values.flatMap { sidecar ->
+        listOfNotNull(sidecar.legacyId) + (sidecar.triggers + sidecar.conditions + sidecar.actions).map { it.id }
+    }
+    require(declaredIds.all { it > 0L && it < Long.MAX_VALUE } && declaredIds.distinct().size == declaredIds.size) {
+        "存储标识无效或重复"
+    }
+    val steps = metadata.logs.flatMap { it.steps }
+    require(steps.all { it.itemId > 0L && it.itemId < Long.MAX_VALUE && it.durationMs >= 0L }) {
+        "执行记录步骤标识或耗时无效"
+    }
+    val usedIds = (declaredIds + steps.map { it.itemId }).toMutableSet()
     var nextId = maxOf(1000L, (usedIds.maxOrNull() ?: 999L) + 1L)
     fun allocateId(): Long {
-        while (nextId <= 0L || nextId == Long.MAX_VALUE || nextId in usedIds) nextId++
+        // nextId starts above every declaration/reference; no collision scan is needed.
+        // Check BEFORE incrementing so exhaustion cannot wrap into a negative-ID loop.
         check(nextId < Long.MAX_VALUE) { "兼容标识已用尽" }
         return nextId++.also(usedIds::add)
     }
@@ -166,13 +181,15 @@ private fun CommandItem.toRuleComponent(
     oldPresentation: ComponentPresentation?,
 ): RuleComponent {
     val typeId = this.typeId ?: typeIdFor(name, kind)
+    // The normalized sidecar is the UI value at load time, not a second source of truth.
+    // Keep the full typed component unless this editor actually changed its parameter.
+    if (old?.type == typeId && parameter == oldPresentation?.parameter) return old
     val params = when (typeId) {
         "action.post_notification" -> {
-            val split = parameter.indexOf('|')
-            mapOf(
-                "content" to JsonPrimitive(if (split < 0) parameter else parameter.substring(split + 1)),
-                "title" to JsonPrimitive(if (split < 0) "" else parameter.substring(0, split)),
-            )
+            val previous = oldPresentation?.parameter?.let(::notificationFields)
+            notificationFields(parameter)
+                .filter { (key, value) -> old?.type != typeId || previous == null || previous[key] != value }
+                .mapValues { (_, value) -> JsonPrimitive(value) }
         }
         "legacy.unknown" -> mapOf("parameter" to JsonPrimitive(parameter))
         else -> mapOf(parameterKey(typeId) to JsonPrimitive(parameter))
@@ -186,19 +203,30 @@ private fun CommandItem.toRuleComponent(
 
 private fun CommandItem.toPresentation() = ComponentPresentation(id, name, parameter, ic.name)
 
+private fun notificationFields(parameter: String): Map<String, String> {
+    val split = parameter.indexOf('|')
+    return mapOf(
+        "content" to if (split < 0) parameter else parameter.substring(split + 1),
+        "title" to if (split < 0) "" else parameter.substring(0, split),
+    )
+}
+
+private fun kotlinx.serialization.json.JsonElement.displayText(): String =
+    if (this is JsonPrimitive) content else toString()
+
 private fun RuleComponent.toCommandItem(old: ComponentPresentation?, allocateId: () -> Long): CommandItem {
     val param = if (type == "action.post_notification") {
-        val title = (params["title"] as? JsonPrimitive)?.content.orEmpty()
-        val body = (params["content"] as? JsonPrimitive)?.content.orEmpty()
+        val title = params["title"]?.displayText().orEmpty()
+        val body = params["content"]?.displayText().orEmpty()
         "$title|$body"
-    } else params.values.firstOrNull()?.let { if (it is JsonPrimitive) it.content else it.toString() }.orEmpty()
+    } else params[parameterKey(type)]?.displayText().orEmpty()
     val name = old?.name?.ifBlank { knownName(type) ?: "未知组件" } ?: knownName(type) ?: "未知组件"
     val displayParameter = when {
-        type == "legacy.unknown" -> (params["parameter"] as? JsonPrimitive)?.content
+        type == "legacy.unknown" -> params["parameter"]?.displayText()
             ?: old?.parameter
             ?: (params["raw"] as? JsonPrimitive)?.content.orEmpty()
         type == "action.post_notification" -> param
-        else -> param.ifEmpty { old?.parameter.orEmpty() }
+        else -> if (params.containsKey(parameterKey(type))) param else old?.parameter.orEmpty()
     }
     return CommandItem(old?.id ?: allocateId(), name, displayParameter, iconOrDefault(old?.icon ?: "Bolt"), type)
 }

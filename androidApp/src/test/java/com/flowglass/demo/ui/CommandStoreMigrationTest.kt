@@ -54,19 +54,21 @@ class CommandStoreMigrationTest {
             legacyCommand(
                 id = 1,
                 auto = true,
-                title = "到公司自动连 WiFi",
+                title = "改名后的公司指令",
                 actions = listOf(legacyItem(2, "打开 WiFi", "")),
             ),
             legacyCommand(
                 id = 101,
                 auto = false,
-                title = "一键省电",
-                actions = listOf(legacyItem(102, "调节亮度", "37%")),
+                title = "改名后的一键省电",
+                actions = listOf(legacyItem(102, "亮度 30%", "37%")),
             ),
         )))
 
         val migrated = requireNotNull(CommandStore(file).load().saved)
 
+        assertEquals("改名后的公司指令", migrated.autoCmds.single().title)
+        assertEquals("改名后的一键省电", migrated.oneTaps.single().title)
         assertEquals("action.wifi_switch", migrated.autoCmds.single().let { it.actions.single().typeId })
         assertEquals("开关 WiFi", migrated.autoCmds.single().actions.single().name)
         assertEquals("开启", migrated.autoCmds.single().actions.single().parameter)
@@ -105,6 +107,8 @@ class CommandStoreMigrationTest {
     @Test fun v2FileIsLoadedWithoutRemigrationOrBackup() {
         val state = AppState().snapshot()
         val v2 = AppStateJson.encode(state)
+        // Current formatVersion=2 is not the old version=2 name-based schema.
+        assertEquals(2, JSONObject(v2).getInt("formatVersion"))
         file.writeText(v2)
 
         val loaded = CommandStore(file).load()

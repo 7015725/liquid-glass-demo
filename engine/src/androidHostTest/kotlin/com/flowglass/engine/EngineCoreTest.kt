@@ -117,7 +117,11 @@ class EngineCoreTest {
         val second = Action { context, _ ->
             ActionOutcome(if (context.variables["value"] == "kept") StepStatus.SUCCESS else StepStatus.FAILURE, "second ran")
         }
-        val executor = RuleExecutor(registry, mapOf("action.first" to first, "action.second" to second))
+        val executor = RuleExecutor(
+            registry,
+            mapOf("action.first" to first, "action.second" to second),
+            CancellationCheckpoint { /* This synchronous fixture has no cancellation source. */ },
+        )
 
         val continueResult = runSuspend {
             executor.run(RuleFactory.create("manual", "continue").copy(actions = listOf(
