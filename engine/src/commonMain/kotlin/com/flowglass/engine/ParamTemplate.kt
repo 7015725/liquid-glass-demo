@@ -12,9 +12,11 @@ import kotlinx.serialization.json.*
  * stay literal (a typo should be visible, not silently empty), and expansion is single-pass:
  * a value that itself contains `%{x}` is not expanded again, so a variable can never expand
  * into itself.
+ *
+ * Token recognition is a hand-written scan rather than a [Regex]: Android's ICU engine treats an
+ * unescaped literal brace as a syntax error, while the JVM engine used by unit tests accepts it.
  */
 object ParamTemplate {
-    private val token = Regex("""%\{([A-Za-z0-9_.\-]+)}""")
     private const val HEX = "0123456789ABCDEF"
 
     fun expand(
@@ -51,9 +53,22 @@ object ParamTemplate {
         text: String,
         variables: Map<String, Any?>,
         transform: (String) -> String,
-    ): String = token.replace(text) { match ->
-        val value = variables[match.groupValues[1]]
-        if (value == null) match.value else transform(value.toString())
+    ): String {
+        val out = StringBuilder(text.length)
+        var index = 0
+        while (index < text.length) {
+            val end = tokenEnd(text, index)
+            if (end != null) {
+                val value = variables[text.substring(index + 2, end)]
+                if (value == null) out.append(text, index, end + 1)
+                else out.append(transform(value.toString()))
+                index = end + 1
+            } else {
+                out.append(text[index])
+                index++
+            }
+        }
+        return out.toString()
     }
 
     private fun expandHttpRequest(text: String, variables: Map<String, Any?>): String {

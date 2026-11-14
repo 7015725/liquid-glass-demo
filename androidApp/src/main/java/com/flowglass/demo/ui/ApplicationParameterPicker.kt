@@ -69,6 +69,9 @@ internal fun ApplicationParameterPicker(item: CommandItem, onParameter: (String)
 
 @Composable
 internal fun itemParameterLabel(section: CommandSection, item: CommandItem): String {
+    if (section == CommandSection.ACTIONS && item.typeId == "action.post_notification") {
+        return notificationDisplayText(item.parameter)
+    }
     val context = LocalContext.current
     val tick = SysTick.tick
     var label by remember(item.parameter) { mutableStateOf(item.parameter) }

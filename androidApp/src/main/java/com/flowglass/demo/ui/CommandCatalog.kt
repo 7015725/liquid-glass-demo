@@ -11,10 +11,27 @@ data class CommandItem(
     val onError: com.flowglass.engine.OnError = com.flowglass.engine.OnError.STOP,
 ) {
     val display: String get() {
-        val text = if (typeId == "action.post_notification" && parameter.startsWith('|')) parameter.substring(1) else parameter
+        val text = if (typeId == "action.post_notification") notificationDisplayText(parameter) else parameter
         return if (text.isEmpty()) name else "$name：$text"
     }
     override fun toString() = display
+}
+
+/**
+ * The notification parameter stores `title|content` for compatibility. User-facing rows must
+ * never show that separator: an empty title shows only the content; a non-empty title uses the
+ * `标题 · 内容` form. A body may contain further separators and is kept intact.
+ */
+internal fun notificationDisplayText(parameter: String): String {
+    val split = parameter.indexOf('|')
+    if (split < 0) return parameter
+    val title = parameter.substring(0, split)
+    val content = parameter.substring(split + 1)
+    return when {
+        title.isEmpty() -> content
+        content.isEmpty() -> title
+        else -> "$title · $content"
+    }
 }
 data class CommandOption(
     val name: String,
