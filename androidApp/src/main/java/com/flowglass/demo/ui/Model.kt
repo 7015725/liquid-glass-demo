@@ -147,6 +147,10 @@ class AppState internal constructor(saved: PersistedAppState?) {
     }
 
     var editing by mutableStateOf<Long?>(null)
+    /** 任务编辑页打开中的指令 id；null 表示关闭。 */
+    var taskEditing by mutableStateOf<Long?>(null)
+    /** 任务编辑页里正在编辑的步骤 id；null 表示停留在步骤列表。 */
+    var actionEditing by mutableStateOf<Long?>(null)
     var storageError by mutableStateOf<String?>(null)
     internal var engineRules by mutableStateOf(saved?.engineRules.orEmpty())
     internal var engineUi by mutableStateOf(saved?.engineUi ?: com.flowglass.engine.RuleUiMetadata())
@@ -168,6 +172,22 @@ class AppState internal constructor(saved: PersistedAppState?) {
             if (it.auto && it.triggers.size == 1) it.copy(category = option.category) else it
         }
     }
+
+    /** 把旧版/未知步骤换成目录里的真实动作，保留它的失败策略。 */
+    fun replaceItem(cmdId: Long, section: CommandSection, itemId: Long, option: CommandOption) =
+        editItems(cmdId, section) { items ->
+            items.map {
+                if (it.id == itemId) it.copy(
+                    name = option.name,
+                    ic = option.ic,
+                    parameter = option.defaultParameter,
+                    typeId = option.typeId,
+                ) else it
+            }
+        }
+
+    fun setItemOnError(cmdId: Long, section: CommandSection, itemId: Long, onError: com.flowglass.engine.OnError) =
+        editItems(cmdId, section) { items -> items.map { if (it.id == itemId) it.copy(onError = onError) else it } }
 
     fun setItemParameter(cmdId: Long, section: CommandSection, itemId: Long, text: String) =
         editItems(cmdId, section) { items -> items.map { if (it.id == itemId) it.copy(parameter = text) else it } }

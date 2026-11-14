@@ -40,10 +40,12 @@ object BuiltInActions {
                 hint = "格式：非负数字 + 单位（毫秒 / 秒 / 分钟），超过 10 分钟按 10 分钟等待。"))),
         ComponentMeta("action.root_shell", "执行 Shell(Root)", "脚本", ComponentKind.ACTION,
             listOf(parameter("command", "命令", ParamType.MULTILINE_TEXT, "echo 流光", false,
-                hint = "格式：非空 Shell 命令，执行前需要 Root 授权。请只执行你理解其作用的命令。")), minTier = Tier.ROOT),
+                hint = "格式：非空 Shell 命令，执行前需要 Root 授权。请只执行你理解其作用的命令。")),
+            minTier = Tier.ROOT, outputs = listOf("shell.stdout")),
         ComponentMeta("action.http_request", "HTTP 请求", "网络", ComponentKind.ACTION,
             listOf(parameter("request", "请求", ParamType.MULTILINE_TEXT, "GET https://example.com", false,
-                hint = "格式：GET <URL> 或 POST <URL> <内容>；GET 不带正文，POST 内容可换行。"))),
+                hint = "格式：GET <URL> 或 POST <URL> <内容>；GET 不带正文，POST 内容可换行。")),
+            outputs = listOf("http.body")),
     )
 
     fun registerInto(registry: ComponentRegistry) = metadata.forEach(registry::register)

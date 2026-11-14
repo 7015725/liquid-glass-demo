@@ -148,7 +148,11 @@ internal object HttpTask {
                         }
                         String(chars, 0, count)
                     }.orEmpty()
-                    return TaskOutcome(if (status in 200..299) StepStatus.SUCCESS else StepStatus.FAILURE, "HTTP $status\n$body")
+                    return TaskOutcome(
+                        if (status in 200..299) StepStatus.SUCCESS else StepStatus.FAILURE,
+                        "HTTP $status\n$body",
+                        body,
+                    )
                 } finally {
                     active.compareAndSet(connection, null)
                     connection.disconnect()

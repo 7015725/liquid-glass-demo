@@ -135,7 +135,9 @@ class EngineCoreTest {
         }
 
         assertEquals(StepStatus.FAILURE, continueResult.status)
-        assertEquals(StepStatus.SKIPPED, continueResult.steps[1].status)
+        // OnError.CONTINUE now actually continues; the old expectation documented the
+        // placeholder behaviour where every failure skipped the rest of the task.
+        assertEquals(StepStatus.SUCCESS, continueResult.steps[1].status)
         assertEquals(StepStatus.SKIPPED, stopResult.steps[1].status)
         assertFalse(stopResult.steps[1].detail.isBlank())
     }

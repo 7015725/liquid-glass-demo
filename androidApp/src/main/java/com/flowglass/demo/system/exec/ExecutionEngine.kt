@@ -17,7 +17,8 @@ import com.flowglass.engine.StepStatus as EngineStepStatus
 
 enum class StepStatus { SUCCESS, FAILURE, SKIPPED }
 data class StepResult(val itemId: Long, val name: String, val status: StepStatus, val detail: String, val durationMs: Long)
-data class TaskOutcome(val status: StepStatus, val detail: String)
+/** [output] becomes `%{...}` in later steps when the action declares an output key. */
+data class TaskOutcome(val status: StepStatus, val detail: String, val output: String? = null)
 data class RunResult(val cmdId: Long, val reason: String, val steps: List<StepResult>, val durationMs: Long, val ignored: Boolean = false) {
     val ok: Boolean get() = !ignored && steps.none { it.status == StepStatus.FAILURE }
     val detail: String get() = steps.firstOrNull { it.status == StepStatus.FAILURE }?.detail
@@ -54,12 +55,13 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
         val rule = document.rules.single()
         val registry = BuiltInComponents.registry()
         val handlers = BuiltInActions.metadata.associate { meta ->
-            meta.typeId to Action { _, component ->
-                val index = rule.actions.indexOfFirst { it === component }
-                val source = cmd.actions.getOrNull(index)
+            meta.typeId to Action { runContext, component ->
+                // The executor reports the step it is running, so parameter expansion (which
+                // replaces the component instance) cannot break the item mapping.
+                val source = cmd.actions.getOrNull(runContext.currentStep)
                 val parameter = com.flowglass.engine.ParameterCodec.formatComponent(meta, component.params)
                 val item = source?.copy(name = meta.name, parameter = parameter) ?: CommandItem(
-                    id = System.nanoTime(),
+                    id = runContext.currentStep.toLong(),
                     name = meta.name,
                     parameter = parameter,
                     ic = cmd.ic,
@@ -80,6 +82,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
                         StepStatus.SKIPPED -> EngineStepStatus.SKIPPED
                     },
                     detail = outcome.detail,
+                    output = outcome.output,
                 )
             }
         }

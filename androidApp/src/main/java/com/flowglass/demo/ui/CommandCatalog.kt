@@ -1,7 +1,15 @@
 package com.flowglass.demo.ui
 
 enum class CommandSection { TRIGGERS, CONDITIONS, ACTIONS }
-data class CommandItem(val id: Long, val name: String, val parameter: String, val ic: Ic, val typeId: String? = null) {
+data class CommandItem(
+    val id: Long,
+    val name: String,
+    val parameter: String,
+    val ic: Ic,
+    val typeId: String? = null,
+    /** 失败策略：STOP 失败即停 / CONTINUE 继续 / RETRY 重试一次。 */
+    val onError: com.flowglass.engine.OnError = com.flowglass.engine.OnError.STOP,
+) {
     val display: String get() {
         val text = if (typeId == "action.post_notification" && parameter.startsWith('|')) parameter.substring(1) else parameter
         return if (text.isEmpty()) name else "$name：$text"

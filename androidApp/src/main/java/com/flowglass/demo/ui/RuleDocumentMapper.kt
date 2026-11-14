@@ -216,11 +216,12 @@ private fun CommandItem.toRuleComponent(
     return RuleComponent(
         type = typeId,
         params = previous?.params.orEmpty() + changed,
-        onError = previous?.onError ?: OnError.STOP,
+        onError = onError,
     )
 }
 
 private fun CommandItem.unknownComponent() = RuleComponent(
+    onError = onError,
     type = "legacy.unknown",
     params = mapOf(
         "name" to JsonPrimitive(name),
@@ -252,7 +253,7 @@ private fun RuleComponent.parameterText(): String {
 private fun RuleComponent.toCommandItem(old: ComponentPresentation?, allocateId: () -> Long): CommandItem {
     val name = componentRegistry.find(type)?.name ?: params["name"]?.displayText() ?: "未知组件"
     return CommandItem(old?.id ?: allocateId(), name, parameterText(),
-        iconOrDefault(old?.icon ?: params["icon"]?.displayText() ?: "Bolt"), type)
+        iconOrDefault(old?.icon ?: params["icon"]?.displayText() ?: "Bolt"), type, onError)
 }
 
 private fun iconOrDefault(value: String): Ic = runCatching { Ic.valueOf(value) }.getOrDefault(Ic.Bolt)

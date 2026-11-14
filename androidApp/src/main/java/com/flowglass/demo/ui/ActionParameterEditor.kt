@@ -98,7 +98,7 @@ internal fun ParameterTextField(value: String, tag: String, onValue: (String) ->
 }
 
 @Composable
-private fun PercentSlider(value: Float, onValueChange: (Float) -> Unit) {
+internal fun PercentSlider(value: Float, onValueChange: (Float) -> Unit) {
     val currentChange by rememberUpdatedState(onValueChange)
     val radius = with(LocalDensity.current) { 10.dp.toPx() }
     Canvas(Modifier.fillMaxWidth().height(56.dp).testTag("parameter-percent-slider")
