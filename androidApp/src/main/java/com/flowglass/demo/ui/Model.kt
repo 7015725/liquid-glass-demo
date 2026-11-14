@@ -73,7 +73,15 @@ private fun reserveIds(saved: PersistedAppState) {
 
 private fun now(): String = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
-val AutoCategories = listOf("全部", "已开启", "定时", "通知", "位置", "设备", "网络")
+/** 全部 / 已开启 plus every trigger category the component registry declares. */
+val AutoBaseFilters = listOf("全部", "已开启")
+fun autoFilters(): List<String> = AutoBaseFilters + CommandCatalog.categories(CommandSection.TRIGGERS)
+
+/** Category of a rule, read from its first trigger's metadata; falls back to the saved bucket. */
+internal fun Cmd.categoryName(): String? =
+    triggers.firstOrNull()?.typeId
+        ?.let { CommandCatalog.meta(it)?.category }
+        ?: CommandCatalog.legacyCategoryName(category)
 
 private fun seedItems(vararg names: String) = names.map { display ->
     // Split only the explicit seed separator; keep times such as 23:00 intact.
@@ -250,6 +258,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     // overlays
     var menu by mutableStateOf<MenuReq?>(null)
+    var historyOpen by mutableStateOf(false)
     var renaming by mutableStateOf<Cmd?>(null)
     var undo by mutableStateOf<UndoInfo?>(null)
 

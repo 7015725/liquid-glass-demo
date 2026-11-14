@@ -92,25 +92,45 @@ import kotlin.math.roundToInt
 
 @Composable
 fun AutoCommandsScreen(state: AppState) {
-    val f = state.autoFilter
+    // 全部 / 已开启 + every trigger category the component registry declares.
+    val filters = remember { autoFilters() }
+    val f = state.autoFilter.coerceIn(0, filters.lastIndex)
     val all = state.sorted(auto = true)
-    val list = all.filter(state::matches).filter {
+    val list = all.filter(state::matches).filter { cmd ->
         when (f) {
             0 -> true
-            1 -> it.enabled
-            else -> it.category == f
+            1 -> cmd.enabled
+            else -> cmd.categoryName() == filters[f]
         }
     }
     val enabled = state.autoCmds.count { it.enabled }
 
-    FilterChips(AutoCategories, f, { state.autoFilter = it }, Modifier.staggerIn(0))
+    FilterChips(filters, f, { state.autoFilter = it }, Modifier.staggerIn(0))
     ListHeader(
         "已开启 $enabled / ${state.autoCmds.size} 条", "新建",
         Modifier.staggerIn(1)
     ) { state.openEditor(state.create(auto = true).id) }
     if (!state.running) EnginePausedBanner(state, Modifier.staggerIn(2))
     CommandColumn(list, state, auto = true, groupKey = f)
-    if (list.isEmpty()) EmptyHint(if (!state.query.isNullOrBlank()) "没有匹配「${state.query}」的指令" else "这个分类下还没有指令")
+    if (list.isEmpty()) {
+        when {
+            !state.query.isNullOrBlank() -> EmptyState(
+                Ic.Search, "没有匹配「${state.query}」的指令",
+                "搜索会匹配标题、描述和触发器名称。",
+                actionLabel = "清空搜索", actionTag = "auto-search-empty-clear",
+            ) { state.query = null }
+            all.isEmpty() -> EmptyState(
+                Ic.Bolt, "还没有自动指令",
+                "按时间、电量、充电或亮屏等条件自动运行一组任务。",
+                actionLabel = "新建自动指令", actionTag = "auto-empty-create",
+            ) { state.openEditor(state.create(auto = true).id) }
+            else -> EmptyState(
+                Ic.Search, "「${filters[f]}」下没有指令",
+                "这条指令的触发器不属于这个分类，可以切回「全部」查看。",
+                actionLabel = "查看全部", actionTag = "auto-category-empty-all",
+            ) { state.autoFilter = 0 }
+        }
+    }
 }
 
 @Composable
@@ -121,7 +141,21 @@ fun OneTapCommandsScreen(state: AppState) {
         Modifier.staggerIn(0)
     ) { state.openEditor(state.create(auto = false).id) }
     CommandColumn(list, state, auto = false, groupKey = 0)
-    if (list.isEmpty()) EmptyHint(if (!state.query.isNullOrBlank()) "没有匹配「${state.query}」的指令" else "还没有一键指令，点右上角新建")
+    if (list.isEmpty()) {
+        if (!state.query.isNullOrBlank()) {
+            EmptyState(
+                Ic.Search, "没有匹配「${state.query}」的指令",
+                "搜索会匹配标题、描述和任务名称。",
+                actionLabel = "清空搜索", actionTag = "onetap-search-empty-clear",
+            ) { state.query = null }
+        } else {
+            EmptyState(
+                Ic.Tap, "还没有一键指令",
+                "把常用的几个动作收进一条指令，然后在桌面点一下就能执行。",
+                actionLabel = "新建一键指令", actionTag = "onetap-empty-create",
+            ) { state.openEditor(state.create(auto = false).id) }
+        }
+    }
 }
 
 @Composable
@@ -151,13 +185,6 @@ private fun EnginePausedBanner(state: AppState, modifier: Modifier) {
         Spacer(Modifier.width(10.dp))
         T("引擎已暂停，自动指令不会触发", 13.sp, color = C.OnSurfaceVar, modifier = Modifier.weight(1f))
         T("恢复", 13.sp, FontWeight.Bold, C.Primary)
-    }
-}
-
-@Composable
-private fun EmptyHint(text: String) {
-    Box(Modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
-        T(text, 14.sp, color = C.Muted)
     }
 }
 
@@ -276,7 +303,7 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
 fun ListenStatePill(state: com.flowglass.demo.system.trigger.RuleListenState) {
     val (bg, fg) = when (state) {
         com.flowglass.demo.system.trigger.RuleListenState.LISTENING -> C.GoodSoft to C.GoodText
-        com.flowglass.demo.system.trigger.RuleListenState.MISSING_PERMISSION -> Color(0xFFFFE7A0) to Color(0xFF795500)
+        com.flowglass.demo.system.trigger.RuleListenState.MISSING_PERMISSION -> C.WarnSoft to C.WarnText
         else -> C.Tonal to C.OnSurfaceVar
     }
     Box(

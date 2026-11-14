@@ -1,5 +1,9 @@
 package com.flowglass.demo.ui
 
+import com.flowglass.engine.ComponentKind
+import com.flowglass.engine.ComponentMeta
+import com.flowglass.engine.Tier
+
 enum class CommandSection { TRIGGERS, CONDITIONS, ACTIONS }
 data class CommandItem(
     val id: Long,
@@ -48,14 +52,36 @@ data class CommandOption(
     val minTier: com.flowglass.engine.Tier = com.flowglass.engine.Tier.NORMAL,
     /** Present in the catalog for discoverability but not selectable in this stage. */
     val comingSoon: Boolean = false,
+    /** Metadata description, or the parameter labels when it has none. */
+    val detail: String = "",
+    val permissions: List<String> = emptyList(),
 )
 fun Cmd.items(section: CommandSection): List<CommandItem> = when (section) {
     CommandSection.TRIGGERS -> triggers
     CommandSection.CONDITIONS -> conditions
     CommandSection.ACTIONS -> actions
 }
+
+/** Badge copy for a component's minimum privilege tier. */
+internal val Tier.badgeLabel: String
+    get() = when (this) {
+        Tier.NORMAL -> ""
+        Tier.SHIZUKU -> "需 Shizuku"
+        Tier.ROOT -> "需 Root"
+        Tier.XPOSED -> "需 Xposed"
+    }
+
+/**
+ * The add panel is driven entirely by [com.flowglass.engine.BuiltInComponents]: the list,
+ * the categories and the tier badges come from each [ComponentMeta]. A component merged in
+ * another branch therefore shows up here without touching this file. Icons are cosmetic:
+ * a new typeId falls back to its metadata category, then to its kind.
+ */
 object CommandCatalog {
-    private fun icon(typeId: String) = when (typeId) {
+    private val registry = com.flowglass.engine.BuiltInComponents.registry()
+
+    /** Precise icons for the ids this build knows; unknown ids fall back to the category. */
+    private fun icon(typeId: String): Ic? = when (typeId) {
         "trigger.time", "condition.time_range", "condition.weekday" -> Ic.Clock
         "trigger.location_enter", "trigger.location_exit" -> Ic.Location
         "trigger.notification_received", "action.post_notification" -> Ic.Bell
@@ -72,34 +98,76 @@ object CommandCatalog {
         "action.copy_clipboard" -> Ic.Copy
         "action.delay" -> Ic.Timer
         "action.root_shell" -> Ic.Terminal
-        else -> Ic.Refresh
+        else -> null
     }
 
-    private val categories = mapOf("定时" to 2, "通知" to 3, "位置" to 4, "设备" to 5, "网络" to 6, "应用" to 5)
+    /** Category icons keep new components legible without a per-id entry. */
+    internal fun categoryIcon(category: String, kind: ComponentKind? = null): Ic = when (category) {
+        "定时" -> Ic.Clock
+        "通知" -> Ic.Bell
+        "位置" -> Ic.Location
+        "网络" -> Ic.Wifi
+        "应用" -> Ic.Grid
+        "脚本" -> Ic.Terminal
+        "文本" -> Ic.Copy
+        "流程控制" -> Ic.Timer
+        "设备" -> Ic.Phone
+        else -> when (kind) {
+            ComponentKind.TRIGGER -> Ic.Bolt
+            ComponentKind.CONDITION -> Ic.Shield
+            ComponentKind.ACTION -> Ic.Play
+            null -> Ic.Puzzle
+        }
+    }
+
+    fun meta(typeId: String): ComponentMeta? = registry.find(typeId)
+
+    /** Categories in registry order: 定时, 设备, 位置, 通知, 网络, 应用 ... */
+    fun categories(section: CommandSection): List<String> = options(section).map { it.categoryName }.distinct()
+
+    /**
+     * Legacy sidecar buckets (`Cmd.category`, persisted as 0..6). Only used to classify
+     * rules whose trigger id is missing from the current registry.
+     */
+    private val legacyBuckets = mapOf("定时" to 2, "通知" to 3, "位置" to 4, "设备" to 5, "网络" to 6, "应用" to 5)
+
+    internal fun legacyBucket(category: String): Int = legacyBuckets[category] ?: 0
+
+    /** Reverse of [legacyBuckets] for rules saved before triggers carried type ids. */
+    internal fun legacyCategoryName(bucket: Int): String? = when (bucket) {
+        2 -> "定时"
+        3 -> "通知"
+        4 -> "位置"
+        5 -> "设备"
+        6 -> "网络"
+        else -> null
+    }
 
     /** Superseded type ids stay readable in old rules but are not offered as new triggers. */
     private val hiddenFromCatalog = setOf("trigger.battery_low", "trigger.charging")
-    private val registry = com.flowglass.engine.BuiltInComponents.registry()
+
     private val optionsByKind = registry.all().groupBy { it.kind }
         .mapValues { (_, metas) -> metas.map { meta ->
             val default = com.flowglass.engine.ParameterCodec.formatComponent(meta,
                 meta.params.associate { it.key to it.defaultValue })
             CommandOption(
                 name = meta.name,
-                ic = icon(meta.typeId),
+                ic = icon(meta.typeId) ?: categoryIcon(meta.category, meta.kind),
                 defaultParameter = default,
-                category = categories[meta.category] ?: 0,
+                category = legacyBucket(meta.category),
                 typeId = meta.typeId,
                 categoryName = meta.category,
                 minTier = meta.minTier,
                 comingSoon = meta.comingSoon,
+                detail = meta.description.ifBlank { meta.params.joinToString(" · ") { it.label } },
+                permissions = meta.permissions,
             )
         } }
 
     fun options(section: CommandSection): List<CommandOption> = when (section) {
-        CommandSection.TRIGGERS -> optionsByKind[com.flowglass.engine.ComponentKind.TRIGGER].orEmpty()
+        CommandSection.TRIGGERS -> optionsByKind[ComponentKind.TRIGGER].orEmpty()
             .filterNot { it.typeId in hiddenFromCatalog }
-        CommandSection.CONDITIONS -> optionsByKind[com.flowglass.engine.ComponentKind.CONDITION].orEmpty()
-        CommandSection.ACTIONS -> optionsByKind[com.flowglass.engine.ComponentKind.ACTION].orEmpty()
+        CommandSection.CONDITIONS -> optionsByKind[ComponentKind.CONDITION].orEmpty()
+        CommandSection.ACTIONS -> optionsByKind[ComponentKind.ACTION].orEmpty()
     }
 }

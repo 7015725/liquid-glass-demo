@@ -1,10 +1,6 @@
 package com.flowglass.demo.system
 
 import android.annotation.SuppressLint
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.app.job.JobInfo
 import android.app.job.JobParameters
@@ -14,7 +10,6 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
@@ -23,7 +18,6 @@ import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
-import com.flowglass.demo.MainActivity
 
 /** Bumped on every Activity resume so Compose re-reads system states. */
 object SysTick {
@@ -145,37 +139,14 @@ class KeepAliveService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val nm = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 26) {
-            nm.createNotificationChannel(
-                NotificationChannel("keepalive", "后台常驻", NotificationManager.IMPORTANCE_MIN)
-            )
-        }
-        val open = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
-        )
-        val n: Notification = Notification.Builder(this, "keepalive")
-            .setSmallIcon(android.R.drawable.ic_lock_idle_charging)
-            .setContentTitle("流光自动化正在运行")
-            .setContentText("自动指令保持监听中")
-            .setOngoing(true)
-            .setContentIntent(open)
-            .build()
-        try {
-            if (Build.VERSION.SDK_INT >= 34) {
-                startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-            } else {
-                startForeground(1, n)
-            }
-            KeepAlive.serviceRunning = true
-        } catch (_: Throwable) {
-            stopSelf()
-        }
+        KeepAlive.serviceRunning = true
+        RunningNotification.start(this, RunningNotification.OWNER_KEEPALIVE)
         return START_STICKY
     }
 
     override fun onDestroy() {
         KeepAlive.serviceRunning = false
+        RunningNotification.stop(this, RunningNotification.OWNER_KEEPALIVE)
         super.onDestroy()
     }
 }

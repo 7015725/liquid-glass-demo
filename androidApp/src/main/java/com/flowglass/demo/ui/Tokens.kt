@@ -19,17 +19,24 @@ object C {
     val Card = Color(0xFFFAF8FA)
     val Tonal = Color(0xFFEAE8EE)
     val TonalStrong = Color(0xFFDEDCE3)
-    val Primary = Color(0xFF1A84FF)
+    /** White text on this fill reaches 5.6:1; the old #1A84FF only reached 3.6:1 at 12sp. */
+    val Primary = Color(0xFF0965CC)
     val PrimarySoft = Color(0xFFD6E7FF)
     val OnSurface = Color(0xFF1B1B1F)
     val OnSurfaceVar = Color(0xFF46464F)
-    val Muted = Color(0xFF8A8A93)
+    /** Secondary text: 4.9:1 on Bg / 5.3:1 on Card. The old #8A8A93 was 3.0:1. */
+    val Muted = Color(0xFF67676F)
     val Divider = Color(0x14000000)
     val Good = Color(0xFF17A34A)
     val GoodSoft = Color(0xFFDDF5E4)
     val GoodText = Color(0xFF0F6B32)
-    val Mid = Color(0xFFE59A12)
-    val Bad = Color(0xFFE5484D)
+    /** Warning text: 5.6:1 on Card. Amber is kept for tinted fills via [MidSoft]. */
+    val Mid = Color(0xFF8A5A00)
+    val MidSoft = Color(0xFFFCEBC4)
+    val Bad = Color(0xFFC0272D)
+    val BadSoft = Color(0xFFFBE3E3)
+    val WarnSoft = Color(0xFFFFE7A0)
+    val WarnText = Color(0xFF6B4A00)
 }
 
 /** Spatial springs (position / size / scale). */
@@ -51,6 +58,7 @@ fun T(
     maxLines: Int = Int.MAX_VALUE,
     lineHeight: TextUnit = TextUnit.Unspecified,
     letterSpacing: TextUnit = TextUnit.Unspecified,
+    textAlign: androidx.compose.ui.text.style.TextAlign? = null,
 ) {
     BasicText(
         text = text,
@@ -63,6 +71,7 @@ fun T(
             fontFeatureSettings = if (tabular) "tnum" else null,
             lineHeight = lineHeight,
             letterSpacing = letterSpacing,
+            textAlign = textAlign ?: androidx.compose.ui.text.style.TextAlign.Unspecified,
         ),
         maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,

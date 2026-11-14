@@ -75,9 +75,7 @@ private val Dests = listOf(
 fun FlowGlassApp() {
     val state = rememberStoredAppState()
     if (state == null) {
-        Box(Modifier.fillMaxSize().background(C.Bg), contentAlignment = Alignment.Center) {
-            T("正在读取本地指令…", 16.sp, color = C.OnSurfaceVar)
-        }
+        LoadingScreen()
         return
     }
 
@@ -258,6 +256,7 @@ fun FlowGlassApp() {
             tab = 3
         }
         ActionEditorHost(state)
+        if (state.historyOpen) HistoryPanel(state) { state.historyOpen = false }
 
         // ---------------- undo bar, long-press menu and rename dialog float above everything
         UndoBar(

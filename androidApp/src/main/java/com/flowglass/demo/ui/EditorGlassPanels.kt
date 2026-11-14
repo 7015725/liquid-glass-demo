@@ -39,7 +39,7 @@ internal fun EditorGlassPanel(backdrop: Backdrop, title: String, bottom: Boolean
     val scale by animateFloatAsState(if (entered) 1f else 0.96f, spatial(), label = "panelScale")
     val alpha by animateFloatAsState(if (entered) 1f else 0f, effect(), label = "panelAlpha")
     BoxWithConstraints(Modifier.fillMaxSize().testTag("editor-panel").imePadding()) {
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.18f * alpha))
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.30f * alpha))
             .testTag("editor-scrim").semantics {
                 role = Role.Button
                 contentDescription = "关闭面板"
@@ -50,8 +50,8 @@ internal fun EditorGlassPanel(backdrop: Backdrop, title: String, bottom: Boolean
             .heightIn(max = maxHeight * 0.78f)
             .graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha }
             .drawBackdrop(backdrop, shape = { RoundedRectangle(28.dp) }, effects = {
-                vibrancy(); blur(16.dp.toPx()); lens(18.dp.toPx(), 28.dp.toPx())
-            }, onDrawSurface = { drawRect(Color.White.copy(alpha = 0.62f)) })
+                vibrancy(); blur(20.dp.toPx()); lens(18.dp.toPx(), 28.dp.toPx())
+            }, onDrawSurface = { drawRect(Color.White.copy(alpha = 0.88f)) })
             .pointerInput(Unit) { detectTapGestures { } }.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 T(title, 21.sp, FontWeight.Bold, modifier = Modifier.weight(1f))

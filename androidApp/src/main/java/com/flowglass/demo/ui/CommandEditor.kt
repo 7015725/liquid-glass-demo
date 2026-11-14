@@ -110,6 +110,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 ListenStatePill(listen)
             }
         }
+        MissingPermissionNotice(cmd) { onAuthorization(SettingsPage.Permissions) }
         val exec = state.executing[cmd.id] ?: 0
         ExecButton(exec, Modifier.fillMaxWidth().testTag("editor-execute"), large = true,
             idleLabel = if (cmd.auto) "立即运行" else "一键执行",
@@ -152,7 +153,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                                 }
                             }
                             if (section != CommandSection.ACTIONS && itemMeta?.comingSoon == true) {
-                                T("暂不支持，1c 生效", 11.sp, color = C.Mid)
+                                T("即将支持，暂不会自动运行", 11.sp, color = C.Mid)
                             }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                 TaskAuthorizationBadge(state, section, item) { destination ->
@@ -172,11 +173,11 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                     }
                 }
                 if (section == CommandSection.TRIGGERS) {
-                    T("多个触发器按「任一满足」执行，正在执行时新触发丢弃；其他匹配模式与重复策略 1c 生效。",
+                    T("多个触发器按「任一满足」执行；正在执行时新的触发会被丢弃。",
                         11.sp, color = C.Muted, lineHeight = 16.sp)
                 }
                 if (section == CommandSection.CONDITIONS) {
-                    T("多个条件按「全部满足」执行；其他匹配模式 1c 生效。", 11.sp, color = C.Muted, lineHeight = 16.sp)
+                    T("多个条件需要全部满足才会执行。", 11.sp, color = C.Muted, lineHeight = 16.sp)
                 }
             }
         }
@@ -205,30 +206,9 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 is EditorPanel.Add -> {
                     val activeTier = if (state.root?.granted == true) com.flowglass.engine.Tier.ROOT
                         else com.flowglass.engine.Tier.NORMAL
-                    var rowIndex = 0
-                    CommandCatalog.options(active.section).groupBy { it.categoryName }.forEach { (category, options) ->
-                        T(category, 13.sp, FontWeight.Bold, C.Muted, modifier = Modifier.padding(top = 8.dp, start = 6.dp))
-                        options.forEach { option ->
-                            val locked = option.minTier.ordinal > activeTier.ordinal
-                            val blocked = locked || option.comingSoon
-                            Row(Modifier.fillMaxWidth().staggerIn(rowIndex++.coerceAtMost(8))
-                                .clip(RoundedRectangle(24.dp))
-                                .then(if (blocked) Modifier else Modifier.editorAction(option.name) {
-                                    state.addItem(cmd.id, active.section, option)
-                                    panel = null
-                                })
-                                .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                LineIcon(option.ic, if (blocked) C.Muted else C.Primary, 22.dp)
-                                Spacer(Modifier.width(12.dp))
-                                T(option.name, 16.sp, color = if (blocked) C.Muted else C.OnSurface,
-                                    modifier = Modifier.weight(1f))
-                                when {
-                                    option.comingSoon -> T("即将支持", 12.sp, color = C.Muted)
-                                    locked -> T("需要 Root", 12.sp, color = C.Muted)
-                                    else -> LineIcon(Ic.Plus, C.Primary, 20.dp)
-                                }
-                            }
-                        }
+                    ComponentPicker(active.section, activeTier) { option ->
+                        state.addItem(cmd.id, active.section, option)
+                        panel = null
                     }
                 }
                 is EditorPanel.Parameter -> cmd.items(active.section).firstOrNull { it.id == active.itemId }?.let { item ->

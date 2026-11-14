@@ -152,24 +152,9 @@ private fun ActionEditorPage(state: AppState, cmd: Cmd, item: CommandItem) {
 @Composable
 private fun ReplaceActionList(state: AppState, cmd: Cmd, item: CommandItem, onDone: () -> Unit) {
     val activeTier = if (state.root?.granted == true) com.flowglass.engine.Tier.ROOT else com.flowglass.engine.Tier.NORMAL
-    var rowIndex = 0
-    CommandCatalog.options(CommandSection.ACTIONS).groupBy { it.categoryName }.forEach { (category, options) ->
-        T(category, 13.sp, FontWeight.Bold, C.Muted, modifier = Modifier.padding(top = 8.dp, start = 6.dp))
-        options.forEach { option ->
-            val locked = option.minTier.ordinal > activeTier.ordinal
-            Row(Modifier.fillMaxWidth().testTag("task-replace-${option.typeId}").staggerIn(rowIndex++.coerceAtMost(8))
-                .clip(RoundedRectangle(24.dp)).background(C.Card)
-                .then(if (locked) Modifier else Modifier.editorAction("替换为：${option.name}") {
-                    state.replaceItem(cmd.id, CommandSection.ACTIONS, item.id, option)
-                    onDone()
-                })
-                .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                LineIcon(option.ic, if (locked) C.Muted else C.Primary, 22.dp)
-                Spacer(Modifier.width(12.dp))
-                T(option.name, 16.sp, color = if (locked) C.Muted else C.OnSurface, modifier = Modifier.weight(1f))
-                if (locked) T("需要 Root", 12.sp, color = C.Muted) else LineIcon(Ic.ChevronRight, C.Muted, 18.dp)
-            }
-        }
+    ComponentPicker(CommandSection.ACTIONS, activeTier) { option ->
+        state.replaceItem(cmd.id, CommandSection.ACTIONS, item.id, option)
+        onDone()
     }
 }
 
