@@ -122,7 +122,14 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                     key(item.id) {
                         Column(Modifier.fillMaxWidth().testTag("item-${item.id}").animatePlacement().staggerIn(index)
                             .clip(RoundedRectangle(24.dp)).background(C.Tonal)
-                            .editorAction("编辑${item.name}") { panel = EditorPanel.Parameter(section, item.id) }
+                            .editorAction("编辑${item.name}") {
+                                if (section == CommandSection.ACTIONS) {
+                                    state.actionEditingCmd = cmd.id
+                                    state.actionEditing = item.id
+                                } else {
+                                    panel = EditorPanel.Parameter(section, item.id)
+                                }
+                            }
                             .padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 LineIcon(item.ic, C.Primary, 22.dp)

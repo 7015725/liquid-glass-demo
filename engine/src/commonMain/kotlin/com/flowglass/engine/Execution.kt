@@ -31,9 +31,12 @@ data class RunContext(
     val rule: Rule,
     val reason: String,
     val variables: MutableMap<String, Any?> = linkedMapOf(),
+    /** 当前正在执行的步骤下标（从 0 开始）；-1 表示未开始。 */
+    var currentStep: Int = -1,
 )
 
-data class ActionOutcome(val status: StepStatus, val detail: String)
+/** [output] is published to the run context under the first key of `ComponentMeta.outputs`. */
+data class ActionOutcome(val status: StepStatus, val detail: String, val output: String? = null)
 
 interface Trigger {
     val meta: ComponentMeta
@@ -58,6 +61,8 @@ fun interface CancellationCheckpoint {
     suspend fun ensureActive()
 }
 
+private const val LAST_DETAIL = "last"
+
 class RuleExecutor(
     private val registry: ComponentRegistry,
     private val actions: Map<String, Action>,
@@ -72,8 +77,9 @@ class RuleExecutor(
         var failed = false
         val context = RunContext(rule, reason)
 
-        for (component in rule.actions) {
+        for ((index, component) in rule.actions.withIndex()) {
             cancellationCheckpoint.ensureActive()
+            context.currentStep = index
             if (failed) {
                 steps += StepResult(component.type, StepStatus.SKIPPED, "前序动作失败，未执行", 0)
                 continue
@@ -84,21 +90,29 @@ class RuleExecutor(
                 steps += StepResult(component.type, StepStatus.SKIPPED, "暂不支持该动作", 0)
                 continue
             }
+            // Stored parameters keep %{var}; they are expanded when the step is read.
+            val expanded = ParamTemplate.expand(component.params, context.variables)
+            val resolved = if (expanded == component.params) component else component.copy(params = expanded)
             val stepStart = kotlin.time.TimeSource.Monotonic.markNow()
-            val result = try {
-                action.run(context, component)
+            suspend fun attempt(): ActionOutcome = try {
+                action.run(context, resolved)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 ActionOutcome(StepStatus.FAILURE, error.message?.take(500) ?: "动作执行失败")
             }
+            var result = attempt()
+            if (result.status == StepStatus.FAILURE && component.onError == OnError.RETRY) result = attempt()
             // A suspend action may complete synchronously after cancelling its caller.
             cancellationCheckpoint.ensureActive()
             val duration = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
                 stepStart.elapsedNow().inWholeNanoseconds.coerceAtLeast(0),
             )
             steps += StepResult(component.type, result.status, result.detail, duration)
-            failed = result.status == StepStatus.FAILURE
+            context.variables[LAST_DETAIL] = result.detail
+            val outputKey = meta.outputs.firstOrNull()
+            if (outputKey != null && result.output != null) context.variables[outputKey] = result.output
+            if (result.status == StepStatus.FAILURE && component.onError != OnError.CONTINUE) failed = true
         }
 
         val elapsed = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(

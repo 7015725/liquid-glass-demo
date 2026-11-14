@@ -251,6 +251,7 @@ fun FlowGlassApp() {
             state.settingsPage = destination
             tab = 3
         }
+        ActionEditorHost(state)
 
         // ---------------- undo bar, long-press menu and rename dialog float above everything
         UndoBar(
