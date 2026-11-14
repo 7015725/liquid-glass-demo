@@ -1,0 +1,301 @@
+action_id	internal_name	label_resource	label_text	category	flags	param_count	params	line
+1000	plugin	-1		100	4	5	pl_configuration:5() | pl_package:text() | pl_name:text() | pl_timeout_seconds:text(0:" + C21156vi.m88580I() + ":0) | pl_make_output_structure:toggle(bosta)	293
+115	deprecated	R.string.an_test	Test	Constants.F2L	4	3	numValueOf:text() | numValueOf2:text() | numValueOf3:text(uvar:1)	483
+411	deprecated	R.string.word_deprecated	Deprecated	Constants.F2L	0	1	word_deprecated:text(s:4)	484
+Constants.DCMPL	deprecated	R.string.word_deprecated	Deprecated	Constants.F2L	0	3	word_deprecated:toggle() | word_deprecated:toggle() | word_deprecated:toggle()	485
+594	deprecated	R.string.word_deprecated	Deprecated	Constants.F2L	0	0		486
+876	deprecated	R.string.word_deprecated	Deprecated	Constants.F2L	0	0		487
+500	deprecated	R.string.word_deprecated	Deprecated	Constants.F2L	0	0		488
+510	deprecated	R.string.word_deprecated	Deprecated	Constants.F2L	0	0		489
+520	deprecated	R.string.word_deprecated	Deprecated	Constants.F2L	0	0		490
+777	deprecated	R.string.word_deprecated	Deprecated	Constants.F2L	0	0		491
+540	deprecated	R.string.word_deprecated	Deprecated	Constants.F2L	0	0		492
+530	deprecated	R.string.word_deprecated	Deprecated	Constants.F2L	0	0		493
+696	deprecated	R.string.word_deprecated	Deprecated	Constants.F2L	0	0		494
+557	deprecated	R.string.word_deprecated	Deprecated	Constants.F2L	0	0		495
+343	test_media	R.string.an_test_media	Test Media	65	4	3	numValueOf:text() | numValueOf2:text() | numValueOf3:text(uvar:1)	496
+Constants.IFGE	midi_play	R.string.an_midi_play	MIDI Play	65	0	4	pl_format:text() | pl_locality:text() | pl_beat_ms:text(100:1000:300) | pl_score:text(score:3)	497
+523	notification	R.string.an_notify_plain	Notify	10	0	16	numValueOf4:text(w:1) | numValueOf5:text(s:3:?) | pl_icon:bundle() | pl_number:text(0:99) | pl_permanent:toggle() | pl_priority:text(1:5:3) | pl_repeat_alert:toggle() | pl_led_colour:text() | pl_led_rate:text(0:1000:0) | pl_sound_file:text(f:2:?) | pl_vibration_pattern:text(v:4:?) | pl_category:text(notcatoreo:1:?) | intensity_pattern:text(t:2:?) | live_update:toggle() | short_critical_text:text(t:1:?) | group:text(t:1:?)	500
+525	notification_led	R.string.an_notify_led	Notify LED	10	0	8	numValueOf4:text(w:1) | numValueOf5:text(s:3:?) | pl_icon:bundle() | pl_number:text(0:99) | pl_colour:text() | pl_rate:text(1:1000:500) | pl_priority:text(1:5:3) | pl_repeat_alert:toggle()	501
+538	notification_sound	R.string.an_notify_sound_2	Notify Sound	10	0	7	numValueOf4:text(w:1) | numValueOf5:text(s:3:?) | pl_icon:bundle() | pl_number:text(0:99) | pl_sound_file:text(f:2:?) | pl_priority:text(1:5:3) | pl_repeat_alert:toggle()	502
+536	notification_vibrate	R.string.an_notify_vibrate_2	Notify Vibrate	10	0	7	numValueOf4:text(w:1) | numValueOf5:text(s:3:?) | pl_icon:bundle() | pl_number:text(0:99) | pl_pattern:text(v:4:?) | pl_priority:text(1:5:3) | pl_repeat_alert:toggle()	503
+551	menu	R.string.an_menu	Menu	10	0	5	numValueOf4:text(w:1:?) | pl_background_image:text(b:2:?) | pl_layout:text(sname) | pl_timeout_seconds:text(1:600:30) | pl_show_over_keyguard:toggle(true)	504
+779	cancel_notification	R.string.an_cancel_notify	Notify Cancel	10	0	2	numValueOf4:text(w:1:?) | pl_warn_not_exist:toggle()	505
+550	C20537a6.POPUP_LABEL	R.string.an_popup	Popup	10	0	6	numValueOf4:text(w:1:?) | numValueOf5:text(s:5) | pl_background_image:text(b:2:?) | pl_layout:text(sname) | pl_timeout_seconds:text(1:600:5) | pl_show_over_keyguard:toggle(true)	506
+941	html_popup	R.string.an_html_popup	HTML Popup	10	0	4	pl_code:text(s:12) | pl_layout:text(sname) | pl_timeout_seconds:text(1:600:5) | pl_show_over_keyguard:toggle(true)	507
+552	popup_task_buttons	R.string.an_popup_task_buttons	Popup Task Buttons	10	0	9	numValueOf5:text(w:5:?) | numValueOf6:text() | pl_task:text(m:1:?) | pl_task:text(m:1:?) | pl_task:text(m:1:?) | pl_background_image:text(b:2:?) | pl_layout:text(sname) | pl_timeout_seconds:text(1:600:10) | pl_show_over_keyguard:toggle(true)	509
+999	set_light	R.string.an_set_light	Set Light	10	0	2	numValueOf7:text(light:1) | pl_to:text(0:255)	511
+61	vibrate	R.string.an_vibrate	Vibrate	10	4	1	pl_time:text(1:1000:200)	512
+62	vibrate_pattern	R.string.an_vibrate_pattern	Vibrate Pattern	10	4	2	pl_pattern:text(v:2) | intensity_pattern:text(t:2:?)	513
+344	test_app	R.string.an_test_app	Test App	15	4	3	numValueOf:text() | numValueOf2:text() | numValueOf3:text(uvar:1)	514
+815	list_apps	R.string.an_list_apps	List Apps	15	0	3	numValueOf:text() | pl_match:text(t:1:?) | numValueOf3:text(uvar:1)	515
+349	test_system	R.string.an_test_system	Test System	104	0	3	numValueOf:text() | numValueOf2:text() | numValueOf3:text(uvar:1)	516
+566	set_alarm	R.string.an_set_alarm	Set Alarm	104	0	6	numValueOf8:text(0:23) | numValueOf9:text(0:59) | numValueOf10:text(t:1:?) | numValueOf11:text(rtn:1:?) | pl_vibrate:text() | pl_confirm:toggle()	521
+Constants.IF_ACMPEQ	cancel_alarm	R.string.an_cancel_alarm	Cancel Alarm	104	0	4	numValueOf6:text() | pl_hours:text(0:23) | pl_minutes:text(0:59) | pl_label:text(t:1:?)	522
+Constants.IF_ACMPNE	show_alarms	R.string.an_show_alarms	Show Alarms	104	0	0		523
+543	start_timer	R.string.an_start_timer	Start System Timer	104	0	3	pl_seconds:text(1:86400:10) | pl_message:text(t:1:?) | pl_show_ui:toggle()	524
+567	calendar_insert	R.string.an_calendar_insert	Calendar Insert	Constants.D2I	4	7	pl_in_for_minutes:text(t:1:?) | pl_calendar:text(ccal:1) | numValueOf4:text(ctit:1) | pl_description:text(t:3:?) | pl_location:text(cloc:1:?) | pl_available:toggle() | pl_all_day:toggle()	525
+25	go_home	R.string.an_go_home	Go Home	15	0	2	pl_page:text(0:20) | pl_package:text(applpakc:1:?)	526
+20	load_app	R.string.an_load_app	Launch App	15	4	4	pl_package_app_name:number() | numValueOf2:text(t:5:?) | pl_exclude_from_recent_apps:toggle() | pl_start_new_copy:toggle()	527
+119	open_map	R.string.an_open_map	Open Map	60	4	5	numValueOf6:text() | pl_address:text(t:2:?) | pl_lat_long:text(latlong:2:?) | pl_zoom:text(1:23) | pl_label:text(w:1:?)	528
+303	alarm_volume	R.string.an_volume_alarm	Alarm Volume	20	1	3	pl_level:text(0:255) | pl_display:toggle() | numValueOf11:toggle()	529
+311	bt_voice_volume	R.string.an_volume_bt_voice	BT Voice Volume	20	1	3	pl_level:text(0:255) | pl_display:toggle() | numValueOf11:toggle()	530
+309	dtmf_volume	R.string.an_volume_dtmf	DTMF Volume	20	1	3	pl_level:text(0:255) | pl_display:toggle() | numValueOf11:toggle()	531
+Constants.RETURN	haptic_feedback	R.string.an_haptic_feedback	Haptic Feedback	20	2	1	numValueOf7:toggle()	532
+306	call_volume	R.string.an_volume_call	In-Call Volume	20	1	3	pl_level:text(0:255) | pl_display:toggle() | numValueOf11:toggle()	533
+StatusLine.HTTP_TEMP_REDIRECT	music_volume	R.string.an_volume_music	Media Volume	20	1	3	pl_level:text(0:255) | pl_display:toggle() | numValueOf11:toggle()	534
+301	mic_mute	R.string.an_microphone_mute	Mic Mute	20	1	1	numValueOf7:toggle()	535
+305	notification_volume	R.string.an_volume_notification	Notification Volume	20	1	3	pl_level:text(0:255) | pl_display:toggle() | numValueOf11:toggle()	536
+258	system_notification_vibrate	R.string.an_notification_vibrate	Vibrate On Notify	20	1	1	numValueOf7:toggle()	537
+304	ringer_volume	R.string.an_volume_ringer	Ringer Volume	20	1	3	pl_level:text(0:255) | pl_display:toggle() | numValueOf11:toggle()	538
+256	ringer_vibrate	R.string.an_ringer_vibrate	Vibrate On Ringer	20	1	1	numValueOf7:toggle()	539
+StatusLine.HTTP_PERM_REDIRECT	system_volume	R.string.an_volume_system	System Volume	20	1	3	pl_level:text(0:255) | pl_display:toggle() | numValueOf11:toggle()	540
+310	silent_mode	R.string.an_silent_mode	Silent Mode	20	1	1	numValueOf6:text()	541
+Constants.L2I	sound_effects	R.string.an_sound_effects_enabled	Sound Effects	20	2	1	numValueOf7:toggle()	542
+254	C20537a6.SPEAKERPHONE_LABEL	R.string.an_speakerphone_status	Speakerphone	20	1	1	numValueOf7:toggle()	543
+235	secure_setting	R.string.an_custom_setting	Custom Setting	30	4	5	numValueOf:text() | numValueOf12:text(sset:1) | pl_value:text(t:1:?) | pl_use_root:toggle() | pl_read_setting_to:text(uvar:1:?)	545
+200	null	R.string.an_dialog_settings	All Settings	30	0	0		546
+236	null	R.string.an_dialog_accessibility_settings	Accessibility Settings	30	0	0		547
+Constants.IFNONNULL	null	R.string.an_dialog_add_account_settings	Add Account Settings	30	0	0		548
+201	null	R.string.an_dialog_airplane_mode_settings	Airplane Mode Settings	30	0	0		549
+202	null	R.string.an_dialog_apn_settings	APN Settings	30	0	0		550
+216	null	R.string.an_dialog_application_settings	App Settings	30	0	1	pl_app:text(pkgName:1:?)	551
+251	dialog_battery_info_settings	R.string.an_dialog_battery_info_settings	Battery Settings	30	0	0		552
+226	null	R.string.an_dialog_manage_application_settings	App Manage Settings	30	0	0		553
+218	null	R.string.an_dialog_bluetooth_settings	Bluetooth Settings	30	0	0		554
+203	null	R.string.an_dialog_date_settings	Date Settings	30	0	0		555
+Constants.MULTIANEWARRAY	null	R.string.an_dialog_developer_settings	Developer Settings	30	0	0		556
+Constants.IFNULL	null	R.string.an_dialog_device_info_settings	Device Info Settings	30	0	0		557
+959	null	R.string.an_dialog_dream_settings	Dream Settings	30	0	0		558
+234	null	R.string.an_dialog_user_dictionary_settings	Dictionary Settings	30	0	0		559
+222	null	R.string.an_dialog_display_settings	Display Settings	30	0	0		560
+210	null	R.string.an_dialog_input_method_settings	InputMethod Settings	30	0	0		561
+204	null	R.string.an_dialog_internal_storage_settings	Internal Storage Settings	30	0	0		562
+224	null	R.string.an_dialog_locale_settings	Locale Settings	30	0	0		563
+208	null	R.string.an_dialog_location_source_settings	Location Settings	30	0	0		564
+227	null	R.string.an_dialog_memory_card_settings	Memory Card Settings	30	0	0		565
+956	null	R.string.an_dialog_nfc_settings	NFC Settings	30	0	0		566
+958	null	R.string.an_dialog_nfc_payment_settings	NFC Payment Settings	30	0	0		567
+957	null	R.string.an_dialog_nfc_sharing_settings	Android Beam Settings	30	0	0		568
+228	null	R.string.an_dialog_network_operator_settings	Network Operator Settings	30	0	0		569
+237	null	R.string.an_notification_listener_settings	Notification Listener Settings	30	0	0		570
+257	null	R.string.an_dialog_power_usage_settings	Power Usage Settings	30	0	0		571
+238	null	R.string.an_dialog_privacy_settings	Privacy Settings	30	0	0		572
+239	null	R.string.an_dialog_print_settings	Print Settings	30	0	0		573
+229	null	R.string.an_dialog_quick_launch_settings	Quick Launch Settings	30	0	0		574
+230	null	R.string.an_dialog_security_settings	Security Settings	30	0	0		575
+220	null	R.string.an_dialog_roaming_settings	Mobile Data Settings	30	0	0		576
+231	null	R.string.an_dialog_search_settings	Search Settings	30	0	0		577
+232	null	R.string.an_dialog_sound_settings	Sound Settings	30	0	0		578
+211	null	R.string.an_dialog_sync_settings	Sync Settings	30	0	0		579
+206	null	R.string.an_dialog_wifi_settings	WIFI Settings	30	0	0		580
+212	null	R.string.an_dialog_wifi_ip_settings	WIFI IP Settings	30	0	0		581
+214	null	R.string.an_dialog_wireless_settings	Wireless Settings	30	0	0		582
+348	test_display	R.string.an_test_display	Test Display	40	0	3	numValueOf:text() | numValueOf2:text() | numValueOf3:text(uvar:1)	583
+808	screen_brightness_auto	R.string.an_screen_brightness_auto	Auto Brightness	40	2	1	numValueOf7:toggle()	584
+Constants.FCMPG	keyguard	R.string.an_keyguard_enabled	Keyguard	40	1	1	numValueOf7:toggle()	585
+15	C20537a6.LOCK_LABEL	R.string.an_lock	Lock	40	0	7	numValueOf4:text(w:1:?) | pl_code:text(cv:1) | pl_allow_cancel:toggle() | pl_remember_till_off:toggle() | pl_full_screen:toggle() | pl_background_image:text(b:2:?) | pl_layout:text(sname)	586
+16	system_lock	R.string.an_system_lock	System Lock	40	0	0		587
+810	screen_brightness	R.string.an_screen_brightness	Display Brightness	40	2	4	pl_level:text(0:255:128) | pl_disable_safeguard:toggle() | pl_ignore_current_level:toggle() | pl_immediate_effect:toggle(true)	588
+812	screen_timeout	R.string.an_screen_off_timeout	Display Timeout	40	2	3	pl_secs:text(0:59) | pl_mins:text(0:59) | pl_hours:text(0:23)	589
+822	accelerometer	R.string.an_accelerometer_rotation	Display AutoRotate	40	2	1	numValueOf7:toggle()	590
+109	set_wallpaper	R.string.an_set_wallpaper	Set Wallpaper	40	5	5	numValueOf:text() | pl_image:text(b:2:?) | ml_anim_scale:toggle() | word_crop:toggle() | pl_center:toggle()	591
+512	status_bar	R.string.an_status_bar	Status Bar	40	4	1	numValueOf7:text()	592
+988	car_mode	R.string.an_car_mode	Car Mode	40	1	2	numValueOf7:toggle() | an_go_home:toggle()	593
+989	night_mode	R.string.an_night_mode	Night Mode	40	1	1	numValueOf6:text()	594
+342	test_file	R.string.an_test_file	Test File	50	4	5	numValueOf:text() | numValueOf2:text() | numValueOf3:text(uvar:1) | pl_use_root:toggle() | pl_use_global_namespace:toggle(true)	595
+900	browse_files	R.string.an_browse_files	Browse Files	50	0	3	pl_dir:text(d:2:?) | pl_match:text(t:1:?) | pl_show_hidden:toggle()	596
+412	list_files	R.string.an_list_files	List Files	50	4	7	pl_dir:text(d:2) | pl_match:text(t:1:?) | pl_show_hidden:toggle() | pl_use_root:toggle() | dt_sort_select:text() | pl_variable_array:text(uvar:1) | pl_use_global_namespace:toggle(true)	597
+409	make_dir	R.string.an_make_dir	Create Directory	50	4	4	pl_dir:text(d:2) | pl_create_all:toggle() | pl_use_root:toggle() | pl_use_global_namespace:toggle(true)	598
+408	delete_dir	R.string.an_delete_dir	Delete Directory	50	4	4	pl_dir:text(d:2) | pl_recurse:toggle() | pl_use_root:toggle() | pl_use_global_namespace:toggle(true)	599
+405	copy_dir	R.string.an_copy_dir	Copy Dir	50	4	4	pl_from:text(f:2) | pl_to:text(d:2) | pl_use_root:toggle() | pl_use_global_namespace:toggle(true)	600
+404	copy_file	R.string.an_copy_file	Copy File	50	4	4	pl_from:text(f:2) | pl_to:text(d:2) | pl_use_root:toggle() | pl_use_global_namespace:toggle(true)	601
+406	delete_file	R.string.an_delete_file	Delete File	50	4	4	numValueOf13:text(f:2) | pl_shred_level:text(0:10:0) | pl_use_root:toggle() | pl_use_global_namespace:toggle(true)	603
+400	move_file	R.string.an_move_file	Move	50	4	4	pl_from:text(f:2) | pl_to:text(d:2) | pl_use_root:toggle() | pl_use_global_namespace:toggle(true)	604
+376	share_file	R.string.an_share_file	Share File	50	4	4	numValueOf13:text(f:2) | pl_mime_type:text(mime:1:?) | pl_use_chooser:toggle() | pl_chooser_title:text(w:1:?)	605
+417	read_file	R.string.an_read_file	Read File	50	4	3	numValueOf13:text(f:2) | pl_to_var:text(uvar:1) | pl_make_output_structure:toggle(bosta)	606
+776	read_binary	R.string.an_read_binary	Read Binary	50	4	2	numValueOf13:text(f:2) | pl_to_var:text(uvar:1)	607
+775	write_binary	R.string.an_write_binary	Write Binary	50	4	2	pl_variable:text(uvar:1) | numValueOf13:text(f:2)	608
+415	read_file_part	R.string.an_read_line	Read Line	50	4	4	numValueOf13:text(f:2) | pl_line:text(var:1:?) | pl_to_var:text(uvar:1) | pl_make_output_structure:toggle(bosta)	609
+416	read_file_part	R.string.an_read_para	Read Paragraph	50	4	3	numValueOf13:text(f:2) | pl_para:text(var:1:?) | pl_to_var:text(uvar:1)	610
+410	write_file	R.string.an_write_to_file	Write File	50	4	4	numValueOf13:text(f:2) | numValueOf5:text(t:5) | pl_append:toggle() | pl_add_newline:toggle(true)	611
+422	unzip_file	R.string.an_unzip_file	UnZip	50	4	2	numValueOf13:text(f:2) | pl_delete_zip:toggle()	612
+420	zip_file	R.string.an_zip_file	Zip	50	4	4	numValueOf13:text(f:2) | pl_delete_orig:toggle() | pl_level:text(1:9:8) | pl_output_file:text(f:1:?)	613
+476	gunzip_file	R.string.an_gunzip_file	GUnzip	50	4	2	numValueOf13:text(f:2) | pl_delete_zip:toggle()	614
+475	gzip_file	R.string.an_gzip_file	GZip	50	4	2	numValueOf13:text(f:2) | pl_delete_orig:toggle()	615
+513	close_system_dialogs	R.string.an_close_system_dialogs	Close System Dialogs	55	4	0		616
+703	button	R.string.an_button	Button	55	4	1	pl_button:text()	617
+701	dpad	R.string.an_dpad	Dpad	55	4	2	pl_button:text() | pl_repeat_times:text(1:10)	618
+702	type	R.string.an_type	Type	55	4	2	numValueOf5:text(t:2) | pl_repeat_times:text(1:10)	619
+987	null	R.string.an_show_soft_keyboard	Soft Keyboard	55	0	0		620
+904	voice_command	R.string.an_voice_command	Voice Command	55	0	0		621
+443	android_media_control	R.string.an_android_media_control	Media Control	65	0	4	pl_cmd:text() | pl_simulate_media_button:toggle(true) | pl_package_app_name:number() | pl_use_notification_if_available:toggle(false)	622
+Constants.ANEWARRAY	crop_image	R.string.an_crop_image	Crop Image	52	4	4	pl_from_left:text(0:100:0) | pl_from_right:text(0:100:0) | pl_from_top:text(0:100:0) | pl_from_bottom:text(0:100:0)	623
+Constants.ARRAYLENGTH	flip_image	R.string.an_flip_image	Flip Image	52	4	1	pl_direction:text()	624
+Constants.INSTANCEOF	resize_image	R.string.an_resize_image	Resize Image	52	4	2	pl_width:text() | pl_height:text()	625
+Constants.NEWARRAY	load_image	R.string.an_load_image	Load Image	52	4	3	pl_source:bundle(?) | pl_max_dimension:text(10:99999) | pl_respect_exif_orientation:toggle()	626
+Constants.INVOKEINTERFACE	filter_image	R.string.an_filter_image	Filter Image	52	4	2	numValueOf6:text() | pl_value:text(1:255:200)	627
+Constants.NEW	save_image	R.string.an_save_image	Save Image	52	4	3	numValueOf13:text(f:2) | pl_image_quality:text(1:100:85) | pl_delete_mem_after:toggle(true)	628
+Constants.ATHROW	rotate_image	R.string.an_rotate_image	Rotate Image	52	4	2	pl_direction:text() | pl_degrees:text()	629
+490	grab_media_button	R.string.an_grab_media_button	Media Button Events	65	0	2	pl_action:text() | pl_use_new_api:toggle()	630
+445	music_play	R.string.an_music_play	Music Play	65	4	5	numValueOf13:text(f:2) | pl_start:text(0:300) | pl_loop:toggle() | pl_stream:text(0:0:3) | pl_continue_task_immediately:toggle(true)	631
+447	music_play_dir	R.string.an_music_play_dir	Music Play Dir	65	4	6	pl_dir:text(d:2) | pl_subdirs:toggle() | pl_audio_only:toggle() | pl_random:toggle() | pl_flash:toggle() | pl_maximum_tracks:text(0:60)	632
+451	music_forward	R.string.an_music_forward	Music Skip	65	4	1	pl_jump:text(0:300:5)	633
+453	music_back	R.string.an_music_back	Music Back	65	4	1	pl_jump:text(0:300:5)	634
+449	music_stop	R.string.an_music_stop	Music Stop	65	4	1	pl_clear_dir:toggle()	635
+Constants.LOOKUPSWITCH	beep	R.string.an_beep	Beep	10	0	5	pl_frequency:text(20:16000:8000) | pl_duration:text(1:10000:1000) | pl_amplitude:text(1:100:50) | pl_stream:text(0:0:3) | pl_do_at_time:text(t:1:?)	636
+Constants.IRETURN	morse	R.string.an_morse	Morse	10	0	5	numValueOf5:text(t:1) | pl_frequency:text(20:16000:4000) | pl_speed:text(1:100:80) | pl_amplitude:text(1:100:50) | pl_stream:text(0:0:3)	637
+Constants.CHECKCAST	play_ringtone	R.string.an_play_ringtone	Play Ringtone	65	0	3	numValueOf:text() | numValueOf11:text(rtn:1:?) | pl_stream:text(0:0:4)	638
+101	take_photo	R.string.an_take_photo	Take Photo	65	4	10	pl_camera:text() | pl_filename:text(t:1) | pl_file_naming_mode:text() | pl_insert_in_gallery:toggle(true) | pl_discrete:toggle() | pl_resolution:text(psize:1:?) | pl_scene_mode:text() | pl_white_balance:text() | pl_flash_mode:text() | pl_focus_mode:text()	639
+Constants.ARETURN	take_screenshot	R.string.an_take_screenshot	Take Screenshot	40	4	2	numValueOf13:text(f:2) | pl_insert_in_gallery:toggle(true)	640
+455	sound_record	R.string.an_sound_record	Record Audio	65	4	5	numValueOf13:text(f:2) | pl_source:text() | pl_maxsize:text(0:500) | pl_codec:text() | pl_format:text()	641
+657	sound_record_stop	R.string.an_sound_record_stop	Record Audio Stop	65	4	0		642
+457	ClockContract.AlarmSettingColumns.RINGTONE	R.string.an_ringtone	Default Ringtone	20	1	2	numValueOf:text() | numValueOf11:text(rtn:1)	643
+459	scan_card	R.string.an_scan_card	Scan Media	65	0	1	numValueOf13:text(f:2:?)	644
+877	send_intent	R.string.an_send_intent	Send Intent	104	4	10	pl_action:text(t:1:?) | pl_cat:text() | pl_mime_type:text(mime:1:?) | numValueOf2:text(t:4:?) | pl_extra:text(t:1:?) | pl_extra:text(t:1:?) | pl_extra:text(t:1:?) | pl_package:text(t:1:?) | pl_class:text(t:1:?) | pl_target:text()	645
+901	stop_fix	R.string.an_stop_fix	Stop Location	60	0	1	pl_source:text()	646
+902	get_fix	R.string.an_get_fix	Get Location	60	4	4	pl_source:text() | pl_timeout_seconds:text(10:240:100) | pl_continue_task_immediately:toggle() | pl_keep_tracking:toggle()	647
+915	setcpu	R.string.an_setcpu	CPU	104	5	4	pl_cpu:text() | pl_governor:text(cpug:1) | pl_min_freq:text() | pl_max_freq:text()	648
+332	gps_status	R.string.an_gps_status	GPS	60	5	1	numValueOf7:toggle()	649
+59	reboot	R.string.an_reboot	Reboot	104	4	1	numValueOf:text()	650
+112	run_script	R.string.an_run_script	Run SL4A Script	35	4	3	numValueOf12:text(r:1) | pl_terminal:toggle() | pl_pass_variables:text(t:2:?)	651
+667	sql_query	R.string.an_sql_query	SQL Query	50	4	11	numValueOf6:text() | numValueOf13:text(f:1) | pl_table:text(t:1) | pl_columns:text(t:1:?) | word_query:text(t:5:?) | pl_selection_params:text(t:3:?) | pl_order_by:text(t:3:?) | pl_output_column_divider:text(t:1:?) | pl_variable_array:text(uvar:1) | pl_use_root:toggle() | pl_use_global_namespace:toggle(true)	652
+664	java_func	R.string.an_java_func	Java Function	35	4	10	an_return:text(jp:1:?) | pl_class_or_object:text(jc:1:?) | pl_function:text(jfu:3) | pl_parameter_short:text(jp:1:?) | pl_parameter_short:text(jp:1:?) | pl_parameter_short:text(jp:1:?) | pl_parameter_short:text(jp:1:?) | pl_parameter_short:text(jp:1:?) | pl_parameter_short:text(jp:1:?) | pl_parameter_short:text(jp:1:?)	653
+665	java_object	R.string.an_java_object	Java Object	35	0	2	numValueOf6:text() | numValueOf12:text(t:1:?)	654
+123	run_shell	R.string.an_run_shell	Run Shell	35	4	9	pl_command:text(adbsc:3) | pl_timeout_seconds:text(0:120) | pl_use_root:toggle() | pl_store_output_in:text(uvar:1:?) | pl_store_errors_in:text(uvar:1:?) | numValueOf3:text(uvar:1:?) | pl_use_global_namespace:toggle(true) | pl_use_tasker_settings:toggle(false) | use_shizuku:toggle()	655
+124	remount	R.string.an_remount	Remount	50	0	2	pl_path:text() | pl_writeable:toggle()	656
+559	C20537a6.SAY_LABEL	R.string.an_say	Say	10	4	8	numValueOf5:text(s:4) | pl_engine_voice:text(l:1) | pl_stream:text(0:0:3) | pl_pitch:text(1:10:5) | pl_speed:text(1:10:5) | pl_respect_audio_focus:toggle(true) | word_network:toggle() | pl_continue_task_immediately:toggle()	657
+699	C20537a6.SAY_LABEL	R.string.an_say_to_file	Say To File	10	4	7	numValueOf5:text(s:4) | pl_engine_voice:text(l:1) | numValueOf13:text(d:2) | pl_pitch:text(1:10:5) | pl_speed:text(1:10:5) | word_network:toggle() | pl_continue_task_immediately:toggle()	658
+697	shut_up	R.string.an_shut_up	Shut Up	10	0	0		659
+100	search	R.string.an_search	Search	104	0	2	pl_for:text(t:1) | pl_web_search:toggle()	660
+Constants.IF_ICMPLT	set_app_shortcuts	R.string.an_set_app_shortcuts	Setup App Shortcuts	110	0	4	pl_task:text(m:1:?) | pl_task:text(m:1:?) | pl_task:text(m:1:?) | pl_task:text(m:1:?)	661
+Constants.IF_ICMPGE	set_quick_setting	R.string.an_set_quick_settings	Set up Quick Setting Tile	110	0	14	pl_number:text() | pl_task:text(m:1:?) | pl_status:text() | pl_can_use_on_locked_device:toggle() | pl_long_click_task:text(m:1:?) | pl_double_click_task:text(m:1:?) | pl_subtitle:text(t:1:?) | pl_icon:text(img:2:?) | numValueOf4:text(t:1:?) | pl_command:text(t:1:?) | pl_long_click_command:text(t:1:?) | pl_double_click_command:text(t:1:?) | pl_command_prefix:text(t:1:?) | pl_hide_notification_shade:toggle()	662
+Constants.D2L	edit_scene	R.string.an_edit_scene	Edit Scene	110	0	2	numValueOf14:text(sname:1) | numValueOf15:text(sename:1:?)	665
+Constants.D2I	edit_task	R.string.an_edit_task	Edit Task	110	0	2	pl_task:text(m:1) | pl_action:text(t:1:?)	665
+Constants.I2S	show_tasker_prefs	R.string.an_show_tasker_prefs	Show Prefs	110	0	1	pl_section:text()	665
+Constants.LCMP	null	R.string.an_show_tasker_runlog	Show Runlog	110	0	0		665
+Constants.IFGT	quick_setting_add	R.string.an_quick_setting_add	Quick Setting Add	104	0	3	pl_label:text(w:1) | pl_icon:bundle() | pl_collapse_panel_on_click:toggle(true)	665
+Constants.IFLE	quick_setting_remove	R.string.an_quick_setting_remove	Quick Setting Remove	104	0	1	pl_label:text(w:1)	665
+440	null	R.string.an_set_timezone	Set Timezone	104	0	1	pl_set_timezone_to:text(tz:1)	665
+Constants.LRETURN	network_access	R.string.an_network_access	Network Access	80	1	2	numValueOf6:text() | pl_package_app_name:number()	665
+331	auto_sync	R.string.an_auto_sync	Auto-Sync	80	1	1	numValueOf7:toggle()	665
+294	bluetooth_status	R.string.an_bluetooth_status	Bluetooth	80	5	1	numValueOf7:toggle()	665
+346	test_phone	R.string.an_test_phone	Test Phone	90	4	3	numValueOf:text() | numValueOf2:text() | numValueOf3:text(uvar:1)	665
+296	bluetooth_sco	R.string.an_bluetooth_sco	Bluetooth Voice	90	1	1	numValueOf7:toggle()	665
+295	bluetooth_name	R.string.an_bluetooth_name	Bluetooth ID	80	1	1	numValueOf12:text(t:1)	665
+104	view_url	R.string.an_view_url	Browse URL	80	4	4	pl_url:text(t:2) | pl_package_app_name:number() | pl_show_open_with_dialog:toggle() | pl_show_open_with_dialog_title:text(t:1)	665
+125	email_compose	R.string.an_email_compose	Compose Email	80	0	3	pl_recipients:text(t:2:?) | pl_subject:text(w:2:?) | pl_message:text(s:5:?)	665
+118	http_get	R.string.an_http_get	HTTP Get	80	4	9	pl_server_port:text(t:1) | pl_path:text(t:2:?) | pl_attributes:text(t:3:?) | pl_cookies:text(t:2:?) | pl_user_agent:text(t:1:?) | pl_timeout:text(1:120:10) | pl_mime_type:text(mime:1:?) | pl_output_file:text(f:2:?) | pl_trust_any_cert:toggle()	665
+117	http_head	R.string.an_http_head	HTTP Head	80	4	7	pl_server_port:text(t:1) | pl_path:text(t:2:?) | pl_attributes:text(t:3:?) | pl_cookies:text(t:2:?) | pl_user_agent:text(t:1:?) | pl_timeout:text(1:120:10) | pl_trust_any_cert:toggle()	665
+116	http_post	R.string.an_http_post	HTTP Post	80	4	9	pl_server_port:text(t:1) | pl_path:text(t:2:?) | pl_data_or_file:text(f:3:?) | pl_cookies:text(t:1:?) | pl_user_agent:text(t:1:?) | pl_timeout:text(1:120:10) | pl_content_type:text(mime:1:?) | pl_output_file:text(f:2:?) | pl_trust_any_cert:toggle()	665
+450	mobile_data_apn	R.string.an_mobile_data_status	APN Droid	130	0	3	pl_enable:toggle() | pl_keep_mms:toggle() | pl_notify:toggle()	665
+735	mobile_network_mode	R.string.an_mobile_network_mode	Mobile Data 2G/3G	80	1	1	numValueOf6:text()	665
+114	tether_usb	R.string.an_tether_usb	USB Tether	80	1	1	numValueOf7:toggle()	665
+341	test_net	R.string.an_test_net	Test Net	80	4	3	numValueOf:text() | numValueOf2:text() | numValueOf3:text(uvar:1)	665
+425	wifi_status	R.string.an_wifi_status	WiFi	80	5	1	numValueOf7:toggle()	665
+427	wifi_sleep_policy	R.string.an_wifi_sleep_policy	WiFi Sleep	80	2	1	pl_policy:text()	665
+439	wimax_status	R.string.an_wimax_status	WiMax	80	1	1	numValueOf7:toggle()	665
+90	make_phonecall	R.string.an_make_phonecall	Call	90	0	3	pl_number:text(pv:1:?) | pl_auto_dial:toggle() | pl_sim_card:text(simc:1:?)	665
+910	call_log	R.string.an_call_log	Call Log	90	0	1	pl_action:text()	665
+95	block_phonecalls	R.string.an_block_calls	Call Block	90	1	2	pl_number_match:text(pv:2:?) | pl_info:toggle()	665
+97	divert_phonecalls	R.string.an_divert_calls	Call Divert	90	1	3	pl_from_match:text(pv:2:?) | pl_divert_phone_number_to:text(pv:2) | pl_info:toggle()	665
+99	revert_phonecalls	R.string.an_revert_calls	Call Revert	90	0	2	pl_number:text(pv:1:?) | pl_info:toggle()	665
+111	mms_compose	R.string.an_mms_compose	Compose MMS	90	0	4	pl_recipients:text(pv:1:?) | pl_subject:text(t:1:?) | pl_message:text(s:5:?) | pl_attachment:text(f:2)	665
+250	sms_compose	R.string.an_sms_compose	Compose SMS	90	0	2	pl_recipients:text(pv:1:?) | pl_message:text(s:5:?)	665
+909	contacts	R.string.an_contacts	Contacts	90	0	1	numValueOf:text()	665
+732	radio_status	R.string.an_radio_status	Radio	90	1	1	numValueOf7:toggle()	665
+41	send_sms	R.string.an_send_text_sms	Send SMS	90	4	5	pl_number:text(pv:3) | pl_message:text(s:5) | pl_store_in_messaging_app:toggle() | pl_sim_card:text(simc:1:?) | pl_wait_for_result:toggle()	665
+42	data_sms	R.string.an_send_data_sms	Send Data SMS	90	4	3	pl_number:text(pv:3) | pl_port:text(0:65535:60000) | numValueOf2:text(t:5)	665
+734	silence_ringer	R.string.an_silence_ringer	Silence Ringer	90	0	0		665
+731	take_call	R.string.an_take_call	Take Call	90	0	0		665
+46	create_scene	R.string.an_create_scene	Create Scene	102	4	1	numValueOf12:text(sname:1)	665
+69	scene_element_create	R.string.an_scene_element_create	Element Create	102	4	4	numValueOf14:text(sname:1) | numValueOf:text() | pl_visible:toggle(true) | pl_content:text(t:20)	665
+73	scene_element_destroy	R.string.an_scene_element_destroy	Element Destroy	102	4	2	numValueOf14:text(sname:1) | numValueOf15:text(sename:1)	665
+47	show_scene	R.string.an_show_scene	Show Scene	102	4	11	numValueOf12:text(sname:1) | pl_display_as:text() | pl_horizontal_offset:text(0:200:100) | pl_vertical_offset:text(0:200:100) | pl_animation:text() | pl_show_exit_button:toggle(true) | pl_show_over_keyguard:toggle(true) | pl_continue_task_immediately:toggle(true) | pl_allow_outside_boundaries:toggle(true) | pl_show_on_lock_screen_interactive_everywhere:toggle(false) | overlay_plus:toggle(false)	665
+48	hide_scene	R.string.an_hide_scene	Hide Scene	102	4	2	numValueOf12:text(sname:1) | pl_animation:text()	665
+49	destroy_scene	R.string.an_destroy_scene	Destroy Scene	102	4	1	numValueOf12:text(sname:1)	665
+Constants.MONITORENTER	test_scene	R.string.an_test_scene	Test Scene	102	4	3	numValueOf12:text(sname:1) | word_test:text() | numValueOf3:text(uvar:1)	665
+Constants.MONITOREXIT	scene_element_test	R.string.an_scene_element_test	Test Element	102	4	4	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | word_test:text() | numValueOf3:text(uvar:1)	665
+60	scene_element_add_geomarker	R.string.an_scene_element_add_geomarker	Element Add GeoMarker	102	4	9	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | pl_lat_long:text(latlong:1) | pl_label:text(t:1:?) | pl_text_colour:text(col:1:?) | pl_text_size:text(6:100:14) | pl_spot_radius:text() | pl_spot_colour:text(col:1:?) | pl_icon:bundle()	665
+63	scene_element_delete_geomarker	R.string.an_scene_element_delete_geomarker	Element Delete GeoMarker	102	4	4	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | pl_lat_long:text(latlong:1:?) | pl_label:text(t:1:?)	665
+68	scene_element_focus	R.string.an_scene_element_focus	Element Focus	102	4	3	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | numValueOf7:toggle()	665
+57	scene_element_position	R.string.an_scene_element_position	Element Position	102	4	6	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | pl_orientation:text() | pl_x_coord:text() | pl_y_coord:text() | pl_anim_duration_ms:text(0:5000:400)	665
+58	scene_element_size	R.string.an_scene_element_size	Element Size	102	4	6	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | pl_orientation:text() | pl_width:text() | pl_height:text() | pl_anim_duration_ms:text(0:4000:400)	665
+67	scene_element_depth	R.string.an_scene_element_depth	Element Depth	102	4	3	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | ml_scene_set_depth:text(1:200:1)	665
+53	scene_element_web_control	R.string.an_scene_element_web_control	Element Web Control	102	4	4	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | numValueOf6:text() | pl_value:text()	665
+612	scene_element_video_control	R.string.an_scene_element_video_control	Element Video Control	102	4	4	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | numValueOf6:text() | pl_value:text()	665
+64	scene_element_map_control	R.string.an_scene_element_map_control	Element Map Control	102	4	4	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | numValueOf6:text() | pl_value:text(latlong:1)	665
+66	scene_element_image	R.string.an_scene_element_image	Element Image	102	4	3	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | pl_image:bundle()	665
+54	scene_element_text_colour	R.string.an_scene_element_text_colour	Element Text Colour	102	4	3	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | pl_colour:text(col:1)	665
+71	scene_element_text_size	R.string.an_scene_element_text_size	Element Text Size	102	4	3	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | pl_text_size:text(6:160:16)	665
+51	scene_element_text	R.string.an_scene_element_text	Element Text	102	4	5	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | pl_position:text() | numValueOf5:text(t:3:?) | pl_selection:text(t:1:?)	665
+50	scene_element_value	R.string.an_scene_element_value	Element Value	102	4	3	numValueOf14:text(sname:1) | pl_element_match:text(sename:1) | pl_value:text()	665
+55	scene_element_background_colour	R.string.an_scene_element_background_colour	Element Back Colour	102	4	4	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | pl_colour:text(col:1) | pl_end_colour:text(col:1)	665
+56	scene_element_border	R.string.an_scene_element_border	Element Border	102	4	4	numValueOf14:text(sname:1) | numValueOf15:text(sename:1) | pl_width:text(0:100:1) | pl_colour:text(col:1)	665
+65	scene_element_visibility	R.string.an_scene_element_visibility	Element Visibility	102	4	5	numValueOf14:text(sname:1) | pl_element_match:text(sename:1) | numValueOf7:toggle() | pl_anim_duration_ms:text(0:5000:400) | pl_continue_task_immediately:toggle()	665
+300	anchor	R.string.an_anchor	Anchor	105	8	0		665
+544	timer_widget_control	R.string.an_timer_widget_control	Timer Widget Control	110	0	2	numValueOf12:text(at:1) | numValueOf:text()	665
+Constants.IFEQ	import_data	R.string.an_import_data	Import Data	110	4	3	numValueOf:text() | pl_source:text() | pl_variable:text(uvar:1)	665
+546	timer_widget_set	R.string.an_timer_widget_set	Timer Widget Set	110	0	5	numValueOf12:text(at:1) | pl_seconds:text(0:59) | pl_minutes:text(0:59) | pl_hours:text(0:23) | pl_days:text(0:60)	665
+347	test_tasker	R.string.an_test_tasker	Test Tasker	110	0	3	numValueOf:text() | numValueOf2:text() | numValueOf3:text(uvar:1)	665
+Constants.F2L	change_icon_set	R.string.an_change_icon_set	Change Icon Set	110	0	2	pl_old:text(i:1:?) | pl_new:text(i:1)	665
+Constants.I2D	goto	R.string.an_goto	Goto	105	4	3	numValueOf:text() | pl_number:text(1:60) | pl_label:text(w:1)	665
+37	if	R.string.an_if	If	105	0	0		665
+43	else	R.string.an_else	Else	105	0	0		665
+38	if	R.string.an_endif	End If	105	8	0		665
+39	for	R.string.an_for	For	105	0	3	pl_variable:text(uvar:1) | pl_items:text(t:1) | pl_make_output_structure:toggle(bosta)	665
+40	for	R.string.an_endfor	End For	105	8	0		665
+131	javascript	R.string.an_javascript	JavaScript	35	4	4	pl_path:text(f:1) | pl_libraries:text(jsl:3:?) | pl_auto_exit:toggle(true) | pl_timeout_seconds:text(1:50:45)	665
+129	javascriptlet	R.string.an_javascriptlet	JavaScriptlet	35	4	4	pl_code:text(js:999) | pl_libraries:text(jsl:3:?) | pl_auto_exit:toggle(true) | pl_timeout_seconds:text(1:50:45)	665
+130	run_task	R.string.an_run_task	Perform Task	105	4	11	numValueOf12:text(m:1) | pl_priority:text(0:50) | pl_par_one:text(t:3:?) | pl_par_two:text(t:3:?) | pl_return_value_variable:text(uvar:1:?) | pl_stop:toggle() | pl_local_variable_passthrough:toggle() | pl_local_variable_passthrough_limit:text(t:1:?) | pl_reset_return_variable:toggle() | pl_allow_child_overwrite_variable:toggle() | pl_make_output_structure:toggle(bosta)	665
+Constants.IF_ICMPEQ	toggle_profile	R.string.an_toggle_profile	Profile Status	110	4	2	numValueOf12:text(prof:1) | numValueOf7:text()	665
+134	run_action	R.string.an_query_action	Query Action	110	4	1	pl_action:text(act:2:?)	665
+Constants.DCMPG	change_widget_icon	R.string.an_change_widget_icon	Set Widget Icon	110	0	2	numValueOf12:text(a:1) | pl_icon:bundle()	665
+Constants.IFLT	change_widget_text	R.string.an_change_widget_text	Set Widget Label	110	0	2	numValueOf12:text(a:1) | pl_label:text(t:1:?)	665
+Constants.F2I	disable_tasker	R.string.an_disable_tasker	Disable	110	0	0		665
+Constants.L2D	set_tasker_icon	R.string.an_set_tasker_icon	Set Tasker Icon	110	0	1	pl_icon:bundle()	665
+133	set_tasker_pref	R.string.an_set_tasker_pref	Set Tasker Pref	110	4	3	numValueOf7:text() | pl_value:text() | pl_value:toggle()	665
+Constants.L2F	stop	R.string.an_stop	Stop	105	0	2	pl_with_error:toggle() | pl_task:text(m:1:?)	665
+30	wait	R.string.an_wait	Wait	105	4	5	pl_ms:text(0:999) | pl_seconds:text(0:59) | pl_minutes:text(0:59) | pl_hours:text(0:23) | pl_days:text(0:60)	665
+35	wait_until	R.string.an_wait_until	Wait Until	105	0	5	pl_ms:text(0:999) | pl_seconds:text(0:59) | pl_minutes:text(0:59) | pl_hours:text(0:23) | pl_days:text(0:60)	665
+345	test_variable	R.string.an_test_variable	Test Variable	120	4	3	numValueOf:text() | numValueOf2:text() | numValueOf3:text(uvar:1)	665
+355	array_push	R.string.an_array_push	Array Push	120	0	4	pl_variable_array:text(uvar:1) | pl_position:text(1:999999) | pl_value:text(inpval:3) | pl_fill_spaces:toggle()	665
+356	array_pop	R.string.an_array_pop	Array Pop	120	0	3	pl_variable_array:text(uvar:1) | pl_position:text(1:999999) | pl_to_var:text(t:1:?)	665
+354	array_set	R.string.an_array_set	Array Set	120	4	3	pl_variable_array:text(uvar:1) | pl_values:text(t:3) | pl_splitter:text(t:3:?)	665
+369	array_process	R.string.an_array_process	Array Process	120	0	2	pl_variable_array:text(uvar:1) | numValueOf:text()	665
+357	array_clear	R.string.an_array_clear	Array Clear	120	0	1	pl_variable_array:text(uvar:1)	665
+549	clear_variable	R.string.an_clear_variable	Variable Clear	120	0	4	numValueOf12:text(uvar:1:?) | pl_do_pattern_matching:toggle() | pl_local_variables_only:toggle() | pl_clear_all_variables:toggle()	665
+596	convert_variable	R.string.an_convert_variable	Variable Convert	120	4	4	numValueOf12:text(uvar:1) | pl_function:text() | numValueOf3:text(uvar:1:?) | numValueOf6:text()	665
+890	dec_variable	R.string.an_dec_variable	Variable Subtract	120	0	3	numValueOf12:text(uvar:1) | pl_value:text(1:60) | pl_wrap_around:text()	665
+888	inc_variable	R.string.an_inc_variable	Variable Add	120	0	3	numValueOf12:text(uvar:1) | pl_value:text(1:60) | pl_wrap_around:text()	665
+592	join_variable	R.string.an_join_variable	Variable Join	120	0	3	numValueOf12:text(uvar:1) | pl_joiner:text(t:3:?) | pl_delete_parts:toggle()	665
+597	section_variable	R.string.an_section_variable	Variable Section	120	0	5	numValueOf12:text(uvar:1) | pl_from:text(1:100:1) | pl_length:text(1:100:1) | pl_adapt_to_fit:toggle() | numValueOf3:text(uvar:1:?)	665
+595	query_variable	R.string.an_query_variable	Variable Query	120	0	8	numValueOf4:text(t:3:?) | pl_variable:text(uvar:1) | pl_input_type:text() | pl_default:text(t:1:?) | pl_background_image:text(b:2:?) | pl_layout:text(sname) | pl_timeout_seconds:text(1:600:40) | pl_show_over_keyguard:toggle(true)	665
+598	search_replace_variable	R.string.an_search_replace_variable	Variable Search Replace	120	4	8	pl_variable:text(uvar:1) | an_search:text(t:1) | pl_ignore_case:toggle() | pl_multiline:toggle() | pl_one_match_only:toggle() | pl_store_matches_in:text(uvar:1:?) | pl_replace_matches:toggle() | pl_replace_with:text(t:1:?)	665
+547	set_variable	R.string.an_set_variable	Variable Set	120	4	7	numValueOf12:text(uvar:1) | pl_to:text(inpval:3) | pl_recurse_variable_replacements:toggle() | pl_do_maths:toggle() | pl_append:toggle() | pl_max_rounding_digits:text(0:10:3) | pl_make_output_structure:toggle(bosta)	665
+590	split_variable	R.string.an_split_variable	Variable Split	120	4	4	numValueOf12:text(uvar:1) | pl_splitter:text(t:3:?) | pl_delete_base:toggle() | ml_matches_regex:toggle()	665
+545	set_variable_random	R.string.an_set_variable_random	Variable Randomize	120	0	3	numValueOf12:text(uvar:1) | pl_min:text() | pl_max:text()	665
+558	android_notifier	R.string.an_android_notifier	Android Notifier	130	0	2	numValueOf4:text(t:1) | pl_message:text(t:4)	665
+371	astrid	R.string.an_astrid	Astrid	130	0	1	pl_cmd:text()	665
+555	beyondpod	R.string.an_beyondpod	BeyondPod	130	0	1	pl_cmd:text()	665
+568	dailyroads	R.string.an_dailyroads	DailyRoads Voyager	130	0	1	pl_cmd:text()	665
+599	duetoday	R.string.an_duetoday	Due Today	130	0	1	pl_cmd:text()	665
+911	gentlealarm	R.string.an_gentlealarm	Gentle Alarm	130	0	2	numValueOf12:text(w:1:?) | numValueOf7:toggle()	665
+456	jd_data	R.string.an_jd_data	JD APN	130	0	1	numValueOf7:text()	665
+395	jd_status	R.string.an_jd_status	JD Status	130	0	1	numValueOf7:toggle()	665
+556	newsrob	R.string.an_newsrob	GrazeRSS	130	0	1	pl_cmd:text()	665
+643	null	R.string.an_officetalk	OfficeTalk	130	0	2	pl_cmd:text() | pl_status:text()	665
+442	sleepbot	R.string.an_sleepbot	SleepBot	130	0	2	pl_punch:text() | pl_note:text(t:4:?)	665
+553	smsbackup	R.string.an_smsbackup	SMS Backup+	130	0	0		665
+444	teslaled	R.string.an_teslaled	TeslaLED	130	0	2	numValueOf7:text() | pl_strobe_hertz:text(0:100:0)	665
+458	widgetlocker	R.string.an_widgetlocker	WidgetLocker	130	0	1	pl_cmd:text()	665
+794	zoom_element_position	R.string.an_zoom_element_position	Zoom Position	125	0	4	numValueOf15:text(zelem:1) | pl_orientation:text() | pl_x_coord:text() | pl_y_coord:text()	665
+795	zoom_element_size	R.string.an_zoom_element_size	Zoom Size	125	0	4	numValueOf15:text(zelem:1) | pl_orientation:text() | pl_width:text() | pl_height:text()	665
+793	zoom_element_state	R.string.an_zoom_element_state	Zoom State	125	0	2	numValueOf15:text(zelem:1) | pl_zoom_element_state:text(1:20)	665
+761	zoom_element_image	R.string.an_zoom_element_image	Zoom Image	125	0	2	numValueOf15:text(zelem:1) | pl_uri:text(iuri:3:?)	665
+760	zoom_element_alpha	R.string.an_zoom_element_alpha	Zoom Alpha	125	0	2	numValueOf15:text(zelem:1) | numValueOf7:text(0:255:255)	665
+740	zoom_element_text	R.string.an_zoom_element_text	Zoom Text	125	0	2	numValueOf15:text(zelem:1) | numValueOf5:text(w:3)	665
+741	zoom_element_text_size	R.string.an_zoom_element_text_size	Zoom Text Size	125	0	2	numValueOf15:text(zelem:1) | pl_text_size:text(6:160:20)	665
+742	zoom_element_text_colour	R.string.an_zoom_element_text_colour	Zoom Text Colour	125	0	2	numValueOf15:text(zelem:1) | pl_colour:text(col:1)	665
+762	zoom_element_colour	R.string.an_zoom_element_colour	Zoom Colour	125	0	3	numValueOf15:text(zelem:1) | pl_colour:text(col:1) | pl_end_colour:text(col:1)	665
+721	zoom_element_visibility	R.string.an_zoom_element_visibility	Zoom Visibility	125	0	2	numValueOf15:text(zelem:1) | numValueOf7:toggle()	665

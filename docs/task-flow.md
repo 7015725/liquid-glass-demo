@@ -1,0 +1,126 @@
+# 任务流程设计（FlowGlass Task v1）
+
+参考 Tasker 6.7.7 的执行模型（`docs/tasker-6.7.7/`），按本应用的 typed 组件模型裁剪。
+目标不是复刻 Tasker，而是让「一条指令的任务」能被完整编辑、按顺序执行、步骤之间能传值。
+
+## 1. 术语
+
+| 本应用 | 含义 | Tasker 对应 |
+| --- | --- | --- |
+| 指令 Command | 触发器 + 条件 + 任务 | Task + Profile 的一部分 |
+| 任务 Task | **有序步骤数组**（就是 `Cmd.actions`） | Task |
+| 步骤 Step | 一个动作组件 + 参数 + 失败策略 + 启用开关 | Action + `se` |
+| 运行上下文 | 一次执行内的变量表 | 局部变量 Bundle / `%err` 等 |
+
+## 2. 取舍（和 Tasker 的差异）
+
+| 维度 | Tasker | 本设计 | 原因 |
+| --- | --- | --- | --- |
+| 控制流 | 动作数组 + 深度扫描 `If/For/End`，索引可被 `Goto` 改写 | **只保留顺序执行**，无 Goto、无跳转 | 本应用的任务是「一键执行的一串动作」，块跳转会把编辑器复杂度抬高一个量级 |
+| 结果码 | `-1/-2/-3/-5/-7` 数字码 | `SUCCESS / FAILURE / SKIPPED` 枚举 | 状态机只有前进、失败、跳过三种真实分支 |
+| 失败处理 | 动作级 `se`（stop-on-error）布尔 | 动作级 `onError`：`STOP`（默认）/`CONTINUE`/`RETRY` | 已有 `OnError` 枚举，顺手把 `RETRY` 用起来（重试 1 次） |
+| 参数 | `argN` + 字符串类型前缀（`t:3`、`m:1`…） | typed `ParamSpec`（TEXT/INTEGER/PERCENTAGE/DURATION/TRI_STATE/TIME/TIME_RANGE/INT_RANGE/APPLICATION/ENUM） | 编辑器能按类型出控件，执行端不用再解析字符串 |
+| 变量 | `%var`，读取参数时展开；未定义原样保留 | `%{var}`，同样在**读取时**展开，未知保持字面量 | 避免编辑期求值导致「改一步、后面全变」 |
+| 任务间调用 | Perform Task + `%par1/%par2` + lvars | **v1 不做** | 需要子任务、返回值、调用链三件套，先保证单任务闭环 |
+| 阻塞/等待 | Wait / Wait Until | `延时等待` 动作（已有） | 够用 |
+
+## 3. 数据模型
+
+```
+Cmd
+ └─ actions: List<CommandItem>          // 任务 = 有序步骤
+     ├─ id: Long                        // 稳定标识（持久化在 presentation sidecar）
+     ├─ typeId: String                  // 组件类型，如 action.http_request
+     ├─ parameter: String               // 显示投影（由参数规范值格式化而来）
+     ├─ onError: OnError                // STOP / CONTINUE / RETRY
+     └─ ic / name                       // 展示用
+```
+
+持久化仍然是 v2 的 `RuleComponent(type, params, onError)`：`params` 是唯一事实来源，
+`parameter` 只是给人看的文本。编辑器按字段改 `params` 后重新格式化，不反向解析显示文本。
+
+## 4. 执行流程
+
+```
+run(task):
+  context = { }                        // 变量表，跨步骤共享
+  stopped = false
+  for step in task.steps:
+      if !step.enabled:        record SKIPPED("已停用");     continue
+      if stopped:              record SKIPPED("前序动作失败"); continue
+
+      params = expand(step.params, context)      // %{var} 读取时展开
+      outcome = execute(step.typeId, params)
+
+      if outcome.status == FAILURE && step.onError == RETRY:
+          outcome = execute(step.typeId, params) // 只重试一次
+
+      record step(outcome, duration)
+      context["last"] = outcome.detail           // 上一步结果，便于调试
+      meta.outputs.forEach { key -> outcome.output?.let { context[key] = it } }
+
+      if outcome.status == FAILURE && step.onError != CONTINUE:
+          stopped = true
+```
+
+- 单线程顺序执行，不并发（与现有 `RuleExecutor` 一致）。
+- `SKIPPED` 不计失败；整条任务的状态：有失败 → FAILURE，全跳过 → SKIPPED，否则 SUCCESS。
+- 取消：沿用 `CancellationCheckpoint`，任何一步前后都可被取消，取消不写终态。
+
+## 5. 参数传递
+
+1. **编辑期**：每个 `ParamSpec` 一个控件，值为规范化的字符串表示（`50%`、`5 秒`、`08:00–22:00`、`工作日`）。
+2. **保存期**：字段文本 → `ParameterCodec.parse(spec, text)` → `JsonElement`，校验失败就地提示、不写盘。
+3. **执行期**：`RuleComponent.params` 直接交给动作实现（v1 仍经 `formatComponent` 桥到现有 `NativeTasks`，
+   待动作实现迁移后再去掉这层）。
+4. 显示文本永远由 `formatComponent(meta, params)` 生成，**不允许**用显示文本当输入再解析，
+   避免「通知标题里带 `|`」「时长 1500ms 写法不同」这类有损往返。
+
+## 6. 上下文传递
+
+| 变量 | 来源 | 例子 |
+| --- | --- | --- |
+| `%{shell.stdout}` | `执行 Shell(Root)` 的标准输出 | 后续 `发送通知` 内容写 `%{shell.stdout}` |
+| `%{http.body}` | `HTTP 请求` 的响应体 | 同上 |
+| `%{last}` | 上一步的结果摘要 | 调试用，任何动作后都有 |
+
+- 语法统一 `%{name}`；变量名限 `A-Za-z0-9_.-`。
+- 未定义变量**保持字面量**（Tasker 同样行为），便于发现拼写错误而不是静默变空。
+- 展开是递归的但**不重复展开**已展开结果：一个变量里含 `%{x}` 时不会被二次替换，避免自引用循环。
+- v1 不提供全局变量持久化；变量只在一次运行内有效。
+
+## 7. 编辑器
+
+### 7.1 任务编辑页
+
+从指令编辑页「任务」区块进入，全屏页：
+
+- 顶部：返回、任务名、`添加`。
+- 步骤行：序号、图标、名称、参数摘要、失败策略徽标（`失败即停`/`继续`/`重试一次`）、启用状态。
+- 行内操作：上移、下移、删除；点击整行进入步骤编辑页。
+- 添加：按类目分组的动作目录，Root 级动作未授权时置灰（沿用现有 `minTier` 规则）。
+
+### 7.2 步骤编辑页
+
+全屏页，标题为动作名：
+
+- 参数表单：按 `ParamSpec` 生成控件；每个字段即时校验，错误就地显示，不写盘。
+- 失败策略：三选一分段控件。
+- 启用开关。
+- 变量提示：可用变量列表（`%{last}`、`%{shell.stdout}`…）。
+- `完成` 返回任务页。
+
+### 7.3 与旧 UI 的关系
+
+- 触发器、条件仍用原有玻璃面板（单参数、控件简单）。
+- 任务的动作列表保留在指令编辑页做只读摘要，点击进入新的步骤编辑页；
+  「添加」仍可从面板选，也可在任务页选。
+
+## 8. 未做 / 后续
+
+1. 子任务调用（Perform Task）、`%par1/%par2`、调用链 `%callerN`。
+2. `If/Else/For` 块控制流——如果以后要加，按 Tasker 的「块头存结果 + 深度扫描」实现，
+   但编辑器需要缩进树，届时再单独设计。
+3. 全局变量与跨任务持久化。
+4. `HTTP 请求` 的 method/url/body 拆分：当前仍是 `GET url` / `POST url body` 单参数，
+   拆分会改存储键，需要一次迁移，放到下一轮。
