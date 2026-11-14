@@ -106,7 +106,7 @@ internal object NativeTasks {
                 when {
                     result.timedOut -> TaskOutcome(StepStatus.FAILURE, "Shell 执行超时（30 秒）\n${result.output}")
                     result.exitCode != 0 -> TaskOutcome(StepStatus.FAILURE, "Shell 退出码 ${result.exitCode}\n${result.output}")
-                    else -> TaskOutcome(StepStatus.SUCCESS, result.output.ifEmpty { "Shell 执行完成" })
+                    else -> TaskOutcome(StepStatus.SUCCESS, result.output.ifEmpty { "Shell 执行完成" }, result.output)
                 }
             }
         }

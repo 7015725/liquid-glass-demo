@@ -26,6 +26,30 @@ enum class ParamType {
     ENUM,
 }
 
+/**
+ * How a `%{var}` inside this parameter is substituted.
+ *
+ * The executor never special-cases component ids: each [ParamSpec] declares the context its
+ * value is used in, and [ParamTemplate] applies the matching escaping rule.
+ */
+@Serializable
+enum class ParamExpansion {
+    /** Plain text: substitute the value verbatim (notification body, clipboard text, ...). */
+    PLAIN,
+
+    /** POSIX shell: values become generated `FG_Vn='...'` assignments; the command only sees references. */
+    SHELL_QUOTED,
+
+    /** URL component: percent-encode the substituted value as UTF-8. */
+    URL_ENCODED,
+
+    /**
+     * `GET <url>` / `POST <url> <body>`: encode substitutions in the URL segment only.
+     * The body keeps plain-text semantics.
+     */
+    HTTP_REQUEST,
+}
+
 @Serializable
 data class ParamOption(val value: String, val label: String)
 
@@ -41,6 +65,8 @@ data class ParamSpec(
     val minValue: Long? = null,
     val maxValue: Long? = null,
     val suffix: String = "",
+    /** Context in which `%{var}` values are substituted; see [ParamExpansion]. */
+    val expansion: ParamExpansion = ParamExpansion.PLAIN,
 )
 
 @Serializable
