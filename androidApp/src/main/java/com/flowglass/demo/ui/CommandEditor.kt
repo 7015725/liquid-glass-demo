@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flowglass.demo.liquid.LiquidToggle
+import com.flowglass.demo.system.trigger.listenState
 import kotlinx.coroutines.CoroutineScope
 import androidx.compose.ui.state.ToggleableState
 import com.kyant.shapes.Capsule
@@ -53,6 +54,8 @@ fun CommandEditorHost(state: AppState, onAuthorization: (Int) -> Unit = { page -
 @Composable
 private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAuthorization: (Int) -> Unit) {
     RefreshEditorRoot(state, cmd)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val tick = com.flowglass.demo.system.SysTick.tick
     var panel by remember { mutableStateOf<EditorPanel?>(null) }
     val backdrop = rememberLayerBackdrop()
     fun back() { if (panel != null) panel = null else state.closeEditor() }
@@ -99,6 +102,14 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
             textStyle = TextStyle(color = C.OnSurfaceVar, fontSize = 15.sp, lineHeight = 22.sp),
             cursorBrush = SolidColor(C.Primary),
             decorationBox = { inner -> Box { if (cmd.desc.isEmpty()) T("添加描述", 15.sp, color = C.Muted); inner() } })
+        if (cmd.auto) {
+            val listen = cmd.listenState(state.running, context)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                T("监听状态", 13.sp, color = C.OnSurfaceVar)
+                Spacer(Modifier.width(8.dp))
+                ListenStatePill(listen)
+            }
+        }
         val exec = state.executing[cmd.id] ?: 0
         ExecButton(exec, Modifier.fillMaxWidth().testTag("editor-execute"), large = true,
             idleLabel = if (cmd.auto) "立即运行" else "一键执行",
@@ -120,6 +131,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 if (cmd.items(section).isEmpty()) T("尚未添加${section.label}", 14.sp, color = C.Muted)
                 cmd.items(section).forEachIndexed { index, item ->
                     key(item.id) {
+                        val itemMeta = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
                         Column(Modifier.fillMaxWidth().testTag("item-${item.id}").animatePlacement().staggerIn(index)
                             .clip(RoundedRectangle(24.dp)).background(C.Tonal)
                             .editorAction("编辑${item.name}") {
@@ -139,6 +151,9 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                                     T(itemParameterLabel(section, item), 13.sp, color = C.OnSurfaceVar)
                                 }
                             }
+                            if (section != CommandSection.ACTIONS && itemMeta?.comingSoon == true) {
+                                T("暂不支持，1c 生效", 11.sp, color = C.Mid)
+                            }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                                 TaskAuthorizationBadge(state, section, item) { destination ->
                                     panel = null
@@ -155,6 +170,13 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                             }
                         }
                     }
+                }
+                if (section == CommandSection.TRIGGERS) {
+                    T("多个触发器按「任一满足」执行，正在执行时新触发丢弃；其他匹配模式与重复策略 1c 生效。",
+                        11.sp, color = C.Muted, lineHeight = 16.sp)
+                }
+                if (section == CommandSection.CONDITIONS) {
+                    T("多个条件按「全部满足」执行；其他匹配模式 1c 生效。", 11.sp, color = C.Muted, lineHeight = 16.sp)
                 }
             }
         }
@@ -188,19 +210,23 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                         T(category, 13.sp, FontWeight.Bold, C.Muted, modifier = Modifier.padding(top = 8.dp, start = 6.dp))
                         options.forEach { option ->
                             val locked = option.minTier.ordinal > activeTier.ordinal
+                            val blocked = locked || option.comingSoon
                             Row(Modifier.fillMaxWidth().staggerIn(rowIndex++.coerceAtMost(8))
                                 .clip(RoundedRectangle(24.dp))
-                                .then(if (locked) Modifier else Modifier.editorAction(option.name) {
+                                .then(if (blocked) Modifier else Modifier.editorAction(option.name) {
                                     state.addItem(cmd.id, active.section, option)
                                     panel = null
                                 })
                                 .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                LineIcon(option.ic, if (locked) C.Muted else C.Primary, 22.dp)
+                                LineIcon(option.ic, if (blocked) C.Muted else C.Primary, 22.dp)
                                 Spacer(Modifier.width(12.dp))
-                                T(option.name, 16.sp, color = if (locked) C.Muted else C.OnSurface,
+                                T(option.name, 16.sp, color = if (blocked) C.Muted else C.OnSurface,
                                     modifier = Modifier.weight(1f))
-                                if (locked) T("需要 Root", 12.sp, color = C.Muted)
-                                else LineIcon(Ic.Plus, C.Primary, 20.dp)
+                                when {
+                                    option.comingSoon -> T("即将支持", 12.sp, color = C.Muted)
+                                    locked -> T("需要 Root", 12.sp, color = C.Muted)
+                                    else -> LineIcon(Ic.Plus, C.Primary, 20.dp)
+                                }
                             }
                         }
                     }
@@ -208,7 +234,8 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 is EditorPanel.Parameter -> cmd.items(active.section).firstOrNull { it.id == active.itemId }?.let { item ->
                     ActionParameterEditor(active.section, item,
                         onParameter = { state.setItemParameter(cmd.id, active.section, item.id, it) },
-                        onDone = { panel = null }, commandTitle = cmd.title)
+                        onDone = { panel = null }, commandTitle = cmd.title,
+                        onAuthorization = { destination -> panel = null; onAuthorization(destination) })
                 }
             }
         }

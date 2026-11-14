@@ -49,7 +49,8 @@ private fun Cmd.automaticDescription(): String {
 }
 
 data class RunLog(val id: Long, val title: String, val reason: String, val time: String, val ok: Boolean, val ic: Ic,
-    val detail: String = "", val steps: List<com.flowglass.demo.system.exec.StepResult> = emptyList())
+    val detail: String = "", val steps: List<com.flowglass.demo.system.exec.StepResult> = emptyList(),
+    val skipped: Boolean = false)
 
 data class MenuReq(val cmdId: Long, val auto: Boolean, val anchor: Offset)
 data class UndoInfo(val cmd: Cmd, val index: Int)
@@ -309,7 +310,12 @@ class AppState internal constructor(saved: PersistedAppState?) {
         return c
     }
 
-    fun execute(cmd: Cmd, scope: CoroutineScope, reason: String = "手动执行"): kotlinx.coroutines.Job? {
+    fun execute(
+        cmd: Cmd,
+        scope: CoroutineScope,
+        reason: String = "手动执行",
+        variables: Map<String, Any?> = emptyMap(),
+    ): kotlinx.coroutines.Job? {
         if (executing.containsKey(cmd.id)) return null
         val engine = executionEngine
         val token = Any()
@@ -319,7 +325,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         return com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch {
             try {
                 val result = try {
-                    engine?.run(cmd, reason) ?: com.flowglass.demo.system.exec.RunResult(
+                    engine?.run(cmd, reason, variables) ?: com.flowglass.demo.system.exec.RunResult(
                         cmd.id, reason, listOf(com.flowglass.demo.system.exec.StepResult(
                             cmd.id, "执行环境检查", com.flowglass.demo.system.exec.StepStatus.FAILURE,
                             "执行环境未就绪", 0)), 0)
@@ -336,7 +342,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
                     val t = now()
                     update(cmd.id) { it.copy(lastRun = t) }
                     logs.add(0, RunLog(newId(), cmd.title, reason, t, result.ok, cmd.ic, result.detail, result.steps.toList()))
-                    if (logs.size > 8) logs.removeAt(logs.lastIndex)
+                    if (logs.size > 50) logs.removeAt(logs.lastIndex)
                 }
                 delay(if (result.ok) 1600 else 2000)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -360,6 +366,14 @@ class AppState internal constructor(saved: PersistedAppState?) {
         }
     }
 
+    /** A condition/support failure is visible in the same list but never counts as an execution. */
+    fun recordSkippedRun(cmdId: Long, reason: String, detail: String) {
+        val cmd = find(cmdId) ?: return
+        val time = now()
+        logs.add(0, RunLog(newId(), cmd.title, reason, time, false, cmd.ic, detail, emptyList(), skipped = true))
+        if (logs.size > 50) logs.removeAt(logs.lastIndex)
+    }
+
     private fun internalFailure(cmdId: Long, reason: String, failure: Throwable): com.flowglass.demo.system.exec.RunResult {
         val detail = internalErrorDetail(failure)
         return com.flowglass.demo.system.exec.RunResult(
@@ -380,7 +394,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         logs.add(0, RunLog(newId(), cmd.title, reason, time, false, cmd.ic, detail,
             listOf(com.flowglass.demo.system.exec.StepResult(
                 cmd.id, "执行", com.flowglass.demo.system.exec.StepStatus.FAILURE, detail, 0))))
-        if (logs.size > 8) logs.removeAt(logs.lastIndex)
+        if (logs.size > 50) logs.removeAt(logs.lastIndex)
     }
 }
 

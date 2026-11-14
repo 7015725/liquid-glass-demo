@@ -28,17 +28,23 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
     private val context = context.applicationContext
     private val active = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
 
-    suspend fun run(cmd: Cmd, reason: String): RunResult {
+    suspend fun run(cmd: Cmd, reason: String, variables: Map<String, Any?> = emptyMap()): RunResult {
         currentCoroutineContext().ensureActive()
         if (!active.add(cmd.id)) return RunResult(cmd.id, reason, emptyList(), 0, ignored = true)
         try {
-            return runWithRuleExecutor(cmd, reason)
+            return runWithRuleExecutor(cmd, reason, variables)
         } finally {
             active.remove(cmd.id)
         }
     }
 
-    private suspend fun runWithRuleExecutor(cmd: Cmd, reason: String): RunResult {
+    fun isRunning(cmdId: Long): Boolean = cmdId in active
+
+    private suspend fun runWithRuleExecutor(
+        cmd: Cmd,
+        reason: String,
+        variables: Map<String, Any?>,
+    ): RunResult {
         val state = PersistedAppState(
             autoCmds = if (cmd.auto) listOf(cmd) else emptyList(),
             oneTaps = if (cmd.auto) emptyList() else listOf(cmd),
@@ -91,7 +97,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
             registry,
             handlers,
             CancellationCheckpoint { currentCoroutineContext().ensureActive() },
-        ).run(rule, reason)
+        ).run(rule, reason, variables)
         val steps = log.steps.mapIndexed { index, step ->
             val item = cmd.actions.getOrNull(index)
             StepResult(

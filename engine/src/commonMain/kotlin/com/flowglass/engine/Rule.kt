@@ -120,6 +120,8 @@ data class PersistedLog(
     val icon: String,
     val detail: String = "",
     val steps: List<PersistedLogStep> = emptyList(),
+    /** Condition/support failures are kept in the same log list but render as 跳过. */
+    val skipped: Boolean = false,
 )
 
 @Serializable

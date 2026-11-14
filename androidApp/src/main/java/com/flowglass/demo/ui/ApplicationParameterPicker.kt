@@ -76,11 +76,16 @@ internal fun itemParameterLabel(section: CommandSection, item: CommandItem): Str
     val tick = SysTick.tick
     var label by remember(item.parameter) { mutableStateOf(item.parameter) }
     LaunchedEffect(context, tick, section, item.name, item.parameter) {
-        label = if (section == CommandSection.ACTIONS && item.name == "启动应用") {
-            try { LaunchableApps.label(context, item.parameter) }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { item.parameter }
-        } else item.parameter
+        label = when {
+            section == CommandSection.ACTIONS && item.name == "启动应用" -> {
+                try { LaunchableApps.label(context, item.parameter) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { item.parameter }
+            }
+            item.typeId == "trigger.time" -> item.parameter.split('|').joinToString(" · ")
+            item.typeId == "trigger.battery_level" -> item.parameter.split('|').joinToString(" ").trim()
+            else -> item.parameter
+        }
     }
     return label.ifEmpty { "点按设置参数" }
 }

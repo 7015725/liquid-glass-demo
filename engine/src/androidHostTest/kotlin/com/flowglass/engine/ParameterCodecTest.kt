@@ -69,8 +69,20 @@ class ParameterCodecTest {
         ParamSpec("network", "网络", ParamType.ENUM, options = listOf(ParamOption("wifi", "WiFi"), ParamOption("mobile", "移动网络"))),
         "移动网络", JsonPrimitive("mobile"), "移动网络", "卫星网络", JsonPrimitive("移动网络"))
 
+    @Test fun weekdaysRoundTripNormalisesLabelsAndRejectsEmptySelection() {
+        val spec = ParamSpec("days", "重复", ParamType.WEEKDAYS)
+        verify(spec, "工作日", JsonPrimitive("1,2,3,4,5"), "工作日", "周八", JsonPrimitive("1,8"))
+        assertEquals(JsonPrimitive("1,3,5"), ParameterCodec.parse(spec, "周一、周三、周五"))
+        assertEquals(JsonPrimitive("6,7"), ParameterCodec.parse(spec, "周末"))
+        assertEquals(JsonPrimitive("1,2,3,4,5,6,7"), ParameterCodec.parse(spec, "每天"))
+        assertEquals("周一、周三", ParameterCodec.format(spec, JsonPrimitive("1,3")))
+        for (input in listOf("", "周八", "0")) {
+            assertFailsWith<IllegalArgumentException> { ParameterCodec.parse(spec, input) }
+        }
+    }
+
     @Test fun everyParamTypeHasExactlyOneDedicatedRoundTripCase() {
-        assertEquals(setOf("TEXT", "MULTILINE_TEXT", "INTEGER", "PERCENTAGE", "DURATION", "TRI_STATE", "TIME", "TIME_RANGE", "INT_RANGE", "APPLICATION", "ENUM"), ParamType.entries.map { it.name }.toSet())
+        assertEquals(setOf("TEXT", "MULTILINE_TEXT", "INTEGER", "PERCENTAGE", "DURATION", "TRI_STATE", "TIME", "TIME_RANGE", "INT_RANGE", "WEEKDAYS", "APPLICATION", "ENUM"), ParamType.entries.map { it.name }.toSet())
     }
     @Test fun everyRegistryDefaultIsCanonical() {
         assertTrue(BuiltInComponents.all.isNotEmpty())

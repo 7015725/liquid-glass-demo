@@ -1,5 +1,6 @@
 package com.flowglass.demo.ui
 
+import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -13,16 +14,17 @@ import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.findViewTreeLifecycleOwner
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -33,19 +35,78 @@ import com.flowglass.engine.RuleJson
 import com.flowglass.engine.Rule
 import com.flowglass.engine.RuleUiMetadata
 
-private val storageQueue = StorageQueue()
 private val storageCallbacks = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+/**
+ * Process-wide owner of the parsed state and its single writer.
+ *
+ * The Activity and the trigger foreground service are in the same process. Sharing one
+ * [AppState] prevents the service from persisting a stale copy over an editor change while the
+ * UI is open, and lets a headless trigger run append its execution record immediately.
+ */
+internal class AppRuntime private constructor(private val context: Context) {
+    private val store = CommandStore(File(context.filesDir, "commands.json"))
+    private val queue = StorageQueue()
+    private val lock = Any()
+    @Volatile private var appState: AppState? = null
+
+    val state: AppState? get() = appState
+
+    /** Safe to call from any thread; the first caller parses the file, later callers reuse it. */
+    fun load(): AppState = synchronized(lock) {
+        appState?.let { return it }
+        val loaded = store.load()
+        val created = loaded.appState()
+        created.bindExecutionContext(context)
+        appState = created
+        created
+    }
+
+    fun requestSave(capture: () -> PersistedAppState) {
+        if (!store.canSave) return
+        val snapshot = capture()
+        queue.submit {
+            val error = try {
+                store.save(snapshot)
+                null
+            } catch (invalid: IllegalArgumentException) {
+                "参数无效：${invalid.message.orEmpty()}；原存档已保留，请修正后保存。"
+            } catch (_: Exception) {
+                "本地保存失败，请检查可用空间；修改尚未保存。"
+            }
+            if (error != null) storageCallbacks.launch { appState?.storageError = error }
+        }
+    }
+
+    fun close() {
+        queue.close()
+    }
+
+    companion object {
+        @Volatile private var instance: AppRuntime? = null
+
+        fun of(context: Context): AppRuntime {
+            val app = context.applicationContext
+            instance?.let { if (it.context === app) return it }
+            return synchronized(this) {
+                instance?.let { if (it.context === app) return it }
+                AppRuntime(app).also { instance = it }
+            }
+        }
+    }
+}
 
 /** No seeded state can reach the writer before the initial read finishes. */
 @Composable
 fun rememberStoredAppState(): AppState? {
     val context = LocalContext.current.applicationContext
-    val store = remember(context) { CommandStore(File(context.filesDir, "commands.json")) }
-    var state by remember(store) { mutableStateOf<AppState?>(null) }
-    LaunchedEffect(store) { state = storageQueue.submit { store.load() }.await().appState() }
+    val runtime = remember(context) { AppRuntime.of(context) }
+    var state by remember(runtime) { mutableStateOf(runtime.state) }
+    LaunchedEffect(runtime) {
+        if (state == null) state = withContext(Dispatchers.IO) { runtime.load() }
+    }
     val current = state ?: return null
-    current.bindExecutionContext(context)
-    val session = remember(current, store) { StoredStateSession(current, store, storageQueue) }
+    val session = remember(current, runtime) { StoredStateSession(current, runtime) }
     val lifecycleOwner = LocalView.current.findViewTreeLifecycleOwner()
     DisposableEffect(session) {
         onDispose { session.close() }
@@ -80,19 +141,13 @@ internal class StorageQueue(dispatcher: CoroutineDispatcher = Dispatchers.IO) {
 }
 
 internal class StoredStateSession(
-    private val state: AppState, private val store: CommandStore, private val queue: StorageQueue,
+    private val state: AppState, private val runtime: AppRuntime,
 ) {
     private var closed = false
     fun flush() {
-        if (closed || !store.canSave) return
+        if (closed) return
         // Capture on the UI thread; neither mutable state nor a stale debounce value crosses into IO.
-        val snapshot = state.snapshot()
-        queue.submit {
-            val error = try { store.save(snapshot); null }
-            catch (invalid: IllegalArgumentException) { "参数无效：${invalid.message.orEmpty()}；原存档已保留，请修正后保存。" }
-            catch (_: Exception) { "本地保存失败，请检查可用空间；修改尚未保存。" }
-            storageCallbacks.launch { state.storageError = error }
-        }
+        runtime.requestSave { state.snapshot() }
     }
     fun close() {
         flush()

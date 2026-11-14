@@ -69,13 +69,18 @@ class RuleExecutor(
     private val cancellationCheckpoint: CancellationCheckpoint,
     private val clock: Clock = Clock { System.currentTimeMillis() },
 ) {
-    suspend fun run(rule: Rule, reason: String): RunLog {
+    suspend fun run(
+        rule: Rule,
+        reason: String,
+        initialVariables: Map<String, Any?> = emptyMap(),
+    ): RunLog {
         cancellationCheckpoint.ensureActive()
         val start = clock.nowEpochMs()
         val monotonicStart = kotlin.time.TimeSource.Monotonic.markNow()
         val steps = mutableListOf<StepResult>()
         var failed = false
         val context = RunContext(rule, reason)
+        context.variables.putAll(initialVariables)
 
         for ((index, component) in rule.actions.withIndex()) {
             cancellationCheckpoint.ensureActive()

@@ -18,11 +18,12 @@ class CanonicalDisplayTest {
     @get:JUnitRule val folder = TemporaryFolder()
 
     @Test fun actualCommandItemsDisplayV05NamesAndParameterLabels() {
-        val expected = listOf("时间：08:00", "进入地点：公司", "离开地点：家", "收到通知：验证码", "电量低于：20%", "充电状态：开始充电",
-            "蓝牙连接：耳机", "WiFi 连接/断开：连接家庭网络", "应用启动：应用包名", "开机完成", "时间段：08:00–22:00", "星期：工作日",
-            "电量范围：20%–80%", "网络类型：WiFi", "屏幕状态：已亮屏", "勿扰状态：已关闭", "开关 WiFi：开启", "开关蓝牙：开启",
-            "开关勿扰：开启", "调节亮度：50%", "调节音量：50%", "启动应用：应用包名", "发送通知：任务已完成", "复制到剪贴板：待复制文本",
-            "延时等待：1 秒", "执行 Shell(Root)：echo 流光", "HTTP 请求：GET https://example.com")
+        val expected = listOf("时间：08:00 · 每天", "亮屏", "熄屏", "解锁", "插入充电器", "拔出充电器", "电量：低于 20%", "开机完成",
+            "电量低于：20%", "充电状态：开始充电", "进入地点：公司", "离开地点：家", "收到通知：验证码", "蓝牙连接：耳机",
+            "WiFi 连接/断开：连接家庭网络", "应用启动：应用包名",
+            "时间段：08:00–22:00", "星期：工作日", "电量范围：20%–80%", "充电状态：充电中", "屏幕状态：已亮屏", "网络类型：WiFi", "勿扰状态：已关闭",
+            "开关 WiFi：开启", "开关蓝牙：开启", "开关勿扰：开启", "调节亮度：50%", "调节音量：50%", "启动应用：应用包名",
+            "发送通知：任务已完成", "复制到剪贴板：待复制文本", "延时等待：1 秒", "执行 Shell(Root)：echo 流光", "HTTP 请求：GET https://example.com")
         val metas = BuiltInComponents.all
         fun components(kind: ComponentKind) = metas.filter { it.kind == kind }.map { RuleComponent(it.typeId, it.params.associate { p -> p.key to p.defaultValue }) }
         val state = RuleDocument(rules = listOf(com.flowglass.engine.Rule("golden", name = "显示",

@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flowglass.demo.liquid.LiquidToggle
+import com.flowglass.demo.system.trigger.listenState
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -183,6 +184,9 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val exec = state.executing[cmd.id] ?: 0
+    val context = LocalContext.current
+    val tick = com.flowglass.demo.system.SysTick.tick
+    val listen = cmd.listenState(state.running, context)
     val cardBackdrop = rememberLayerBackdrop()
     val dim by animateFloatAsState(
         if (cmd.auto && (!cmd.enabled || !state.running)) 0.55f else 1f, effect(), label = "dim"
@@ -235,6 +239,10 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
                         T("  ·  上次 ${cmd.lastRun}", 11.sp, color = C.Muted)
                     }
                 }
+                if (cmd.auto) {
+                    Spacer(Modifier.height(6.dp))
+                    ListenStatePill(listen)
+                }
             }
             Spacer(Modifier.width(10.dp))
             if (cmd.auto) {
@@ -262,6 +270,19 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
             }
         }
     }
+}
+
+@Composable
+fun ListenStatePill(state: com.flowglass.demo.system.trigger.RuleListenState) {
+    val (bg, fg) = when (state) {
+        com.flowglass.demo.system.trigger.RuleListenState.LISTENING -> C.GoodSoft to C.GoodText
+        com.flowglass.demo.system.trigger.RuleListenState.MISSING_PERMISSION -> Color(0xFFFFE7A0) to Color(0xFF795500)
+        else -> C.Tonal to C.OnSurfaceVar
+    }
+    Box(
+        Modifier.clip(Capsule()).background(bg).padding(horizontal = 9.dp, vertical = 3.dp),
+        contentAlignment = Alignment.Center,
+    ) { T(state.label, 11.sp, FontWeight.Medium, fg) }
 }
 
 /** Shared execution action: compact card pill or prominent editor button. */

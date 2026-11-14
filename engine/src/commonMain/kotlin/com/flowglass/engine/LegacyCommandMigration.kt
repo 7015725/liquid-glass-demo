@@ -243,6 +243,12 @@ object LegacyCommandMigration {
 
     private val triggerTypes = mapOf(
         "时间" to "trigger.time",
+        "亮屏" to "trigger.screen_on",
+        "熄屏" to "trigger.screen_off",
+        "解锁" to "trigger.user_present",
+        "插入充电器" to "trigger.power_connected",
+        "拔出充电器" to "trigger.power_disconnected",
+        "电量" to "trigger.battery_level",
         "进入地点" to "trigger.location_enter",
         "离开地点" to "trigger.location_exit",
         "收到通知" to "trigger.notification_received",
@@ -258,6 +264,7 @@ object LegacyCommandMigration {
         "时间段" to "condition.time_range",
         "星期" to "condition.weekday",
         "电量范围" to "condition.battery_range",
+        "充电状态" to "condition.charging",
         "网络类型" to "condition.network_type",
         "屏幕状态" to "condition.screen_state",
         "勿扰状态" to "condition.dnd_state",
