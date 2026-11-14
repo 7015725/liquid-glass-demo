@@ -128,7 +128,7 @@ run(task):
 | 展开方式 | 使用位置 | 行为 |
 | --- | --- | --- |
 | `PLAIN` | 通知内容、剪贴板文本等普通文本 | 变量值原样拼入 |
-| `SHELL_QUOTED` | `action.root_shell` 的 `command` | 每个变量替换为一个 POSIX 单引号字面量；值中的 `'` 写成 `'"'"'` |
+| `SHELL_QUOTED` | `action.root_shell` 的 `command` | 每个变量替换为一个 Shell 字面量；未加引号时用 POSIX 单引号包裹，值中的 `'` 写成 `'"'"'` |
 | `URL_ENCODED` | 纯 URL 片段 | 按 UTF-8 做百分号编码；保留 `A-Z a-z 0-9 - . _ ~`，空格编码为 `%20` |
 | `HTTP_REQUEST` | `action.http_request` 的 `request` | 只对 URL 段应用 `URL_ENCODED`，请求体保持 `PLAIN` |
 
@@ -136,6 +136,10 @@ run(task):
 控制。`;`、`&&`、`||`、`|`、`$()`、反引号和换行在 Shell 里都是语法；如果 `echo %{http.body}`
 直接拼接，网页返回 `x; rm -rf /sdcard/重要目录` 就会以 Root 身份执行。单引号包裹后，整个值只是
 一个 argv 元素，Shell 不再解释其中的元字符；唯一需要特殊处理的是值里的 `'`。
+
+展开器还会跟踪 token 所处的引号上下文：如果模板已经写成 `"%{x}"`，值按双引号规则转义
+（`\`、`"`、`$`、反引号前加反斜杠）；如果写成 `'%{x}'`，则临时闭合单引号、插入字面量再重开。
+这样即使用户习惯给命令加引号，值里的引号也不会提前闭合而把后半段变成可执行语法。
 
 `HTTP 请求` 仍使用 `GET <url>` / `POST <url> <body>` 的单字段格式，因此用 `HTTP_REQUEST`
 复合展开：先按空白切出 method、URL 和 body，只对 URL 段里的变量做百分号编码。变量值里的

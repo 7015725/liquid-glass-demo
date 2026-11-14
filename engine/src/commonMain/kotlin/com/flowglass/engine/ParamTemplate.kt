@@ -25,7 +25,7 @@ object ParamTemplate {
         if (variables.isEmpty() || !text.contains("%{")) return text
         return when (expansion) {
             ParamExpansion.PLAIN -> replace(text, variables, ::identity)
-            ParamExpansion.SHELL_QUOTED -> replace(text, variables, ::shellQuote)
+            ParamExpansion.SHELL_QUOTED -> expandShell(text, variables)
             ParamExpansion.URL_ENCODED -> replace(text, variables, ::percentEncode)
             ParamExpansion.HTTP_REQUEST -> expandHttpRequest(text, variables)
         }
@@ -74,6 +74,88 @@ object ParamTemplate {
     }
 
     private fun identity(value: String): String = value
+
+    /**
+     * Shell substitution is quote-aware. In an unquoted position the value becomes one
+     * single-quoted literal. Inside double quotes it is escaped for that context; inside single
+     * quotes the static quote is closed, the value is inserted as a literal, and the quote is
+     * reopened. This matters because wrapping a value in single quotes while it already sits
+     * inside double quotes would let a value containing `"` break out and run commands.
+     */
+    private fun expandShell(text: String, variables: Map<String, Any?>): String {
+        val out = StringBuilder(text.length)
+        var index = 0
+        var quote = ShellQuote.NONE
+        while (index < text.length) {
+            val end = tokenEnd(text, index)
+            if (end != null) {
+                val value = variables[text.substring(index + 2, end)]
+                if (value == null) {
+                    out.append(text, index, end + 1)
+                } else {
+                    val raw = value.toString()
+                    out.append(when (quote) {
+                        ShellQuote.NONE -> shellQuote(raw)
+                        ShellQuote.SINGLE -> "'" + shellQuote(raw) + "'"
+                        ShellQuote.DOUBLE -> escapeDoubleQuoted(raw)
+                    })
+                }
+                index = end + 1
+                continue
+            }
+            val char = text[index]
+            when (quote) {
+                ShellQuote.NONE -> when {
+                    char == '\\' && index + 1 < text.length -> {
+                        out.append(char).append(text[index + 1])
+                        index += 2
+                        continue
+                    }
+                    char == '\'' -> quote = ShellQuote.SINGLE
+                    char == '"' -> quote = ShellQuote.DOUBLE
+                }
+                ShellQuote.SINGLE -> if (char == '\'') quote = ShellQuote.NONE
+                ShellQuote.DOUBLE -> when {
+                    char == '\\' && index + 1 < text.length -> {
+                        out.append(char).append(text[index + 1])
+                        index += 2
+                        continue
+                    }
+                    char == '"' -> quote = ShellQuote.NONE
+                }
+            }
+            out.append(char)
+            index++
+        }
+        return out.toString()
+    }
+
+    private fun tokenEnd(text: String, start: Int): Int? {
+        if (start + 2 >= text.length || text[start] != '%' || text[start + 1] != '{') return null
+        var index = start + 2
+        while (index < text.length && text[index] != '}') {
+            val char = text[index]
+            if (char !in 'A'..'Z' && char !in 'a'..'z' && char !in '0'..'9' &&
+                char != '.' && char != '_' && char != '-'
+            ) {
+                return null
+            }
+            index++
+        }
+        if (index >= text.length || index == start + 2) return null
+        return index
+    }
+
+    private fun escapeDoubleQuoted(value: String): String {
+        val out = StringBuilder(value.length)
+        for (char in value) {
+            if (char == '\\' || char == '"' || char == '$' || char == '`') out.append('\\')
+            out.append(char)
+        }
+        return out.toString()
+    }
+
+    private enum class ShellQuote { NONE, SINGLE, DOUBLE }
 
     /**
      * Wraps one value in POSIX single quotes. A single quote inside the value is emitted as
