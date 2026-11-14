@@ -117,6 +117,14 @@ private fun ActionEditorPage(state: AppState, cmd: Cmd, item: CommandItem) {
                     T(ParameterForm.fieldLabel(spec), 14.sp, FontWeight.SemiBold)
                     ParamField(spec, fields[spec.key].orEmpty(), item) { update(spec.key, it) }
                     if (spec.hint.isNotBlank()) T(spec.hint, 12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
+                    if (meta.typeId == "action.root_shell" && spec.key == "command") {
+                        shellReexecutionWarning(fields[spec.key].orEmpty())?.let { warning ->
+                            T(warning, 12.sp, color = C.Mid, lineHeight = 18.sp,
+                                modifier = Modifier.fillMaxWidth().testTag("shell-reexecution-warning")
+                                    .clip(RoundedRectangle(18.dp)).background(C.Mid.copy(alpha = 0.14f))
+                                    .padding(12.dp))
+                        }
+                    }
                 }
             }
         }
@@ -258,4 +266,16 @@ private fun ParameterTextField(
         textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 24.sp),
         cursorBrush = SolidColor(C.Primary),
         keyboardOptions = KeyboardOptions(keyboardType = keyboard))
+}
+
+/**
+ * `eval %{x}` or `sh -c %{x}` deliberately executes the value a second time. That is the
+ * user's explicit intent, not an escaping bug, so the editor only warns. The check is
+ * intentionally textual: it is a hint, not a security boundary.
+ */
+internal fun shellReexecutionWarning(command: String): String? {
+    if (!command.contains("%{")) return null
+    val reexecution = Regex("""(?i)\b(?:eval|(?:sh|bash)\s+-c)\b""")
+    if (!reexecution.containsMatchIn(command)) return null
+    return "提示：命令包含 eval 或 sh -c，并且引用了 %{变量}。变量值会被当作命令再次执行，请确认这是你的意图。"
 }
