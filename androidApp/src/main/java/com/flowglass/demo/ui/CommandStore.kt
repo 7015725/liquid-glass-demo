@@ -32,7 +32,8 @@ internal class CommandStore(private val file: File) {
                 val text = Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(original)).toString()
                 val decoded = AppStateJson.decodeDocument(text)
                 if (decoded.migrated) {
-                    LegacyFileMigration.backupBeforeWrite(original, File(file.parentFile, "commands.v1.bak.json")) {
+                    val backup = File(file.parentFile, decoded.backupName ?: "commands.v1.bak.json")
+                    LegacyFileMigration.backupBeforeWrite(original, backup) {
                         writeAtomic(AppStateJson.encode(decoded.state).toByteArray(Charsets.UTF_8))
                     }
                 }

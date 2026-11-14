@@ -22,6 +22,7 @@ class PreviewV2CompatibilityTest {
     @get:Rule val folder = TemporaryFolder()
     private val file get() = File(folder.root, "commands.json")
     private val backup get() = File(folder.root, "commands.v1.bak.json")
+    private val previewBackup get() = File(folder.root, "commands.preview-v2.bak.json")
     private fun fixture() = requireNotNull(javaClass.getResource("/preview-v2.json")).readText()
 
     @Test fun previewV2FileLoadsWithoutTheFailSafeBanner() {
@@ -66,14 +67,57 @@ class PreviewV2CompatibilityTest {
         assertEquals(1004L, log.steps.single().itemId)
     }
 
+    @Test fun anEarlierV1BackupWithDifferentBytesMustNotBlockThePreviewUpgrade() {
+        // Devices that upgraded from v0.5 already carry commands.v1.bak.json; those bytes are
+        // the old text document, never the preview bytes, so a shared backup path would abort.
+        val earlier = JSONObject().put("version", 2).put("autoCmds", org.json.JSONArray())
+            .put("oneTaps", org.json.JSONArray()).put("logs", org.json.JSONArray())
+            .put("running", true).put("mode", 1).toString()
+        backup.writeText(earlier)
+
+        val original = fixture()
+        file.writeText(original)
+        val store = CommandStore(file)
+        val loaded = store.load()
+
+        assertNull("existing v1 backup must not block the upgrade, was: ${loaded.error}", loaded.error)
+        assertNotNull(loaded.saved)
+        assertTrue(store.canSave)
+        assertEquals("the earlier backup must stay untouched", earlier, backup.readText())
+        assertEquals(original, File(folder.root, "commands.preview-v2.bak.json").readText())
+        assertEquals(2, JSONObject(file.readText()).getInt("formatVersion"))
+    }
+
+    @Test fun aSecondFailedAttemptKeepsBothBackups() {
+        val previewBackup = File(folder.root, "commands.preview-v2.bak.json")
+        previewBackup.writeText("{\"earlier\":true}")
+        file.writeText(fixture())
+
+        val loaded = CommandStore(file).load()
+
+        assertNull(loaded.error)
+        assertEquals("{\"earlier\":true}", previewBackup.readText())
+        assertEquals(fixture(), File(folder.root, "commands.preview-v2.bak-2.json").readText())
+    }
+
+    @Test fun anIdenticalBackupIsReusedInsteadOfMultiplied() {
+        val original = fixture()
+        File(folder.root, "commands.preview-v2.bak.json").writeText(original)
+        file.writeText(original)
+
+        assertNull(CommandStore(file).load().error)
+
+        assertFalse(File(folder.root, "commands.preview-v2.bak-2.json").exists())
+    }
+
     @Test fun previewV2IsCanonicalisedOnDiskWithAByteExactBackup() {
         val original = fixture()
         file.writeText(original)
         val store = CommandStore(file)
         val saved = requireNotNull(store.load().saved)
 
-        assertTrue("preview upgrade must back up the original bytes", backup.isFile)
-        assertEquals(original, backup.readText())
+        assertTrue("preview upgrade must back up the original bytes", previewBackup.isFile)
+        assertEquals(original, previewBackup.readText())
         val rewritten = file.readText()
         assertEquals(2, JSONObject(rewritten).getInt("formatVersion"))
         assertFalse("canonical v2 must not persist display text", rewritten.contains("\"parameter\""))
