@@ -41,6 +41,7 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:name=".FlowApp"
         android:theme="@style/Theme.FlowGlass"
         tools:targetApi="33">
 
