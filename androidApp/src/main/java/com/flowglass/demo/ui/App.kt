@@ -258,6 +258,8 @@ fun FlowGlassApp() {
             tab = 3
         }
         ActionEditorHost(state)
+        PermissionPromptHost(state)
+        PermissionResumeEffect(state)
 
         // ---------------- undo bar, long-press menu and rename dialog float above everything
         UndoBar(

@@ -37,10 +37,10 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-internal data class TriggerInput(val running: Boolean, val rules: List<TriggerRule>)
+internal data class TriggerInput(val running: Boolean, val rules: List<TriggerRule>, val permissionsEpoch: Int)
 
 private fun AppState.triggerInput(): TriggerInput =
-    TriggerInput(running, autoCmds.map(Cmd::toTriggerRule))
+    TriggerInput(running, autoCmds.map(Cmd::toTriggerRule), permissionsEpoch)
 
 internal class AndroidTriggerEnvironment(private val context: Context) : TriggerEnvironment {
     override fun zoneOffsetMinutes(atEpochMs: Long): Int =
@@ -118,6 +118,17 @@ internal class TriggerHost(
     )
     private val sourceRegistry = TriggerSourceRegistry(::installSource, ::uninstallSource)
     private val alarms = AlarmScheduler(context)
+    private val wifiWatcher = WifiWatcher(context, scope, ::emitEvent)
+    private val bluetoothWatcher = BluetoothWatcher(context, ::emitEvent)
+    private val headsetWatcher = HeadsetWatcher(context, ::emitEvent)
+    private val appWatcher = AppForegroundWatcher(context, scope, ::emitEvent)
+    private val notificationListener: (String, String, String) -> Unit = { app, title, text ->
+        emitEvent(TriggerKinds.NOTIFICATION, TriggerSource.NOTIFICATION, mapOf(
+            "notification.app" to app,
+            "notification.title" to title,
+            "notification.text" to text,
+        ))
+    }
     private var collectJob: Job? = null
     private var snapshotJob: Job? = null
     private var started = false
@@ -126,13 +137,16 @@ internal class TriggerHost(
     private var alarmSignature: String? = null
     private var lastRules: List<TriggerRule> = emptyList()
 
+    /** True while the host owns listeners and the event collector. */
+    val isRunning: Boolean get() = started
+
     fun start() {
         if (started) return
         started = true
         // Seed the rule set before any event is dispatched; a boot/alarm start otherwise races
         // the first snapshotFlow emission and drops the event against an empty rule list.
         val initial = state.triggerInput()
-        lastRules = initial.rules
+        lastRules = eligibleRules(initial.rules)
         reconcile(initial)
         if (!started) return
         while (pendingEvents.isNotEmpty()) handle(pendingEvents.removeFirst())
@@ -143,7 +157,7 @@ internal class TriggerHost(
         }
         scope.launch {
             snapshotFlow { state.triggerInput() }.collect { input ->
-                lastRules = input.rules
+                lastRules = eligibleRules(input.rules)
                 reconcile(input)
             }
         }.also { snapshotJob = it }
@@ -174,7 +188,12 @@ internal class TriggerHost(
     }
 
     fun emit(event: TriggerEvent) {
-        if (!started) return
+        if (!started) {
+            // Keep an event that arrives between stopSelf and the queued restart; the start
+            // path drains this queue. Bound it so an engine-off period cannot grow forever.
+            if (pendingEvents.size < 16) pendingEvents.addLast(event)
+            return
+        }
         if (!collectorReady) pendingEvents.addLast(event) else events.tryEmit(event)
     }
 
@@ -199,26 +218,31 @@ internal class TriggerHost(
     }
 
     private fun reconcile(input: TriggerInput) {
-        val enabled = input.rules.filter { it.enabled }
-        if (!input.running || enabled.isEmpty()) {
+        val eligible = eligibleRules(input.rules)
+        if (!input.running || eligible.isEmpty()) {
+            dispatcher.prune(emptyList())
             stop(cancelAlarms = true)
             onShouldStop()
             return
         }
-        val listening = enabled.filter { rule ->
+        dispatcher.prune(eligible)
+        val listening = eligible.filter { rule ->
             rule.triggers.any { TriggerTypes.sourceOf(it.typeId) != null }
         }
-        val required = TriggerPlan.requiredSources(input.rules)
+        val required = TriggerPlan.requiredSources(eligible)
         sourceRegistry.update(required)
         val exact = canScheduleExactAlarms(context)
         TriggerStatus.exactAlarmAllowed = exact
-        syncAlarms(input.rules, exact)
+        syncAlarms(eligible, exact)
         TriggerStatus.serviceActive = true
         TriggerStatus.listeningRules = listening.size
         TriggerStatus.registeredSources = sourceRegistry.registered.size
         TriggerStatus.listeningRuleIds = listening.map { it.cmdId }.toSet()
         onStatus(listening.size, sourceRegistry.registered.size)
     }
+
+    private fun eligibleRules(rules: List<TriggerRule>): List<TriggerRule> =
+        rules.filter { it.enabled && it.permissionsGranted(context) }
 
     private fun syncAlarms(rules: List<TriggerRule>, exact: Boolean, force: Boolean = false) {
         val bindings = TriggerPlan.timeBindings(rules)
@@ -247,6 +271,11 @@ internal class TriggerHost(
                 // Initialize the stateful baseline from the sticky broadcast.
                 if (sticky != null) batteryReceiver.onReceive(context, sticky)
             }
+            TriggerSource.WIFI -> wifiWatcher.start()
+            TriggerSource.BLUETOOTH -> bluetoothWatcher.start()
+            TriggerSource.NOTIFICATION -> NotificationEvents.add(notificationListener)
+            TriggerSource.APP -> appWatcher.start()
+            TriggerSource.HEADSET -> headsetWatcher.start()
             // TIME is an AlarmManager schedule, BOOT is a manifest receiver; neither has a
             // dynamic receiver to install.
             TriggerSource.TIME, TriggerSource.BOOT -> Unit
@@ -258,6 +287,11 @@ internal class TriggerHost(
             TriggerSource.SCREEN -> unregister(screenReceiver)
             TriggerSource.POWER -> unregister(powerReceiver)
             TriggerSource.BATTERY -> unregister(batteryReceiver)
+            TriggerSource.WIFI -> wifiWatcher.stop()
+            TriggerSource.BLUETOOTH -> bluetoothWatcher.stop()
+            TriggerSource.NOTIFICATION -> NotificationEvents.remove(notificationListener)
+            TriggerSource.APP -> appWatcher.stop()
+            TriggerSource.HEADSET -> headsetWatcher.stop()
             TriggerSource.TIME, TriggerSource.BOOT -> Unit
         }
     }
@@ -279,6 +313,10 @@ internal class TriggerHost(
 
     private fun emitSimple(kind: String, source: TriggerSource, data: Map<String, String> = emptyMap()) {
         emit(TriggerEvent(kind, source, System.currentTimeMillis(), data))
+    }
+
+    private fun emitEvent(kind: String, source: TriggerSource, data: Map<String, String>) {
+        emitSimple(kind, source, data)
     }
 
     private val screenReceiver = object : BroadcastReceiver() {

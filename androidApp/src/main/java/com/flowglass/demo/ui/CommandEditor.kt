@@ -77,11 +77,11 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                     Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         T(if (cmd.enabled) "已开启" else "已关闭", 14.sp, color = C.OnSurfaceVar)
                         Spacer(Modifier.width(12.dp))
-                        LiquidToggle({ cmd.enabled }, { state.setEnabled(cmd.id, it) }, toggleBackdrop,
+                        LiquidToggle({ cmd.enabled }, { PermissionGate.request(state, cmd, context) }, toggleBackdrop,
                             Modifier.testTag("editor-toggle").semantics {
                                 contentDescription = "启用指令"
                                 toggleableState = if (cmd.enabled) ToggleableState.On else ToggleableState.Off
-                                onClick { state.setEnabled(cmd.id, !cmd.enabled); true }
+                                onClick { PermissionGate.request(state, cmd, context); true }
                             })
                     }
                 }

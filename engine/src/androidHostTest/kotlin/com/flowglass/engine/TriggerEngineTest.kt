@@ -346,4 +346,188 @@ class TriggerEngineTest {
         assertEquals("周一、周三", ParameterCodec.weekdayLabel("1,3"))
         assertFailsWith<IllegalArgumentException> { ParameterCodec.weekdays("周八") }
     }
+
+    @Test
+    fun wifiTriggerMatchesStateAndSsidOnlyAfterTheBaseline() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        val r = rule("wifi", listOf(TriggerComponent(
+            "trigger.wifi", "wifi",
+            mapOf("state" to JsonPrimitive("connected"), "ssid" to JsonPrimitive("Home")),
+        )))
+        fun event(state: String, ssid: String) = TriggerEvent(
+            TriggerKinds.WIFI, TriggerSource.WIFI, clock.now,
+            mapOf("state" to state, "ssid" to ssid),
+        )
+
+        assertEquals(0, d.dispatch(event("connected", "Home"), listOf(r)).executions.size)
+        clock.now = 3_000
+        assertEquals(0, d.dispatch(event("disconnected", "Home"), listOf(r)).executions.size)
+        clock.now = 6_000
+        assertEquals(1, d.dispatch(event("connected", "Home"), listOf(r)).executions.size)
+        clock.now = 9_000
+        assertEquals(0, d.dispatch(event("disconnected", "Home"), listOf(r)).executions.size)
+        clock.now = 12_000
+        // A different SSID is not the configured network.
+        assertEquals(0, d.dispatch(event("connected", "Cafe"), listOf(r)).executions.size)
+        clock.now = 15_000
+        assertEquals(0, d.dispatch(event("disconnected", "Cafe"), listOf(r)).executions.size)
+        clock.now = 18_000
+        assertEquals(1, d.dispatch(event("connected", "Home"), listOf(r)).executions.size)
+    }
+
+    @Test
+    fun bluetoothNameRuleIgnoresOtherDevicesAndFiresOnMatch() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        val r = rule("headphones", listOf(TriggerComponent(
+            "trigger.bluetooth", "bluetooth",
+            mapOf("state" to JsonPrimitive("connected"), "name" to JsonPrimitive("Sony")),
+        )))
+        fun event(state: String, name: String) = TriggerEvent(
+            TriggerKinds.BLUETOOTH, TriggerSource.BLUETOOTH, clock.now,
+            mapOf("state" to state, "name" to name),
+        )
+
+        // Baseline: the configured device is not connected.
+        assertEquals(0, d.dispatch(event("disconnected", "Sony"), listOf(r)).executions.size)
+        clock.now = 3_000
+        assertEquals(0, d.dispatch(event("connected", "AirPods"), listOf(r)).executions.size)
+        clock.now = 6_000
+        assertEquals(1, d.dispatch(event("connected", "Sony WH-1000XM5"), listOf(r)).executions.size)
+        clock.now = 9_000
+        assertEquals(0, d.dispatch(event("connected", "Sony WH-1000XM5"), listOf(r)).executions.size)
+    }
+
+    @Test
+    fun wifiDisconnectRuleMatchesTheSsidItWasConnectedTo() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        val r = rule("leave-home", listOf(TriggerComponent(
+            "trigger.wifi", "wifi",
+            mapOf("state" to JsonPrimitive("disconnected"), "ssid" to JsonPrimitive("Home")),
+        )))
+        fun event(state: String, ssid: String) = TriggerEvent(
+            TriggerKinds.WIFI, TriggerSource.WIFI, clock.now,
+            mapOf("state" to state, "ssid" to ssid),
+        )
+
+        assertEquals(0, d.dispatch(event("connected", "Cafe"), listOf(r)).executions.size)
+        clock.now = 3_000
+        assertEquals(0, d.dispatch(event("disconnected", "Cafe"), listOf(r)).executions.size)
+        clock.now = 6_000
+        assertEquals(0, d.dispatch(event("connected", "Home"), listOf(r)).executions.size)
+        clock.now = 9_000
+        assertEquals(1, d.dispatch(event("disconnected", "Home"), listOf(r)).executions.size)
+    }
+
+    @Test
+    fun notificationTriggerMatchesAppAndKeywordsAndPublishesVariables() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        val r = rule("notification", listOf(TriggerComponent(
+            "trigger.notification", "notification",
+            mapOf(
+                "app" to JsonPrimitive("com.example.chat"),
+                "title" to JsonPrimitive("验证码"),
+                "text" to JsonPrimitive("123456"),
+            ),
+        )))
+        fun event(app: String, title: String, text: String) = TriggerEvent(
+            TriggerKinds.NOTIFICATION, TriggerSource.NOTIFICATION, clock.now,
+            mapOf("notification.app" to app, "notification.title" to title, "notification.text" to text),
+        )
+
+        assertEquals(0, d.dispatch(event("com.example.chat", "普通消息", "123456"), listOf(r)).executions.size)
+        assertEquals(0, d.dispatch(event("com.other", "验证码", "123456"), listOf(r)).executions.size)
+        val hit = d.dispatch(event("com.example.chat", "【验证码】", "您的验证码是 123456"), listOf(r))
+        assertEquals(1, hit.executions.size)
+        assertEquals("com.example.chat", hit.executions.single().variables["event.notification.app"])
+        assertEquals("【验证码】", hit.executions.single().variables["event.notification.title"])
+    }
+
+    @Test
+    fun appForegroundTriggerFiresOnEnterAndLeave() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        fun appRule(id: String, state: String) = rule(id, listOf(TriggerComponent(
+            "trigger.app_foreground", "app_foreground",
+            mapOf("state" to JsonPrimitive(state), "package" to JsonPrimitive("com.target")),
+        )))
+        val enter = appRule("enter", "foreground")
+        val leave = appRule("leave", "background")
+        fun event(app: String) = TriggerEvent(
+            TriggerKinds.APP, TriggerSource.APP, clock.now, mapOf("app" to app),
+        )
+
+        // First observation is the baseline for each binding.
+        assertEquals(0, d.dispatch(event("com.other"), listOf(enter, leave)).executions.size)
+        clock.now = 3_000
+        assertEquals(listOf("enter"), d.dispatch(event("com.target"), listOf(enter, leave)).executions.map { it.rule.id })
+        clock.now = 6_000
+        assertEquals(listOf("leave"), d.dispatch(event("com.other"), listOf(enter, leave)).executions.map { it.rule.id })
+    }
+
+    @Test
+    fun bluetoothAndHeadsetTriggersUseBidirectionalTransitions() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        val bt = rule("bt", listOf(TriggerComponent(
+            "trigger.bluetooth", "bluetooth",
+            mapOf("state" to JsonPrimitive("connected"), "name" to JsonPrimitive("Buds")),
+        )))
+        val headset = rule("headset", listOf(TriggerComponent(
+            "trigger.headset", "headset",
+            mapOf("state" to JsonPrimitive("plugged"), "kind" to JsonPrimitive("any")),
+        )))
+        fun btEvent(state: String, name: String) = TriggerEvent(
+            TriggerKinds.BLUETOOTH, TriggerSource.BLUETOOTH, clock.now,
+            mapOf("state" to state, "name" to name),
+        )
+        fun headsetEvent(state: String, kind: String) = TriggerEvent(
+            TriggerKinds.HEADSET, TriggerSource.HEADSET, clock.now,
+            mapOf("state" to state, "kind" to kind),
+        )
+
+        assertEquals(0, d.dispatch(btEvent("disconnected", "Buds"), listOf(bt)).executions.size)
+        clock.now = 3_000
+        assertEquals(1, d.dispatch(btEvent("connected", "Galaxy Buds"), listOf(bt)).executions.size)
+        clock.now = 6_000
+        assertEquals(0, d.dispatch(btEvent("disconnected", "Galaxy Buds"), listOf(bt)).executions.size)
+
+        assertEquals(0, d.dispatch(headsetEvent("unplugged", "wired"), listOf(headset)).executions.size)
+        clock.now = 9_000
+        assertEquals(1, d.dispatch(headsetEvent("plugged", "bluetooth"), listOf(headset)).executions.size)
+        clock.now = 12_000
+        assertEquals(0, d.dispatch(headsetEvent("unplugged", "wired"), listOf(headset)).executions.size)
+    }
+
+    @Test
+    fun newTriggerFamiliesRequestOneListenerEach() {
+        val rules = listOf(
+            rule("wifi", listOf(trigger("trigger.wifi", "state" to "connected"))),
+            rule("bt", listOf(trigger("trigger.bluetooth", "state" to "connected"))),
+            rule("notification", listOf(trigger("trigger.notification", "text" to "验证码"))),
+            rule("app", listOf(trigger("trigger.app_foreground", "state" to "foreground", "package" to "com.x"))),
+            rule("headset", listOf(trigger("trigger.headset", "state" to "plugged"))),
+        )
+        assertEquals(
+            setOf(
+                TriggerSource.WIFI, TriggerSource.BLUETOOTH, TriggerSource.NOTIFICATION,
+                TriggerSource.APP, TriggerSource.HEADSET,
+            ),
+            TriggerPlan.requiredSources(rules),
+        )
+        // Disabling a rule drops its family; a shared family stays registered.
+        assertEquals(
+            setOf(TriggerSource.WIFI, TriggerSource.BLUETOOTH, TriggerSource.NOTIFICATION, TriggerSource.HEADSET),
+            TriggerPlan.requiredSources(rules.map { if (it.id == "app") it.copy(enabled = false) else it }),
+        )
+    }
 }

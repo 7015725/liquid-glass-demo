@@ -7,7 +7,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 /** One installable listener family. Several trigger types can share a source. */
-enum class TriggerSource { TIME, SCREEN, POWER, BATTERY, BOOT }
+enum class TriggerSource { TIME, SCREEN, POWER, BATTERY, BOOT, WIFI, BLUETOOTH, NOTIFICATION, APP, HEADSET }
 
 object TriggerTypes {
     const val TIME = "trigger.time"
@@ -20,6 +20,11 @@ object TriggerTypes {
     const val BATTERY_LOW_LEGACY = "trigger.battery_low"
     const val CHARGING_LEGACY = "trigger.charging"
     const val BOOT_COMPLETED = "trigger.boot_completed"
+    const val WIFI = "trigger.wifi"
+    const val BLUETOOTH = "trigger.bluetooth"
+    const val NOTIFICATION = "trigger.notification"
+    const val APP_FOREGROUND = "trigger.app_foreground"
+    const val HEADSET = "trigger.headset"
 
     /** Old rules keep their type id; only these two are mapped onto the new listeners. */
     fun sourceOf(typeId: String): TriggerSource? = when (typeId) {
@@ -28,13 +33,17 @@ object TriggerTypes {
         POWER_CONNECTED, POWER_DISCONNECTED, CHARGING_LEGACY -> TriggerSource.POWER
         BATTERY_LEVEL, BATTERY_LOW_LEGACY -> TriggerSource.BATTERY
         BOOT_COMPLETED -> TriggerSource.BOOT
+        WIFI -> TriggerSource.WIFI
+        BLUETOOTH -> TriggerSource.BLUETOOTH
+        NOTIFICATION -> TriggerSource.NOTIFICATION
+        APP_FOREGROUND -> TriggerSource.APP
+        HEADSET -> TriggerSource.HEADSET
         else -> null
     }
 
-    /** Trigger types that 1b-1 does not listen to yet. */
+    /** Trigger types that still have no listener. */
     val comingSoon: Set<String> = setOf(
-        "trigger.location_enter", "trigger.location_exit", "trigger.notification_received",
-        "trigger.bluetooth_connected", "trigger.wifi_changed", "trigger.application_started",
+        "trigger.location_enter", "trigger.location_exit",
     )
 }
 
@@ -52,6 +61,8 @@ data class TriggerRule(
     val enabled: Boolean,
     val triggers: List<TriggerComponent> = emptyList(),
     val conditions: List<TriggerComponent> = emptyList(),
+    /** Android permission keys declared by the rule's triggers, conditions and actions. */
+    val permissions: List<String> = emptyList(),
 )
 
 data class TriggerBinding(
@@ -101,6 +112,11 @@ object TriggerKinds {
     const val POWER_DISCONNECTED = "power_disconnected"
     const val BATTERY = "battery"
     const val BOOT_COMPLETED = "boot_completed"
+    const val WIFI = "wifi"
+    const val BLUETOOTH = "bluetooth"
+    const val NOTIFICATION = "notification"
+    const val APP = "app_foreground"
+    const val HEADSET = "headset"
 }
 
 /** Recomputes the listener set and reports the delta; the host installs/removes only changes. */
@@ -134,16 +150,31 @@ data class SourceDiff(val added: Set<TriggerSource>, val removed: Set<TriggerSou
 /** Stateful triggers only fire on a false -> true transition; the first sample is the baseline. */
 class TriggerStateStore {
     private val values = mutableMapOf<String, Boolean>()
+    private val texts = mutableMapOf<String, String>()
 
     fun has(key: String): Boolean = values.containsKey(key)
     fun put(key: String, value: Boolean) { values[key] = value }
-    fun removeMissing(keys: Set<String>) { values.keys.retainAll(keys) }
-    fun clear() = values.clear()
+    fun text(key: String): String? = texts[key]
+    fun putText(key: String, value: String) { texts[key] = value }
+    fun removeMissing(keys: Set<String>) {
+        values.keys.retainAll(keys)
+        texts.keys.retainAll(keys)
+    }
+    fun clear() {
+        values.clear()
+        texts.clear()
+    }
 
     /** Returns true only when the value changed from false to true. */
     fun crossed(key: String, current: Boolean): Boolean {
         val previous = values.put(key, current)
         return previous == false && current
+    }
+
+    /** Bidirectional edge: the first sample is the baseline and never fires. */
+    fun changed(key: String, current: Boolean): Boolean {
+        val previous = values.put(key, current)
+        return previous != null && previous != current
     }
 }
 
@@ -168,8 +199,105 @@ object TriggerMatcher {
             TriggerKinds.BATTERY -> matchesBattery(binding, event, states, batteryPercent)
             TriggerKinds.BOOT_COMPLETED -> binding.component.typeId == TriggerTypes.BOOT_COMPLETED
             TriggerKinds.TIME -> matchesTime(binding, event)
+            TriggerKinds.WIFI -> matchesWifi(binding, event, states)
+            TriggerKinds.BLUETOOTH -> matchesBluetooth(binding, event, states)
+            TriggerKinds.NOTIFICATION -> matchesNotification(binding, event)
+            TriggerKinds.APP -> matchesApp(binding, event, states)
+            TriggerKinds.HEADSET -> matchesHeadset(binding, event, states)
             else -> false
         }
+    }
+
+    private fun matchesWifi(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        states: TriggerStateStore,
+    ): Boolean {
+        if (binding.component.typeId != TriggerTypes.WIFI) return false
+        val connected = event.data["state"] == "connected"
+        val wanted = binding.component.params["ssid"]?.stringValue().orEmpty().trim()
+        val current = if (connected) event.data["ssid"].orEmpty().trim() else ""
+        val previous = states.text(binding.key)
+        states.putText(binding.key, current)
+        if (previous == null) return false
+        val matches = wanted.isEmpty() || current.equals(wanted, ignoreCase = true)
+        return when (binding.component.params["state"]?.stringValue()) {
+            "connected" -> connected && previous != current && matches
+            "disconnected" -> !connected && (if (wanted.isEmpty()) previous.isNotEmpty()
+                else previous.equals(wanted, ignoreCase = true))
+            else -> false
+        }
+    }
+
+    private fun matchesBluetooth(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        states: TriggerStateStore,
+    ): Boolean {
+        if (binding.component.typeId != TriggerTypes.BLUETOOTH) return false
+        val connected = event.data["state"] == "connected"
+        val wanted = binding.component.params["name"]?.stringValue().orEmpty().trim()
+        val actual = event.data["name"].orEmpty()
+        if (wanted.isNotEmpty() && !actual.contains(wanted, ignoreCase = true)) return false
+        val current = if (connected) actual.ifEmpty { "connected" } else ""
+        val previous = states.text(binding.key)
+        states.putText(binding.key, current)
+        if (previous == null) return false
+        return when (binding.component.params["state"]?.stringValue()) {
+            "connected" -> connected && previous != current && current.isNotEmpty()
+            "disconnected" -> !connected && (if (wanted.isEmpty()) previous.isNotEmpty()
+                else previous.contains(wanted, ignoreCase = true))
+            else -> false
+        }
+    }
+
+    private fun matchesNotification(binding: TriggerBinding, event: TriggerEvent): Boolean {
+        if (binding.component.typeId != TriggerTypes.NOTIFICATION) return false
+        fun keyword(key: String) = binding.component.params[key]?.stringValue().orEmpty().trim()
+        val app = keyword("app")
+        if (app.isNotEmpty() && app != event.data["notification.app"].orEmpty()) return false
+        val title = keyword("title")
+        if (title.isNotEmpty() && !event.data["notification.title"].orEmpty().contains(title, ignoreCase = true)) return false
+        val text = keyword("text")
+        if (text.isNotEmpty() && !event.data["notification.text"].orEmpty().contains(text, ignoreCase = true)) return false
+        return true
+    }
+
+    private fun matchesApp(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        states: TriggerStateStore,
+    ): Boolean {
+        if (binding.component.typeId != TriggerTypes.APP_FOREGROUND) return false
+        val target = binding.component.params["package"]?.stringValue()?.trim().orEmpty()
+        if (target.isEmpty()) return false
+        val foreground = event.data["app"].orEmpty() == target
+        val changed = states.changed(binding.key, foreground)
+        if (!changed) return false
+        return when (binding.component.params["state"]?.stringValue()) {
+            "foreground" -> foreground
+            "background" -> !foreground
+            else -> false
+        }
+    }
+
+    private fun matchesHeadset(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        states: TriggerStateStore,
+    ): Boolean {
+        if (binding.component.typeId != TriggerTypes.HEADSET) return false
+        val kind = binding.component.params["kind"]?.stringValue() ?: "any"
+        val actual = event.data["kind"].orEmpty()
+        if (kind != "any" && kind != actual) return false
+        val plugged = event.data["state"] == "plugged"
+        val changed = states.changed(binding.key, plugged)
+        val expected = when (binding.component.params["state"]?.stringValue()) {
+            "plugged" -> true
+            "unplugged" -> false
+            else -> return false
+        }
+        return changed && plugged == expected
     }
 
     private fun matchesBattery(

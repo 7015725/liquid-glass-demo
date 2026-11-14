@@ -239,6 +239,18 @@ object LegacyCommandMigration {
         "延时等待" to "action.delay",
         "执行 Shell(Root)" to "action.root_shell",
         "HTTP 请求" to "action.http_request",
+        "振动" to "action.vibrate",
+        "手电筒" to "action.flashlight",
+        "响铃模式" to "action.ringer_mode",
+        "媒体控制" to "action.media_control",
+        "打开网页" to "action.open_url",
+        "文字朗读" to "action.speak",
+        "屏幕提示" to "action.toast",
+        "屏幕超时" to "action.screen_timeout",
+        "自动旋转" to "action.auto_rotate",
+        "系统导航" to "action.global_action",
+        "飞行模式" to "action.airplane_mode",
+        "移动数据" to "action.mobile_data",
     )
 
     private val triggerTypes = mapOf(
@@ -251,12 +263,15 @@ object LegacyCommandMigration {
         "电量" to "trigger.battery_level",
         "进入地点" to "trigger.location_enter",
         "离开地点" to "trigger.location_exit",
-        "收到通知" to "trigger.notification_received",
+        "收到通知" to "trigger.notification",
         "电量低于" to "trigger.battery_low",
         "充电状态" to "trigger.charging",
-        "蓝牙连接" to "trigger.bluetooth_connected",
-        "WiFi 连接/断开" to "trigger.wifi_changed",
-        "应用启动" to "trigger.application_started",
+        "蓝牙连接" to "trigger.bluetooth",
+        "蓝牙连接/断开" to "trigger.bluetooth",
+        "WiFi 连接/断开" to "trigger.wifi",
+        "应用启动" to "trigger.app_foreground",
+        "应用前台/离开" to "trigger.app_foreground",
+        "耳机插入/拔出" to "trigger.headset",
         "开机完成" to "trigger.boot_completed",
     )
 

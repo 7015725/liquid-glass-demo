@@ -73,7 +73,7 @@ private fun reserveIds(saved: PersistedAppState) {
 
 private fun now(): String = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
-val AutoCategories = listOf("全部", "已开启", "定时", "通知", "位置", "设备", "网络")
+val AutoCategories = listOf("全部", "已开启", "定时", "通知", "位置", "设备", "网络", "应用")
 
 private fun seedItems(vararg names: String) = names.map { display ->
     // Split only the explicit seed separator; keep times such as 23:00 intact.
@@ -223,6 +223,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     // engine
     var running by mutableStateOf(saved?.running ?: true)
+    /** Bumped when a permission prompt returns; the trigger host re-evaluates blocked rules. */
+    var permissionsEpoch by mutableIntStateOf(0)
     var uptime by mutableIntStateOf(0)
     var todayRuns by mutableIntStateOf(0)
     var mode by mutableIntStateOf(saved?.mode ?: 1)
@@ -371,6 +373,15 @@ class AppState internal constructor(saved: PersistedAppState?) {
         val cmd = find(cmdId) ?: return
         val time = now()
         logs.add(0, RunLog(newId(), cmd.title, reason, time, false, cmd.ic, detail, emptyList(), skipped = true))
+        if (logs.size > 50) logs.removeAt(logs.lastIndex)
+    }
+
+    /** A trigger that could not start its background host; a real failure, not a condition skip. */
+    fun recordTriggerFailure(cmdId: Long, reason: String, detail: String) {
+        val cmd = find(cmdId) ?: return
+        val time = now()
+        update(cmdId) { it.copy(lastRun = time) }
+        logs.add(0, RunLog(newId(), cmd.title, reason, time, false, cmd.ic, detail))
         if (logs.size > 50) logs.removeAt(logs.lastIndex)
     }
 
