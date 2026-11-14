@@ -318,10 +318,16 @@ class AppState internal constructor(saved: PersistedAppState?) {
         executing[cmd.id] = 1
         return com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch {
             try {
-                val result = engine?.run(cmd, reason) ?: com.flowglass.demo.system.exec.RunResult(
-                    cmd.id, reason, listOf(com.flowglass.demo.system.exec.StepResult(
-                        cmd.id, "执行环境检查", com.flowglass.demo.system.exec.StepStatus.FAILURE,
-                        "执行环境未就绪", 0)), 0)
+                val result = try {
+                    engine?.run(cmd, reason) ?: com.flowglass.demo.system.exec.RunResult(
+                        cmd.id, reason, listOf(com.flowglass.demo.system.exec.StepResult(
+                            cmd.id, "执行环境检查", com.flowglass.demo.system.exec.StepStatus.FAILURE,
+                            "执行环境未就绪", 0)), 0)
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: Throwable) {
+                    internalFailure(cmd.id, reason, failure)
+                }
                 if (result.ignored) return@launch
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
                     executionMessages[cmd.id] = result.detail
@@ -333,6 +339,15 @@ class AppState internal constructor(saved: PersistedAppState?) {
                     if (logs.size > 8) logs.removeAt(logs.lastIndex)
                 }
                 delay(if (result.ok) 1600 else 2000)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                kotlinx.coroutines.withContext(
+                    kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.Main.immediate,
+                ) {
+                    recordInternalFailure(cmd, reason, failure)
+                }
+                delay(2000)
             } finally {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.Main.immediate) {
                     if (executionTokens[cmd.id] === token) {
@@ -344,4 +359,33 @@ class AppState internal constructor(saved: PersistedAppState?) {
             }
         }
     }
+
+    private fun internalFailure(cmdId: Long, reason: String, failure: Throwable): com.flowglass.demo.system.exec.RunResult {
+        val detail = internalErrorDetail(failure)
+        return com.flowglass.demo.system.exec.RunResult(
+            cmdId, reason,
+            listOf(com.flowglass.demo.system.exec.StepResult(
+                cmdId, "执行", com.flowglass.demo.system.exec.StepStatus.FAILURE, detail, 0)),
+            0,
+        )
+    }
+
+    private fun recordInternalFailure(cmd: Cmd, reason: String, failure: Throwable) {
+        val detail = internalErrorDetail(failure)
+        executionMessages[cmd.id] = detail
+        executing[cmd.id] = 3
+        todayRuns += 1
+        val time = now()
+        update(cmd.id) { it.copy(lastRun = time) }
+        logs.add(0, RunLog(newId(), cmd.title, reason, time, false, cmd.ic, detail,
+            listOf(com.flowglass.demo.system.exec.StepResult(
+                cmd.id, "执行", com.flowglass.demo.system.exec.StepStatus.FAILURE, detail, 0))))
+        if (logs.size > 8) logs.removeAt(logs.lastIndex)
+    }
+}
+
+private fun internalErrorDetail(failure: Throwable): String {
+    val name = failure.javaClass.simpleName.ifBlank { failure.javaClass.name }
+    val message = failure.message?.takeIf { it.isNotBlank() } ?: "无消息"
+    return "内部错误：$name: $message"
 }
