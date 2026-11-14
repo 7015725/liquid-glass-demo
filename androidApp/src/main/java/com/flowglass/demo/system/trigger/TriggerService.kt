@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import com.flowglass.demo.system.RunningNotification
 import com.flowglass.demo.system.exec.ExecutionRuntime
 import com.flowglass.demo.ui.AppRuntime
@@ -123,15 +124,17 @@ class TriggerService : Service() {
         private const val EXTRA_TRIGGER_INDEX = "trigger_index"
         private const val EXTRA_TRIGGER_NAME = "trigger_name"
         private const val EXTRA_TIME = "time"
+        const val ALARM_TAG = "FlowAlarm"
 
         @Volatile
         private var current: TriggerService? = null
 
         /** Alarm fast path: true when a live in-process host accepted the event itself. */
         fun deliverIfRunning(event: TriggerEvent): Boolean {
-            val service = current ?: return false
-            val running = service.host ?: return false
-            if (!running.isRunning) return false
+            val service = current
+            val running = service?.host
+            Log.i(ALARM_TAG, "deliverIfRunning service=${service != null} host=${running != null} running=${running?.isRunning}")
+            if (service == null || running == null || !running.isRunning) return false
             running.emit(event)
             return true
         }
@@ -223,8 +226,12 @@ class TriggerAlarmReceiver : BroadcastReceiver() {
             targetRuleId = ruleId,
             targetTriggerIndex = index,
         )
-        if (TriggerService.deliverIfRunning(event)) return
+        if (TriggerService.deliverIfRunning(event)) {
+            Log.i(TriggerService.ALARM_TAG, "alarm delivered by fast path")
+            return
+        }
 
+        Log.i(TriggerService.ALARM_TAG, "alarm taking slow path: startForegroundService")
         val started = TriggerService.start(context, TriggerService.ACTION_EVENT) {
             putAlarmEvent(
                 ruleId = ruleId,
@@ -234,10 +241,12 @@ class TriggerAlarmReceiver : BroadcastReceiver() {
                 time = time,
             )
         }
+        Log.i(TriggerService.ALARM_TAG, "slow path startForegroundService accepted=$started")
         if (!started) recordStartFailure(context, cmdId, triggerName)
     }
 
     private fun recordStartFailure(context: Context, cmdId: Long, triggerName: String) {
+        Log.w(TriggerService.ALARM_TAG, "recording start failure cmd=$cmdId trigger=$triggerName")
         ExecutionRuntime.scope.launch {
             try {
                 val state = withContext(Dispatchers.IO) { AppRuntime.of(context).load() }

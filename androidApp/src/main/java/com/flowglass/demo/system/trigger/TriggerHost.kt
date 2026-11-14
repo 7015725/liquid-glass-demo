@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.PowerManager
+import android.util.Log
 import androidx.compose.runtime.snapshotFlow
 import com.flowglass.demo.system.exec.ExecutionRuntime
 import com.flowglass.demo.ui.AppRuntime
@@ -382,6 +383,7 @@ internal class AlarmScheduler(private val context: Context) {
             time,
             days,
         ) ?: return false
+        Log.i(TriggerService.ALARM_TAG, "arming next alarm key=${binding.key} at=$next exact=$exact")
         schedule(binding, next, exact)
         return true
     }
