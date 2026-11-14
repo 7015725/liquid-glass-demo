@@ -20,19 +20,46 @@ class CanonicalLegacyMatrixTest {
     }
 
     @Test fun everyBuiltInMigratesItsV05DefaultThroughRealLegacyDocument() {
-        // Golden values transcribed from v0.5.0 CommandCatalog (main@1b7d67d), plus the 1b-1
-        // trigger defaults appended in registry order.
-        val texts = listOf("08:00|每天", "", "", "", "", "", "低于|20%", "",
-            "20%", "开始充电", "公司", "家", "验证码", "耳机", "连接家庭网络", "应用包名",
-            "08:00–22:00", "工作日", "20%–80%", "充电中", "已亮屏", "WiFi", "已关闭",
-            "开启", "开启", "开启", "50%", "50%", "应用包名", "任务已完成", "待复制文本", "1 秒", "echo 流光", "GET https://example.com")
-        assertEquals(texts.size, BuiltInComponents.all.size)
-        for ((meta, text) in BuiltInComponents.all.zip(texts)) for (version in listOf(1, 2)) {
-            val component = migrate(meta, text, version)
-            assertEquals(meta.typeId, component.type, meta.name)
-            assertEquals(meta.params.associate { it.key to it.defaultValue }, component.params, meta.name)
-            val formatted = ParameterCodec.formatComponent(meta, component.params)
-            assertEquals(if (meta.typeId == "action.post_notification") "|$text" else text, formatted, meta.name)
+        // Golden values transcribed from v0.5.0 CommandCatalog (main@1b7d67d), the 1b-1
+        // triggers and the 1b-2 additions. Keyed by type id so registry order is not part of
+        // the contract; every built-in must have an entry and no stale entries may remain.
+        val expected = mapOf(
+            "trigger.time" to "08:00|每天", "trigger.screen_on" to "", "trigger.screen_off" to "",
+            "trigger.user_present" to "", "trigger.power_connected" to "",
+            "trigger.power_disconnected" to "", "trigger.battery_level" to "低于|20%",
+            "trigger.boot_completed" to "", "trigger.battery_low" to "20%",
+            "trigger.charging" to "开始充电",
+            "trigger.wifi" to "已连接|", "trigger.bluetooth" to "已连接|",
+            "trigger.notification" to "||", "trigger.app_foreground" to "切到前台|应用包名",
+            "trigger.headset" to "已插入|任意耳机",
+            "trigger.location_enter" to "公司", "trigger.location_exit" to "家",
+            "condition.time_range" to "08:00–22:00", "condition.weekday" to "工作日",
+            "condition.battery_range" to "20%–80%", "condition.charging" to "充电中",
+            "condition.screen_state" to "已亮屏", "condition.network_type" to "WiFi",
+            "condition.dnd_state" to "已关闭",
+            "action.wifi_switch" to "开启", "action.bluetooth_switch" to "开启",
+            "action.dnd_switch" to "开启", "action.set_brightness" to "50%",
+            "action.set_volume" to "50%", "action.launch_app" to "应用包名",
+            "action.post_notification" to "任务已完成", "action.copy_clipboard" to "待复制文本",
+            "action.delay" to "1 秒", "action.root_shell" to "echo 流光",
+            "action.http_request" to "GET https://example.com",
+            "action.vibrate" to "500 毫秒", "action.flashlight" to "切换",
+            "action.ringer_mode" to "响铃", "action.media_control" to "播放",
+            "action.open_url" to "https://example.com", "action.speak" to "你好，流光",
+            "action.toast" to "任务已完成", "action.screen_timeout" to "30 秒",
+            "action.auto_rotate" to "开启", "action.global_action" to "主页",
+            "action.airplane_mode" to "开启", "action.mobile_data" to "开启",
+        )
+        assertEquals(expected.keys, BuiltInComponents.all.map { it.typeId }.toSet())
+        for (meta in BuiltInComponents.all) {
+            val text = expected.getValue(meta.typeId)
+            for (version in listOf(1, 2)) {
+                val component = migrate(meta, text, version)
+                assertEquals(meta.typeId, component.type, meta.name)
+                assertEquals(meta.params.associate { it.key to it.defaultValue }, component.params, meta.name)
+                val formatted = ParameterCodec.formatComponent(meta, component.params)
+                assertEquals(if (meta.typeId == "action.post_notification") "|$text" else text, formatted, meta.name)
+            }
         }
     }
 

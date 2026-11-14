@@ -72,6 +72,18 @@ object Perms {
             Grant.Page { Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS) }
         ))
         add(PermItem(
+            "notification_listener", Ic.Bell, "通知使用权",
+            "读取新通知的标题与内容，触发通知相关指令", false,
+            { c -> isNotificationListenerEnabled(c) },
+            Grant.Page { Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
+        ))
+        add(PermItem(
+            "foreground_app", Ic.Grid, "前台应用",
+            "感知应用切换；优先使用无障碍服务，其次使用情况访问", true,
+            { c -> isA11yEnabled(c) || hasUsageAccess(c) },
+            Grant.Page { Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS) }
+        ))
+        add(PermItem(
             "overlay", Ic.Grid, "悬浮窗",
             "显示悬浮控制球与执行进度", false,
             { c -> Settings.canDrawOverlays(c) },
@@ -106,6 +118,14 @@ object Perms {
         return enabled.split(':').any { ComponentName.unflattenFromString(it) == me }
     }
 
+    fun isNotificationListenerEnabled(ctx: Context): Boolean {
+        val enabled = Settings.Secure.getString(
+            ctx.contentResolver, "enabled_notification_listeners",
+        ) ?: return false
+        val me = ComponentName(ctx, com.flowglass.demo.system.trigger.FlowNotificationListener::class.java)
+        return enabled.split(':').any { ComponentName.unflattenFromString(it) == me }
+    }
+
     @Suppress("DEPRECATION")
     fun hasUsageAccess(ctx: Context): Boolean {
         val ops = ctx.getSystemService(AppOpsManager::class.java) ?: return false
@@ -127,6 +147,47 @@ object Perms {
 }
 
 class FlowAccessibilityService : android.accessibilityservice.AccessibilityService() {
-    override fun onAccessibilityEvent(event: android.view.accessibility.AccessibilityEvent?) {}
+    @Volatile private var lastPackage: String? = null
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+        lastPackage = null
+    }
+
+    override fun onDestroy() {
+        if (instance === this) instance = null
+        super.onDestroy()
+    }
+
+    override fun onAccessibilityEvent(event: android.view.accessibility.AccessibilityEvent?) {
+        val change = event ?: return
+        if (change.eventType != android.view.accessibility.AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val packageName = change.packageName?.toString() ?: return
+        if (packageName == lastPackage) return
+        lastPackage = packageName
+        foregroundListeners.forEach { listener ->
+            runCatching { listener(packageName) }
+        }
+    }
+
     override fun onInterrupt() {}
+
+    fun perform(action: Int): Boolean = performGlobalAction(action)
+
+    companion object {
+        @Volatile
+        var instance: FlowAccessibilityService? = null
+            private set
+
+        private val foregroundListeners = java.util.concurrent.CopyOnWriteArrayList<(String) -> Unit>()
+
+        fun addForegroundListener(listener: (String) -> Unit) {
+            foregroundListeners.addIfAbsent(listener)
+        }
+
+        fun removeForegroundListener(listener: (String) -> Unit) {
+            foregroundListeners.remove(listener)
+        }
+    }
 }

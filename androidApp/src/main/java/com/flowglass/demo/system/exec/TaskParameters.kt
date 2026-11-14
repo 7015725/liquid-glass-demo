@@ -1,5 +1,9 @@
 package com.flowglass.demo.system.exec
 
+import com.flowglass.engine.ComponentMeta
+import com.flowglass.engine.ParameterCodec
+import kotlinx.serialization.json.jsonPrimitive
+
 internal enum class SwitchMode { ON, OFF, TOGGLE }
 
 internal data class HttpRequestSpec(val method: String, val url: java.net.URL, val body: String?)
@@ -41,6 +45,22 @@ internal object TaskParameters {
             .multiply(java.math.BigDecimal.valueOf(factor))
             .min(java.math.BigDecimal.valueOf(600000L)).toLong()
     }
+
+    /** Duration for actions with their own bounds (vibrate / screen timeout), no 10-minute cap. */
+    fun durationMillis(text: String): Long {
+        val expected = "500 毫秒 / 5 秒 / 2 分钟"
+        val value = text.trim()
+        if (value.length > 128) invalid(expected)
+        val match = Regex("""([0-9]+(?:\.[0-9]+)?)\s*(毫秒|秒|分钟)""").matchEntire(value) ?: invalid(expected)
+        val factor = when (match.groupValues[2]) { "秒" -> 1000L; "分钟" -> 60000L; else -> 1L }
+        return match.groupValues[1].toBigDecimal()
+            .multiply(java.math.BigDecimal.valueOf(factor)).toLong()
+    }
+
+    /** Re-reads the canonical value of an enum/switch parameter from its display projection. */
+    fun token(meta: ComponentMeta, text: String, key: String): String =
+        ParameterCodec.parseComponent(meta, text)[key]?.jsonPrimitive?.content
+            ?: invalid("${meta.name} 的参数")
 
     fun percent(text: String): Double {
         val expected = "0–100% 的百分比"

@@ -54,22 +54,45 @@ object BuiltInComponents {
         ComponentMeta("trigger.charging", "充电状态", "设备", ComponentKind.TRIGGER,
             listOf(param("state", "状态", "charging", ParamType.ENUM, options = listOf(
                 ParamOption("charging", "开始充电"), ParamOption("stopped", "停止充电"))))),
+        ComponentMeta("trigger.wifi", "WiFi 连接/断开", "网络", ComponentKind.TRIGGER,
+            listOf(
+                param("state", "状态", "connected", ParamType.ENUM, required = true, options = listOf(
+                    ParamOption("connected", "已连接"), ParamOption("disconnected", "已断开"))),
+                param("ssid", "网络名称", "", ParamType.TEXT, required = false,
+                    hint = "留空匹配任意 WiFi。读取网络名称需要定位权限。"),
+            ), permissions = listOf("location")),
+        ComponentMeta("trigger.bluetooth", "蓝牙连接/断开", "网络", ComponentKind.TRIGGER,
+            listOf(
+                param("state", "状态", "connected", ParamType.ENUM, required = true, options = listOf(
+                    ParamOption("connected", "已连接"), ParamOption("disconnected", "已断开"))),
+                param("name", "设备名称", "", ParamType.TEXT, required = false,
+                    hint = "留空匹配任意设备；填写后按名称包含匹配。"),
+            ), permissions = listOf("bluetooth_connect")),
+        ComponentMeta("trigger.notification", "收到通知", "通知", ComponentKind.TRIGGER,
+            listOf(
+                param("app", "应用", "", ParamType.APPLICATION, required = false,
+                    hint = "留空匹配任意应用。"),
+                param("title", "标题关键字", "", ParamType.TEXT, required = false),
+                param("text", "内容关键字", "", ParamType.TEXT, required = false),
+            ), permissions = listOf("notification_listener")),
+        ComponentMeta("trigger.app_foreground", "应用前台/离开", "应用", ComponentKind.TRIGGER,
+            listOf(
+                param("state", "状态", "foreground", ParamType.ENUM, required = true, options = listOf(
+                    ParamOption("foreground", "切到前台"), ParamOption("background", "离开前台"))),
+                param("package", "应用", "应用包名", ParamType.APPLICATION, required = true),
+            ), permissions = listOf("foreground_app")),
+        ComponentMeta("trigger.headset", "耳机插入/拔出", "设备", ComponentKind.TRIGGER,
+            listOf(
+                param("state", "状态", "plugged", ParamType.ENUM, required = true, options = listOf(
+                    ParamOption("plugged", "已插入"), ParamOption("unplugged", "已拔出"))),
+                param("kind", "类型", "any", ParamType.ENUM, required = true, options = listOf(
+                    ParamOption("any", "任意耳机"), ParamOption("wired", "有线耳机"),
+                    ParamOption("bluetooth", "蓝牙音频设备"))),
+            )),
         ComponentMeta("trigger.location_enter", "进入地点", "位置", ComponentKind.TRIGGER,
             listOf(param("location", "地点", "公司")), comingSoon = true),
         ComponentMeta("trigger.location_exit", "离开地点", "位置", ComponentKind.TRIGGER,
             listOf(param("location", "地点", "家")), comingSoon = true),
-        ComponentMeta("trigger.notification_received", "收到通知", "通知", ComponentKind.TRIGGER,
-            listOf(param("text", "匹配文字", "验证码")), permissions = listOf("notification_listener"),
-            comingSoon = true),
-        ComponentMeta("trigger.bluetooth_connected", "蓝牙连接", "网络", ComponentKind.TRIGGER,
-            listOf(param("name", "设备名称", "耳机")), permissions = listOf("bluetooth_connect"),
-            comingSoon = true),
-        ComponentMeta("trigger.wifi_changed", "WiFi 连接/断开", "网络", ComponentKind.TRIGGER,
-            listOf(param("ssid", "网络名称", "连接家庭网络")), permissions = listOf("network_state"),
-            comingSoon = true),
-        ComponentMeta("trigger.application_started", "应用启动", "应用", ComponentKind.TRIGGER,
-            listOf(param("package", "应用", "应用包名", ParamType.APPLICATION)), permissions = listOf("usage_access"),
-            comingSoon = true),
     )
 
     val conditions = listOf(

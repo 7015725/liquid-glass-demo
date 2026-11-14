@@ -17,6 +17,9 @@ internal fun Cmd.toTriggerRule(): TriggerRule = TriggerRule(
     enabled = enabled,
     triggers = triggers.map { it.toTriggerComponent() },
     conditions = conditions.map { it.toTriggerComponent() },
+    permissions = (triggers + conditions + actions).mapNotNull { item ->
+        item.typeId?.let(componentRegistry::find)
+    }.flatMap { it.permissions }.distinct(),
 )
 
 internal fun CommandItem.toTriggerComponent(): TriggerComponent {
