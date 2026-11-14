@@ -46,6 +46,46 @@ class UiCatalogTest {
     }
 
     @Test
+    fun everyComponentPermissionKeyIsKnownToPerms() {
+        val known = Perms.all.map { it.key }.toSet()
+        registry.all().forEach { meta ->
+            meta.permissions.forEach { key ->
+                assertTrue("${meta.typeId} 声明的权限 $key 未接入 Perms", key in known)
+            }
+        }
+    }
+
+    @Test
+    fun editorHintRecognisesNotificationAndLocationPermissions() {
+        val ctx = RuntimeEnvironment.getApplication()
+        // Robolectric grants manifest permissions by default; deny location so the hint must report it.
+        shadowOf(ctx).denyPermissions(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        val cmd = Cmd(
+            id = 1, auto = true, ic = Ic.Bell, title = "通知冒烟", desc = "",
+            triggers = listOf(
+                CommandItem(1, "收到通知", "", Ic.Bell, "trigger.notification"),
+                CommandItem(2, "WiFi 连接", "已连接", Ic.Wifi, "trigger.wifi"),
+            ),
+            actions = listOf(CommandItem(3, "发送通知", "已触发", Ic.Bell, "action.post_notification")),
+        )
+        val keys = cmd.missingPermissions(ctx).map { it.key }
+        assertEquals("location", cmd.triggers[1].permissionKey())
+        assertEquals("notification_listener", cmd.triggers[0].permissionKey())
+        assertTrue("通知使用权应出现在编辑页提示里: $keys", "notification_listener" in keys)
+        assertTrue("定位权限应出现在编辑页提示里: $keys", "location" in keys)
+    }
+
+    @Test
+    fun newTriggersAndActionsStayVisibleInTheAddPanel() {
+        val triggers = CommandCatalog.options(CommandSection.TRIGGERS).map { it.typeId }.toSet()
+        val actions = CommandCatalog.options(CommandSection.ACTIONS).map { it.typeId }.toSet()
+        listOf("trigger.notification", "trigger.wifi", "trigger.bluetooth", "trigger.app_foreground", "trigger.headset")
+            .forEach { assertTrue("触发器 $it 未出现在添加面板", it in triggers) }
+        listOf("action.toast", "action.open_url", "action.http_request", "action.media_control", "action.airplane_mode")
+            .forEach { assertTrue("动作 $it 未出现在添加面板", it in actions) }
+    }
+
+    @Test
     fun everyOptionCarriesCategoryAndTierBadgeData() {
         CommandSection.entries.forEach { section ->
             CommandCatalog.options(section).forEach { option ->

@@ -257,6 +257,8 @@ fun FlowGlassApp() {
         }
         ActionEditorHost(state)
         if (state.historyOpen) HistoryPanel(state) { state.historyOpen = false }
+        PermissionPromptHost(state)
+        PermissionResumeEffect(state)
 
         // ---------------- undo bar, long-press menu and rename dialog float above everything
         UndoBar(

@@ -185,6 +185,14 @@ class TriggerDispatcher(
         states.clear()
     }
 
+    /** Drops state for rules that are no longer listening, so a re-enable starts from a baseline. */
+    fun prune(rules: List<TriggerRule>) {
+        val keys = rules.flatMap { TriggerPlan.bindings(it) }.map { it.key }.toSet()
+        states.removeMissing(keys)
+        lastFired.keys.retainAll(keys)
+        lastSkipLog.keys.retainAll(rules.map { it.id }.toSet())
+    }
+
     private fun allowsDebounce(key: String, now: Long): Boolean {
         val previous = lastFired[key] ?: return true
         return now - previous >= debounceMs
