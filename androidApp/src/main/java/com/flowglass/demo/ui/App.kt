@@ -81,6 +81,9 @@ fun FlowGlassApp() {
         return
     }
 
+    // Root tier gates the editor's action catalog, so seed it once at startup instead of
+    // waiting for the user to open settings: the persisted grant makes this prompt-free.
+    LaunchedEffect(Unit) { if (state.root == null) state.root = com.flowglass.demo.system.Root.check(request = false) }
     val backdrop = rememberLayerBackdrop()
     var tab by remember { mutableIntStateOf(0) }
     val scrolls = remember { mutableMapOf<Int, ScrollState>() }
