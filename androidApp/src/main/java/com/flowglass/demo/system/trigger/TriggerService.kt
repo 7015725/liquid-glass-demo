@@ -1,17 +1,12 @@
 package com.flowglass.demo.system.trigger
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import com.flowglass.demo.MainActivity
+import com.flowglass.demo.system.RunningNotification
 import com.flowglass.demo.system.exec.ExecutionRuntime
 import com.flowglass.demo.ui.AppRuntime
 import com.flowglass.engine.trigger.TriggerEvent
@@ -42,8 +37,7 @@ class TriggerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createChannel()
-        startForegroundSafely(0)
+        RunningNotification.start(this, RunningNotification.OWNER_TRIGGER)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -65,6 +59,7 @@ class TriggerService : Service() {
         host?.stop(cancelAlarms = false)
         host = null
         TriggerStatus.reset()
+        RunningNotification.stop(this, RunningNotification.OWNER_TRIGGER)
         scope.cancel()
         super.onDestroy()
     }
@@ -89,46 +84,9 @@ class TriggerService : Service() {
         }
     }
 
-    private fun createChannel() {
-        if (Build.VERSION.SDK_INT >= 26) {
-            getSystemService(NotificationManager::class.java).createNotificationChannel(
-                NotificationChannel(CHANNEL, "自动指令监听", NotificationManager.IMPORTANCE_LOW),
-            )
-        }
-    }
-
-    private fun startForegroundSafely(count: Int) {
-        try {
-            if (Build.VERSION.SDK_INT >= 34) {
-                startForeground(NOTIFICATION_ID, notification(count), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-            } else {
-                startForeground(NOTIFICATION_ID, notification(count))
-            }
-            TriggerStatus.serviceActive = true
-        } catch (_: Throwable) {
-            stopSelf()
-        }
-    }
-
     private fun updateNotification(count: Int) {
         TriggerStatus.serviceActive = true
-        try {
-            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(count))
-        } catch (_: Throwable) {
-        }
-    }
-
-    private fun notification(count: Int): Notification {
-        val open = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
-        )
-        return Notification.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_charging)
-            .setContentTitle("流光自动化正在运行")
-            .setContentText("正在监听 $count 条自动指令")
-            .setOngoing(true)
-            .setContentIntent(open)
-            .build()
+        RunningNotification.onTriggerStatus(this, count)
     }
 
     companion object {
@@ -141,8 +99,6 @@ class TriggerService : Service() {
         private const val EXTRA_TRIGGER_INDEX = "trigger_index"
         private const val EXTRA_TRIGGER_NAME = "trigger_name"
         private const val EXTRA_TIME = "time"
-        private const val CHANNEL = "triggers"
-        private const val NOTIFICATION_ID = 2
 
         fun start(context: Context, action: String = ACTION_START, configure: Intent.() -> Unit = {}) {
             val intent = Intent(context, TriggerService::class.java).setAction(action)

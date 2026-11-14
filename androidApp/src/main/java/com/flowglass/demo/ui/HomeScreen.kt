@@ -53,7 +53,7 @@ fun HomeScreen(state: AppState, onOpenTab: (Int) -> Unit) {
     HeroCard(state, Modifier.staggerIn(i++))
     QuickOneTaps(state, onOpenTab, Modifier.staggerIn(i++))
     MetricsCard(state, Modifier.staggerIn(i++))
-    RecentRuns(state, Modifier.staggerIn(i++))
+    RecentRuns(state, onOpenTab, Modifier.staggerIn(i++))
     ModeCard(state, Modifier.staggerIn(i++))
 }
 
@@ -154,6 +154,13 @@ private fun QuickOneTaps(state: AppState, onOpenTab: (Int) -> Unit, modifier: Mo
                 }
             }
             Spacer(Modifier.height(14.dp))
+            if (picks.isEmpty()) {
+                EmptyState(
+                    Ic.Tap, "还没有常用一键指令",
+                    "把常用动作收进一条指令，就能在这里点一下执行。",
+                    actionLabel = "去创建", actionTag = "home-onetap-empty-create",
+                ) { onOpenTab(2) }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 picks.forEach { cmd ->
                     val exec = state.executing[cmd.id] ?: 0
@@ -196,20 +203,33 @@ private fun QuickOneTaps(state: AppState, onOpenTab: (Int) -> Unit, modifier: Mo
 }
 
 @Composable
-private fun RecentRuns(state: AppState, modifier: Modifier) {
+private fun RecentRuns(state: AppState, onOpenTab: (Int) -> Unit, modifier: Modifier) {
     var selectedLog by remember { mutableStateOf<RunLog?>(null) }
     val backdrop = rememberLayerBackdrop()
     PressCard(modifier.fillMaxWidth().layerBackdrop(backdrop), contentPadding = 0.dp) {
         Column {
-            SectionTitle("最近执行", Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 6.dp)) {
-                T("今日 ${state.todayRuns} 次", 13.sp, color = C.Muted)
+            SectionTitle("最近执行", Modifier.padding(start = 20.dp, end = 14.dp, top = 20.dp, bottom = 6.dp)) {
+                Row(Modifier.pressable(0.96f) { state.historyOpen = true }.padding(horizontal = 6.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    T("全部记录", 13.sp, FontWeight.Medium, C.Primary)
+                    LineIcon(Ic.ChevronRight, C.Primary, 16.dp)
+                }
             }
-            val logs = state.logs.take(5)
+            val logs = state.logs.take(4)
+            if (logs.isEmpty()) {
+                EmptyState(
+                    Ic.Timer, "还没有执行记录",
+                    "运行一条一键指令，或手动测试自动指令后，最近结果会出现在这里。",
+                    actionLabel = "去运行一键指令",
+                    actionTag = "home-history-empty-action",
+                ) { onOpenTab(2) }
+            }
             logs.forEachIndexed { i, log ->
                 key(log.id) {
                     Column(Modifier.staggerIn(0)) {
                         Row(
-                            Modifier.fillMaxWidth().clickable { selectedLog = log }
+                            Modifier.fillMaxWidth().testTag("home-run-${log.id}")
+                                .clickable { selectedLog = log }
                                 .padding(horizontal = 20.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -221,36 +241,17 @@ private fun RecentRuns(state: AppState, modifier: Modifier) {
                             Column(Modifier.weight(1f)) {
                                 T(log.title, 15.sp, FontWeight.SemiBold, maxLines = 1)
                                 T("${log.reason} · ${log.time}", 12.sp, color = C.Muted)
-                            if (!log.ok && !log.skipped && log.detail.isNotBlank()) {
-                                T(log.detail, 12.sp, color = C.Bad, maxLines = 2)
-                            }
-                            if (log.skipped && log.detail.isNotBlank()) {
-                                T(log.detail, 12.sp, color = C.Muted, maxLines = 2)
-                            }
-                        }
-                        Row(
-                            Modifier.clip(Capsule()).background(
-                                when {
-                                    log.skipped -> C.Tonal
-                                    log.ok -> C.GoodSoft
-                                    else -> Color(0xFFFDE4E4)
+                                if (!log.ok && log.detail.isNotBlank()) {
+                                    T(log.detail, 12.sp, color = if (log.skipped) C.Muted else C.Bad,
+                                        maxLines = 2, lineHeight = 17.sp)
                                 }
-                            ).padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            T(
-                                when {
-                                    log.skipped -> "跳过"
-                                    log.ok -> "成功"
-                                    else -> "失败"
-                                },
-                                12.sp, FontWeight.SemiBold,
-                                when {
-                                    log.skipped -> C.OnSurfaceVar
-                                    log.ok -> C.GoodText
-                                    else -> C.Bad
-                                },
-                            )
-                        }
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            when {
+                                log.skipped -> BadgePill("跳过", C.OnSurfaceVar, C.Tonal)
+                                log.ok -> BadgePill("成功", C.GoodText, C.GoodSoft)
+                                else -> BadgePill("失败", C.Bad, C.BadSoft)
+                            }
                         }
                         if (i < logs.lastIndex) {
                             Box(Modifier.padding(start = 68.dp, end = 20.dp).fillMaxWidth().height(1.dp).background(C.Divider))
