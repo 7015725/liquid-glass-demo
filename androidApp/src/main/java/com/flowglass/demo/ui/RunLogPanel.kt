@@ -25,7 +25,10 @@ internal fun RunLogPanel(log: RunLog, backdrop: Backdrop, onClose: () -> Unit) {
         EditorGlassPanel(backdrop, "执行日志", bottom = false, onClose = onClose) {
             T(log.title, 18.sp, FontWeight.Bold)
             T("${log.reason} · ${log.time}", 12.sp, color = C.Muted)
-            if (!log.ok) {
+            if (log.skipped) {
+                T("跳过原因", 14.sp, FontWeight.SemiBold, C.OnSurfaceVar)
+                T(log.detail.ifBlank { "条件不满足" }, 13.sp, color = C.OnSurfaceVar)
+            } else if (!log.ok) {
                 T("失败原因", 14.sp, FontWeight.SemiBold, C.Bad)
                 T(log.detail.ifBlank { "未提供失败详情" }, 13.sp, color = C.Bad)
             } else if (log.detail.isNotBlank()) {

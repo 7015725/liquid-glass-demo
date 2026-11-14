@@ -15,7 +15,12 @@ internal object ParameterForm {
             val formatted = parsed?.get(spec.key)?.let { value ->
                 runCatching { ParameterCodec.format(spec, value) }.getOrNull()
             }
-            spec.key to (formatted ?: if (spec == meta.params.firstOrNull()) parameter else "")
+            val fallback = runCatching { ParameterCodec.format(spec, spec.defaultValue) }.getOrNull()
+            spec.key to (formatted ?: when {
+                parameter.isBlank() -> fallback.orEmpty()
+                spec == meta.params.firstOrNull() -> parameter
+                else -> ""
+            })
         }
     }
 

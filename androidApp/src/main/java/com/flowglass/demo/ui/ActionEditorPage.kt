@@ -249,7 +249,7 @@ private fun ParamField(spec: ParamSpec, value: String, item: CommandItem, onValu
             textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 24.sp),
             cursorBrush = SolidColor(C.Primary))
         ParamType.INTEGER -> ParameterTextField(value, "param-${spec.key}", KeyboardType.Number, onValue)
-        ParamType.DURATION, ParamType.TIME, ParamType.TEXT -> ParameterTextField(value, "param-${spec.key}", onValue)
+        ParamType.WEEKDAYS, ParamType.DURATION, ParamType.TIME, ParamType.TEXT -> ParameterTextField(value, "param-${spec.key}", onValue)
     }
 }
 

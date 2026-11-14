@@ -70,7 +70,9 @@ private fun HeroCard(state: AppState, modifier: Modifier) {
     val s = state.uptime % 60
     val uptime = "%d:%02d:%02d".format(h, m, s)
     val enabled = state.autoCmds.count { it.enabled }
-    val listening = if (state.running) enabled else 0
+    val listening = if (state.running && com.flowglass.demo.system.trigger.TriggerStatus.serviceActive)
+        com.flowglass.demo.system.trigger.TriggerStatus.listeningRules else 0
+    val sources = com.flowglass.demo.system.trigger.TriggerStatus.registeredSources
 
     PressCard(
         modifier.fillMaxWidth(),
@@ -103,7 +105,13 @@ private fun HeroCard(state: AppState, modifier: Modifier) {
                         Spacer(Modifier.width(10.dp))
                         Column {
                             T("自动指令", 14.sp, FontWeight.SemiBold)
-                            T(if (state.running) "正在监听触发器" else "引擎已暂停", 12.sp, color = C.Muted)
+                            T(
+                                if (state.running) "正在监听 $listening 条自动指令" else "引擎已暂停",
+                                12.sp, color = C.Muted,
+                            )
+                            if (state.running) {
+                                T("已注册 $sources 个监听源", 11.sp, color = C.Muted)
+                            }
                         }
                     }
                     Spacer(Modifier.height(8.dp))
@@ -213,14 +221,36 @@ private fun RecentRuns(state: AppState, modifier: Modifier) {
                             Column(Modifier.weight(1f)) {
                                 T(log.title, 15.sp, FontWeight.SemiBold, maxLines = 1)
                                 T("${log.reason} · ${log.time}", 12.sp, color = C.Muted)
-                                if (!log.ok && log.detail.isNotBlank()) {
-                                    T(log.detail, 12.sp, color = C.Bad, maxLines = 2)
-                                }
+                            if (!log.ok && !log.skipped && log.detail.isNotBlank()) {
+                                T(log.detail, 12.sp, color = C.Bad, maxLines = 2)
                             }
-                            Row(
-                                Modifier.clip(Capsule()).background(if (log.ok) C.GoodSoft else Color(0xFFFDE4E4))
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            ) { T(if (log.ok) "成功" else "失败", 12.sp, FontWeight.SemiBold, if (log.ok) C.GoodText else C.Bad) }
+                            if (log.skipped && log.detail.isNotBlank()) {
+                                T(log.detail, 12.sp, color = C.Muted, maxLines = 2)
+                            }
+                        }
+                        Row(
+                            Modifier.clip(Capsule()).background(
+                                when {
+                                    log.skipped -> C.Tonal
+                                    log.ok -> C.GoodSoft
+                                    else -> Color(0xFFFDE4E4)
+                                }
+                            ).padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            T(
+                                when {
+                                    log.skipped -> "跳过"
+                                    log.ok -> "成功"
+                                    else -> "失败"
+                                },
+                                12.sp, FontWeight.SemiBold,
+                                when {
+                                    log.skipped -> C.OnSurfaceVar
+                                    log.ok -> C.GoodText
+                                    else -> C.Bad
+                                },
+                            )
+                        }
                         }
                         if (i < logs.lastIndex) {
                             Box(Modifier.padding(start = 68.dp, end = 20.dp).fillMaxWidth().height(1.dp).background(C.Divider))

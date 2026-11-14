@@ -6,6 +6,39 @@ import kotlinx.serialization.json.*
 object ParameterCodec {
     val switchOptions = listOf(ParamOption("on", "开启"), ParamOption("off", "关闭"), ParamOption("toggle", "切换"))
     private val clock = Regex("(?:[01][0-9]|2[0-3]):[0-5][0-9]")
+    private val weekdayPattern = Regex("^[1-7](,[1-7])*$")
+    private val weekdayLabels = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+    /** Accepts 每天 / 工作日 / 周末 or a comma/、/space separated 1–7 list; stores canonical `1,2,3`. */
+    fun weekdays(text: String): String {
+        val value = text.trim()
+        val days = when (value.lowercase()) {
+            "每天", "everyday", "all" -> (1..7).toList()
+            "工作日", "workday", "weekdays" -> (1..5).toList()
+            "周末", "weekend" -> listOf(6, 7)
+            else -> value.split(',', '，', '、', ' ', '/')
+                .filter { it.isNotBlank() }
+                .map { part ->
+                    val numeric = part.trim().toIntOrNull()
+                    val label = weekdayLabels.indexOf(part.trim()).takeIf { it >= 0 }?.plus(1)
+                    numeric ?: label ?: throw IllegalArgumentException("星期必须为 周一–周日 或 1–7")
+                }
+                .also { require(it.isNotEmpty()) { "请至少选择一个星期" } }
+                .distinct().sorted()
+        }
+        require(days.isNotEmpty() && days.all { it in 1..7 }) { "星期必须在 1–7 之间" }
+        return days.joinToString(",")
+    }
+
+    fun weekdayLabel(canonical: String): String {
+        val days = canonical.split(',').mapNotNull { it.toIntOrNull() }.filter { it in 1..7 }
+        return when (days) {
+            (1..7).toList() -> "每天"
+            (1..5).toList() -> "工作日"
+            listOf(6, 7) -> "周末"
+            else -> days.joinToString("、") { weekdayLabels[it - 1] }
+        }
+    }
 
     fun parse(spec: ParamSpec, text: String): JsonElement {
         val value = text.trim()
@@ -46,6 +79,7 @@ object ParameterCodec {
                 }
                 JsonPrimitive(token)
             }
+            ParamType.WEEKDAYS -> JsonPrimitive(weekdays(value))
             ParamType.ENUM -> JsonPrimitive(spec.options.firstOrNull { it.value == value || it.label == value }?.value
                 ?: throw IllegalArgumentException("枚举选项无效"))
         }
@@ -75,6 +109,12 @@ object ParameterCodec {
             ParamType.DURATION -> require(number() >= 0) { "时长不能为负" }
             ParamType.TIME -> require(clock.matches(string())) { "时刻必须为 HH:mm" }
             ParamType.TRI_STATE -> require(string() in setOf("on", "off", "toggle")) { "三态值无效" }
+            ParamType.WEEKDAYS -> {
+                val text = string()
+                require(weekdayPattern.matches(text)) { "星期必须为 1–7 的逗号列表" }
+                val days = text.split(',').map { requireNotNull(it.toIntOrNull()) }
+                require(days == days.distinct().sorted()) { "星期必须去重并升序" }
+            }
             ParamType.ENUM -> require(spec.options.any { it.value == string() }) { "枚举值无效" }
             ParamType.TIME_RANGE -> {
                 require(value is JsonObject && value.keys == setOf("from", "to")) { "时间范围结构无效" }
@@ -109,6 +149,7 @@ object ParameterCodec {
             ParamType.TIME_RANGE -> "${value.jsonObject.getValue("from").jsonPrimitive.content}–${value.jsonObject.getValue("to").jsonPrimitive.content}"
             ParamType.INT_RANGE -> "${value.jsonObject.getValue("min").jsonPrimitive.content}${spec.suffix}–${value.jsonObject.getValue("max").jsonPrimitive.content}${spec.suffix}"
             ParamType.TRI_STATE -> (spec.options.ifEmpty { switchOptions }).first { it.value == value.jsonPrimitive.content }.label
+            ParamType.WEEKDAYS -> weekdayLabel(value.jsonPrimitive.content)
             ParamType.ENUM -> spec.options.first { it.value == value.jsonPrimitive.content }.label
             else -> value.jsonPrimitive.content
         }
@@ -121,6 +162,11 @@ object ParameterCodec {
                 "content" to JsonPrimitive(if (split < 0) text else text.substring(split + 1)))
         }
         if (meta.params.isEmpty()) { require(text.isEmpty()) { "无参数组件包含未识别文字" }; return emptyMap() }
+        if (meta.params.size > 1) {
+            val parts = text.split('|')
+            require(parts.size == meta.params.size) { "参数需用 | 分隔为 ${meta.params.size} 项" }
+            return meta.params.mapIndexed { index, spec -> spec.key to parse(spec, parts[index]) }.toMap()
+        }
         val spec = meta.params.single()
         return mapOf(spec.key to parse(spec, text))
     }
@@ -131,6 +177,11 @@ object ParameterCodec {
             val title = field("title")
             require('|' !in title) { "通知标题不能包含 |" }
             return "$title|${field("content")}"
+        }
+        if (meta.params.size > 1) {
+            val values = meta.params.map { format(it, params[it.key]) }
+            require(values.none { '|' in it }) { "参数不能包含 |" }
+            return values.joinToString("|")
         }
         return meta.params.singleOrNull()?.let { format(it, params[it.key]) }.orEmpty()
     }

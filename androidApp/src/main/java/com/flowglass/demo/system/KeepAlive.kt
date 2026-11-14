@@ -189,6 +189,7 @@ class BootReceiver : BroadcastReceiver() {
 class KeepAliveJob : JobService() {
     override fun onStartJob(params: JobParameters?): Boolean {
         if (KeepAlive.isOn(this, KeepAlive.KEY_FGS) && !KeepAlive.serviceRunning) KeepAlive.startService(this)
+        com.flowglass.demo.system.trigger.TriggerService.ensureStarted(this)
         return false
     }
 

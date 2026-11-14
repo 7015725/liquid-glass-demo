@@ -65,6 +65,27 @@
         </service>
 
         <service
+            android:name=".system.trigger.TriggerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Listens for the triggers of enabled automatic commands" />
+        </service>
+
+        <receiver
+            android:name=".system.trigger.TriggerAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".system.trigger.TriggerBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <service
             android:name=".system.KeepAliveJob"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />

@@ -20,9 +20,11 @@ class CanonicalLegacyMatrixTest {
     }
 
     @Test fun everyBuiltInMigratesItsV05DefaultThroughRealLegacyDocument() {
-        // Golden values transcribed from v0.5.0 CommandCatalog (main@1b7d67d), not generated from metadata.
-        val texts = listOf("08:00", "公司", "家", "验证码", "20%", "开始充电", "耳机", "连接家庭网络", "应用包名", "",
-            "08:00–22:00", "工作日", "20%–80%", "WiFi", "已亮屏", "已关闭",
+        // Golden values transcribed from v0.5.0 CommandCatalog (main@1b7d67d), plus the 1b-1
+        // trigger defaults appended in registry order.
+        val texts = listOf("08:00|每天", "", "", "", "", "", "低于|20%", "",
+            "20%", "开始充电", "公司", "家", "验证码", "耳机", "连接家庭网络", "应用包名",
+            "08:00–22:00", "工作日", "20%–80%", "充电中", "已亮屏", "WiFi", "已关闭",
             "开启", "开启", "开启", "50%", "50%", "应用包名", "任务已完成", "待复制文本", "1 秒", "echo 流光", "GET https://example.com")
         assertEquals(texts.size, BuiltInComponents.all.size)
         for ((meta, text) in BuiltInComponents.all.zip(texts)) for (version in listOf(1, 2)) {

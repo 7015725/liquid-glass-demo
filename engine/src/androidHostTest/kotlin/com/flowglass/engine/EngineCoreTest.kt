@@ -145,6 +145,32 @@ class EngineCoreTest {
         assertFalse(stopResult.steps[1].detail.isBlank())
     }
 
+    @Test
+    fun ruleExecutorInjectsTriggerContextVariablesIntoActionParameters() {
+        val registry = ComponentRegistry()
+        registry.register(ComponentMeta(
+            "action.echo", "回显", "测试", ComponentKind.ACTION,
+            params = listOf(ParamSpec("text", "文本", ParamType.TEXT, required = true)),
+        ))
+        var seen: String? = null
+        val echo = Action { _, component ->
+            seen = component.params["text"]?.toString()
+            ActionOutcome(StepStatus.SUCCESS, "echoed")
+        }
+        val executor = RuleExecutor(
+            registry,
+            mapOf("action.echo" to echo),
+            CancellationCheckpoint { /* This synchronous fixture has no cancellation source. */ },
+        )
+        val rule = RuleFactory.create(RuleType.MANUAL, "上下文").copy(
+            actions = listOf(RuleComponent("action.echo", mapOf("text" to JsonPrimitive("%{event.battery}")))),
+        )
+
+        runSuspend { executor.run(rule, "触发：电量", mapOf("event.battery" to 15)) }
+
+        assertEquals("\"15\"", seen)
+    }
+
     private fun <T> runSuspend(block: suspend () -> T): T {
         var result: Result<T>? = null
         block.startCoroutine(object : Continuation<T> {

@@ -75,6 +75,7 @@ internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Bool
                 steps = log.steps.map { step ->
                     PersistedLogStep(step.itemId, step.name, step.status.name, step.detail, step.durationMs)
                 },
+                skipped = log.skipped,
             )
         },
         presentation = (engineUi.presentation.filterKeys { id -> engineRules.any { it.id == id } }) +
@@ -178,7 +179,8 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
         oneTaps = rules.filterNot { it.auto },
         logs = this.ui.logs.map { log ->
             RunLog(log.id, log.title, log.reason, log.time, log.ok, iconOrDefault(log.icon), log.detail,
-                log.steps.map { step -> StepResult(step.itemId, step.name, UiStepStatus.valueOf(step.status), step.detail, step.durationMs) })
+                log.steps.map { step -> StepResult(step.itemId, step.name, UiStepStatus.valueOf(step.status), step.detail, step.durationMs) },
+                log.skipped)
         },
         running = this.ui.running,
         mode = this.ui.mode,

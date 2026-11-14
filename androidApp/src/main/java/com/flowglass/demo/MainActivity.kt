@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.flowglass.demo.system.KeepAlive
 import com.flowglass.demo.system.SysTick
+import com.flowglass.demo.system.trigger.TriggerService
 import com.flowglass.demo.ui.FlowGlassApp
 
 class MainActivity : ComponentActivity() {
@@ -18,6 +19,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         KeepAlive.ensure(this)
+        TriggerService.ensureStarted(this)
         SysTick.tick++
     }
 }

@@ -22,7 +22,10 @@ class ParameterFormTest {
                 .firstOrNull { it.typeId == meta.typeId }
                 ?: CommandCatalog.options(CommandSection.CONDITIONS).firstOrNull { it.typeId == meta.typeId }
                 ?: CommandCatalog.options(CommandSection.TRIGGERS).firstOrNull { it.typeId == meta.typeId }
-            val source = option?.defaultParameter ?: ""
+            val source = option?.defaultParameter
+                ?: com.flowglass.engine.ParameterCodec.formatComponent(
+                    meta, meta.params.associate { spec -> spec.key to spec.defaultValue },
+                )
             val fields = ParameterForm.fields(meta, source)
             assertEquals("${meta.typeId} 的字段数", meta.params.size, fields.size)
             val composed = ParameterForm.compose(meta, fields)

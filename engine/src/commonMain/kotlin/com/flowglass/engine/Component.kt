@@ -22,6 +22,7 @@ enum class ParamType {
     TIME,
     TIME_RANGE,
     INT_RANGE,
+    WEEKDAYS,
     APPLICATION,
     ENUM,
 }
@@ -80,6 +81,8 @@ data class ComponentMeta(
     val minTier: Tier = Tier.NORMAL,
     val outputs: List<String> = emptyList(),
     val description: String = "",
+    /** Visible in the add panel but not selectable until a later stage lands. */
+    val comingSoon: Boolean = false,
 )
 
 @Serializable

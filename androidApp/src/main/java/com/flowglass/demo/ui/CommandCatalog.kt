@@ -11,7 +11,12 @@ data class CommandItem(
     val onError: com.flowglass.engine.OnError = com.flowglass.engine.OnError.STOP,
 ) {
     val display: String get() {
-        val text = if (typeId == "action.post_notification") notificationDisplayText(parameter) else parameter
+        val text = when (typeId) {
+            "action.post_notification" -> notificationDisplayText(parameter)
+            "trigger.time" -> parameter.split('|').joinToString(" · ")
+            "trigger.battery_level" -> parameter.split('|').joinToString(" ").trim()
+            else -> parameter
+        }
         return if (text.isEmpty()) name else "$name：$text"
     }
     override fun toString() = display
@@ -41,6 +46,8 @@ data class CommandOption(
     val typeId: String? = null,
     val categoryName: String = "设备",
     val minTier: com.flowglass.engine.Tier = com.flowglass.engine.Tier.NORMAL,
+    /** Present in the catalog for discoverability but not selectable in this stage. */
+    val comingSoon: Boolean = false,
 )
 fun Cmd.items(section: CommandSection): List<CommandItem> = when (section) {
     CommandSection.TRIGGERS -> triggers
@@ -52,12 +59,14 @@ object CommandCatalog {
         "trigger.time", "condition.time_range", "condition.weekday" -> Ic.Clock
         "trigger.location_enter", "trigger.location_exit" -> Ic.Location
         "trigger.notification_received", "action.post_notification" -> Ic.Bell
-        "trigger.battery_low", "condition.battery_range" -> Ic.Battery
+        "trigger.battery_low", "trigger.battery_level", "condition.battery_range",
+        "condition.charging", "trigger.power_connected", "trigger.power_disconnected" -> Ic.Battery
+        "trigger.screen_on", "trigger.screen_off", "trigger.user_present", "trigger.boot_completed",
+        "condition.screen_state" -> Ic.Phone
         "trigger.charging", "action.wifi_switch" -> Ic.Wifi
         "trigger.bluetooth_connected", "action.bluetooth_switch" -> Ic.Bluetooth
         "trigger.wifi_changed", "condition.network_type" -> Ic.Wifi
         "trigger.application_started", "action.launch_app" -> Ic.Grid
-        "trigger.boot_completed", "condition.screen_state" -> Ic.Phone
         "condition.dnd_state", "action.dnd_switch" -> Ic.Moon
         "action.set_brightness", "action.set_volume" -> Ic.Gauge
         "action.copy_clipboard" -> Ic.Copy
@@ -67,6 +76,9 @@ object CommandCatalog {
     }
 
     private val categories = mapOf("定时" to 2, "通知" to 3, "位置" to 4, "设备" to 5, "网络" to 6, "应用" to 5)
+
+    /** Superseded type ids stay readable in old rules but are not offered as new triggers. */
+    private val hiddenFromCatalog = setOf("trigger.battery_low", "trigger.charging")
     private val registry = com.flowglass.engine.BuiltInComponents.registry()
     private val optionsByKind = registry.all().groupBy { it.kind }
         .mapValues { (_, metas) -> metas.map { meta ->
@@ -80,11 +92,13 @@ object CommandCatalog {
                 typeId = meta.typeId,
                 categoryName = meta.category,
                 minTier = meta.minTier,
+                comingSoon = meta.comingSoon,
             )
         } }
 
     fun options(section: CommandSection): List<CommandOption> = when (section) {
         CommandSection.TRIGGERS -> optionsByKind[com.flowglass.engine.ComponentKind.TRIGGER].orEmpty()
+            .filterNot { it.typeId in hiddenFromCatalog }
         CommandSection.CONDITIONS -> optionsByKind[com.flowglass.engine.ComponentKind.CONDITION].orEmpty()
         CommandSection.ACTIONS -> optionsByKind[com.flowglass.engine.ComponentKind.ACTION].orEmpty()
     }
