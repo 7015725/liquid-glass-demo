@@ -119,3 +119,26 @@ run(task):
 3. 全局变量与跨任务持久化。
 4. `HTTP 请求` 的 method/url/body 拆分：当前仍是 `GET url` / `POST url body` 单参数，
    拆分会改存储键，需要一次迁移，放到下一轮。
+
+## 9. 变量展开与安全
+
+`%{name}` 的替换方式由 `ParamSpec.expansion` 声明；执行器只按声明选择规则，不按组件
+`typeId` 写特例。
+
+| 展开方式 | 使用位置 | 行为 |
+| --- | --- | --- |
+| `PLAIN` | 通知内容、剪贴板文本等普通文本 | 变量值原样拼入 |
+| `SHELL_QUOTED` | `action.root_shell` 的 `command` | 每个变量替换为一个 POSIX 单引号字面量；值中的 `'` 写成 `'"'"'` |
+| `URL_ENCODED` | 纯 URL 片段 | 按 UTF-8 做百分号编码；保留 `A-Z a-z 0-9 - . _ ~`，空格编码为 `%20` |
+| `HTTP_REQUEST` | `action.http_request` 的 `request` | 只对 URL 段应用 `URL_ENCODED`，请求体保持 `PLAIN` |
+
+**为什么 Shell 必须转义**：变量可能来自 HTTP 响应、命令输出或以后的通知文字，内容不受本应用
+控制。`;`、`&&`、`||`、`|`、`$()`、反引号和换行在 Shell 里都是语法；如果 `echo %{http.body}`
+直接拼接，网页返回 `x; rm -rf /sdcard/重要目录` 就会以 Root 身份执行。单引号包裹后，整个值只是
+一个 argv 元素，Shell 不再解释其中的元字符；唯一需要特殊处理的是值里的 `'`。
+
+`HTTP 请求` 仍使用 `GET <url>` / `POST <url> <body>` 的单字段格式，因此用 `HTTP_REQUEST`
+复合展开：先按空白切出 method、URL 和 body，只对 URL 段里的变量做百分号编码。变量值里的
+`&`、`?`、`#`、`/`、空格会被编码，静态 URL 里的分隔符保持不变；body 里的内容按原文发送。
+
+未知变量保持 `%{name}` 字面量；展开是单次替换，不会递归展开替换结果。
