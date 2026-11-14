@@ -133,7 +133,12 @@ private fun immutableCommands(commands: List<Cmd>) = immutableList(commands.map 
 internal fun AppState.snapshot() = PersistedAppState(autoCmds, oneTaps, logs, running, mode, engineRules, engineUi)
 
 internal object AppStateJson {
-    data class Decoded(val state: PersistedAppState, val migrated: Boolean)
+    /** [backupName] names the pre-migration copy; it is per source format so upgrades never collide. */
+    data class Decoded(
+        val state: PersistedAppState,
+        val migrated: Boolean,
+        val backupName: String? = null,
+    )
 
     fun encode(state: PersistedAppState): String = RuleJson.encode(state.toRuleDocument())
 
@@ -148,10 +153,17 @@ internal object AppStateJson {
         val root = reader.nextValue() as? JSONObject ?: error("存储内容不是对象")
         require(reader.nextClean() == '\u0000') { "存储内容含多余数据" }
         return if (root.has("formatVersion")) {
-            Decoded(RuleJson.decode(text).toPersistedAppState(), migrated = false)
+            if (PreviewV2Migration.looksLikePreview(root)) {
+                // Pre-release 0.6.0-alpha1 bytes: same formatVersion, old presentation sidecar.
+                Decoded(
+                    LegacyCommandMigration.migrate(PreviewV2Migration.toLegacyJson(root)).toPersistedAppState(),
+                    migrated = true,
+                    backupName = "commands.preview-v2.bak.json",
+                )
+            } else Decoded(RuleJson.decode(text).toPersistedAppState(), migrated = false)
         } else {
             val document = LegacyCommandMigration.migrate(text)
-            Decoded(document.toPersistedAppState(), migrated = true)
+            Decoded(document.toPersistedAppState(), migrated = true, backupName = "commands.v1.bak.json")
         }
     }
 
