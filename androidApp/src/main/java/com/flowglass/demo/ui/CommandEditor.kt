@@ -115,13 +115,6 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                     T(section.label, 20.sp, FontWeight.Bold, modifier = Modifier.weight(1f))
                     T("${cmd.items(section).size}", 13.sp, color = C.Muted)
                     Spacer(Modifier.width(10.dp))
-                    if (section == CommandSection.ACTIONS) {
-                        EditorPill("步骤", "打开任务编辑页") {
-                            state.actionEditing = null
-                            state.taskEditing = cmd.id
-                        }
-                        Spacer(Modifier.width(8.dp))
-                    }
                     EditorPill("添加", "添加${section.label}") { panel = EditorPanel.Add(section) }
                 }
                 if (cmd.items(section).isEmpty()) T("尚未添加${section.label}", 14.sp, color = C.Muted)
@@ -131,7 +124,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                             .clip(RoundedRectangle(24.dp)).background(C.Tonal)
                             .editorAction("编辑${item.name}") {
                                 if (section == CommandSection.ACTIONS) {
-                                    state.taskEditing = cmd.id
+                                    state.actionEditingCmd = cmd.id
                                     state.actionEditing = item.id
                                 } else {
                                     panel = EditorPanel.Parameter(section, item.id)

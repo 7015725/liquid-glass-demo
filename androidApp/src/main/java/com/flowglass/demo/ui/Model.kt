@@ -147,9 +147,9 @@ class AppState internal constructor(saved: PersistedAppState?) {
     }
 
     var editing by mutableStateOf<Long?>(null)
-    /** 任务编辑页打开中的指令 id；null 表示关闭。 */
-    var taskEditing by mutableStateOf<Long?>(null)
-    /** 任务编辑页里正在编辑的步骤 id；null 表示停留在步骤列表。 */
+    /** 参数页打开中的指令 id；与 actionEditing 同时非空时显示该步骤的参数页。 */
+    var actionEditingCmd by mutableStateOf<Long?>(null)
+    /** 参数页正在编辑的步骤 id。 */
     var actionEditing by mutableStateOf<Long?>(null)
     var storageError by mutableStateOf<String?>(null)
     internal var engineRules by mutableStateOf(saved?.engineRules.orEmpty())
@@ -162,6 +162,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
             }
         }
         editing = null
+        actionEditing = null
+        actionEditingCmd = null
     }
     fun setTitle(id: Long, text: String) = update(id) { it.copy(title = text) }
     fun setDescription(id: Long, text: String) = update(id) { it.copy(desc = text, descriptionEdited = true) }

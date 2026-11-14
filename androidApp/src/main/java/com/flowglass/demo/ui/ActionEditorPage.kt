@@ -23,168 +23,33 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.flowglass.engine.ComponentMeta
 import com.flowglass.engine.OnError
 import com.flowglass.engine.ParamSpec
 import com.flowglass.engine.ParamType
-import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 
 /**
- * 任务编辑页：步骤列表 + 步骤参数表单。
- * 执行语义见 docs/task-flow.md：顺序执行、失败策略、%{var} 读取时展开。
+ * 动作参数页：从指令编辑页的任务行直接进入，按 ParamSpec 生成表单。
+ * 排序、增删仍在指令编辑页完成；执行语义见 docs/task-flow.md。
  */
 @Composable
-internal fun TaskEditorHost(state: AppState) {
-    val cmd = state.taskEditing?.let(state::find)
-    var last by remember { mutableStateOf<Cmd?>(null) }
-    if (cmd != null) last = cmd
-    val shown = cmd ?: last
-    AnimatedVisibility(cmd != null,
+internal fun ActionEditorHost(state: AppState) {
+    val cmd = state.actionEditingCmd?.let(state::find)
+    val item = cmd?.actions?.firstOrNull { it.id == state.actionEditing }
+    var lastCmd by remember { mutableStateOf<Cmd?>(null) }
+    var lastItem by remember { mutableStateOf<CommandItem?>(null) }
+    if (cmd != null && item != null) {
+        lastCmd = cmd
+        lastItem = item
+    }
+    val show = cmd != null && item != null
+    AnimatedVisibility(show,
         enter = fadeIn(effect()) + scaleIn(spatial(), initialScale = 0.96f),
         exit = fadeOut(effect()) + scaleOut(spatial(), targetScale = 0.96f)) {
-        if (shown != null) key(shown.id) { TaskEditorPage(state, shown) }
-    }
-}
-
-@Composable
-private fun TaskEditorPage(state: AppState, cmd: Cmd) {
-    val item = state.actionEditing?.let { id -> cmd.actions.firstOrNull { it.id == id } }
-    BackHandler(enabled = state.taskEditing == cmd.id) {
-        if (state.actionEditing != null) state.actionEditing = null
-        else {
-            state.actionEditing = null
-            state.taskEditing = null
-        }
-    }
-    if (item != null) ActionEditorPage(state, cmd, item) else TaskStepsPage(state, cmd)
-}
-
-@Composable
-private fun TaskStepsPage(state: AppState, cmd: Cmd) {
-    var adding by remember(cmd.id) { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().background(C.Bg).testTag("task-editor")
-        .statusBarsPadding().navigationBarsPadding().imePadding()
-        .verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            EditorIconButton(Ic.Back, "返回指令编辑") {
-                state.actionEditing = null
-                state.taskEditing = null
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                T(if (adding) "添加动作" else "任务", 26.sp, FontWeight.Bold)
-                T(
-                    if (adding) "选择一个动作加入任务末尾"
-                    else "${cmd.actions.size} 个步骤 · 按顺序执行",
-                    13.sp, color = C.OnSurfaceVar,
-                )
-            }
-            if (adding) EditorPill("返回", "返回任务列表") { adding = false }
-            else EditorPill("添加", "添加动作") { adding = true }
-        }
-        if (adding) {
-            TaskAddPanel(state, cmd) { adding = false }
-        } else {
-            if (cmd.actions.isEmpty()) {
-                T("还没有动作。点右上角「添加」选择要执行的动作。", 14.sp, color = C.Muted,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(C.Card).padding(18.dp))
-            }
-            cmd.actions.forEachIndexed { index, item ->
-                key(item.id) {
-                    Row(Modifier.fillMaxWidth().testTag("task-step-${item.id}").staggerIn(index)
-                        .clip(RoundedRectangle(24.dp)).background(C.Card)
-                        .editorAction("编辑第${index + 1}步：${item.name}") { state.actionEditing = item.id }
-                        .padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(30.dp).clip(Capsule()).background(C.PrimarySoft), contentAlignment = Alignment.Center) {
-                            T("${index + 1}", 13.sp, FontWeight.Bold, C.Primary, tabular = true)
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        LineIcon(item.ic, C.Primary, 20.dp)
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            T(item.name, 15.sp, FontWeight.SemiBold, maxLines = 1)
-                            T(itemSummary(item), 12.sp, color = C.OnSurfaceVar, maxLines = 2)
-                            if (item.onError != OnError.STOP) {
-                                T(item.onError.label, 11.sp, FontWeight.SemiBold, C.Primary)
-                            }
-                        }
-                        if (index > 0) EditorIconButton(Ic.ArrowUp, "上移第${index + 1}步") {
-                            state.moveItem(cmd.id, CommandSection.ACTIONS, item.id, -1)
-                        }
-                        if (index < cmd.actions.lastIndex) EditorIconButton(Ic.ArrowDown, "下移第${index + 1}步") {
-                            state.moveItem(cmd.id, CommandSection.ACTIONS, item.id, 1)
-                        }
-                        EditorIconButton(Ic.Trash, "删除第${index + 1}步") {
-                            state.removeItem(cmd.id, CommandSection.ACTIONS, item.id)
-                        }
-                    }
-                }
-            }
-            if (cmd.actions.isNotEmpty()) {
-                Column(Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(C.Card).padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    T("执行规则", 14.sp, FontWeight.SemiBold)
-                    T("从上到下依次执行；失败策略默认「失败即停」，也可以在步骤里改成继续或重试一次。", 12.sp, color = C.OnSurfaceVar)
-                    T("后续步骤可以用 %{last} 引用上一步结果，或 %{shell.stdout}、%{http.body} 引用动作输出。", 12.sp, color = C.OnSurfaceVar)
-                }
-            }
-        }
-    }
-}
-
-private fun itemSummary(item: CommandItem): String {
-    val text = item.parameter.let {
-        if (item.typeId == "action.post_notification" && it.startsWith('|')) it.substring(1) else it
-    }
-    return if (text.isBlank()) "点击设置参数" else text.replace('\n', ' ').take(80)
-}
-
-@Composable
-private fun TaskAddPanel(state: AppState, cmd: Cmd, onDone: () -> Unit) {
-    val activeTier = if (state.root?.granted == true) com.flowglass.engine.Tier.ROOT else com.flowglass.engine.Tier.NORMAL
-    var rowIndex = 0
-    CommandCatalog.options(CommandSection.ACTIONS).groupBy { it.categoryName }.forEach { (category, options) ->
-        T(category, 13.sp, FontWeight.Bold, C.Muted, modifier = Modifier.padding(top = 8.dp, start = 6.dp))
-        options.forEach { option ->
-            val locked = option.minTier.ordinal > activeTier.ordinal
-            Row(Modifier.fillMaxWidth().testTag("task-add-${option.typeId}").staggerIn(rowIndex++.coerceAtMost(8))
-                .clip(RoundedRectangle(24.dp)).background(C.Card)
-                .then(if (locked) Modifier else Modifier.editorAction("添加动作：${option.name}") {
-                    state.addItem(cmd.id, CommandSection.ACTIONS, option)
-                    onDone()
-                })
-                .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                LineIcon(option.ic, if (locked) C.Muted else C.Primary, 22.dp)
-                Spacer(Modifier.width(12.dp))
-                T(option.name, 16.sp, color = if (locked) C.Muted else C.OnSurface, modifier = Modifier.weight(1f))
-                if (locked) T("需要 Root", 12.sp, color = C.Muted) else LineIcon(Ic.Plus, C.Primary, 20.dp)
-            }
-        }
-    }
-}
-
-@Composable
-private fun TaskReplaceList(state: AppState, cmd: Cmd, item: CommandItem, onDone: () -> Unit) {
-    val activeTier = if (state.root?.granted == true) com.flowglass.engine.Tier.ROOT else com.flowglass.engine.Tier.NORMAL
-    var rowIndex = 0
-    CommandCatalog.options(CommandSection.ACTIONS).groupBy { it.categoryName }.forEach { (category, options) ->
-        T(category, 13.sp, FontWeight.Bold, C.Muted, modifier = Modifier.padding(top = 8.dp, start = 6.dp))
-        options.forEach { option ->
-            val locked = option.minTier.ordinal > activeTier.ordinal
-            Row(Modifier.fillMaxWidth().testTag("task-replace-${option.typeId}").staggerIn(rowIndex++.coerceAtMost(8))
-                .clip(RoundedRectangle(24.dp)).background(C.Card)
-                .then(if (locked) Modifier else Modifier.editorAction("替换为：${option.name}") {
-                    state.replaceItem(cmd.id, CommandSection.ACTIONS, item.id, option)
-                    onDone()
-                })
-                .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                LineIcon(option.ic, if (locked) C.Muted else C.Primary, 22.dp)
-                Spacer(Modifier.width(12.dp))
-                T(option.name, 16.sp, color = if (locked) C.Muted else C.OnSurface, modifier = Modifier.weight(1f))
-                if (locked) T("需要 Root", 12.sp, color = C.Muted) else LineIcon(Ic.ChevronRight, C.Muted, 18.dp)
-            }
+        val shownCmd = cmd ?: lastCmd
+        val shownItem = item ?: lastItem
+        if (shownCmd != null && shownItem != null) {
+            key(shownItem.id) { ActionEditorPage(state, shownCmd, shownItem) }
         }
     }
 }
@@ -194,6 +59,12 @@ private fun ActionEditorPage(state: AppState, cmd: Cmd, item: CommandItem) {
     val meta = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
     var fields by remember(item.id) { mutableStateOf(meta?.let { ParameterForm.fields(it, item.parameter) } ?: emptyMap()) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
+    var replacing by remember(item.id) { mutableStateOf(false) }
+
+    fun close() {
+        state.actionEditing = null
+        state.actionEditingCmd = null
+    }
 
     fun update(key: String, value: String) {
         val metadata = meta ?: return
@@ -207,12 +78,14 @@ private fun ActionEditorPage(state: AppState, cmd: Cmd, item: CommandItem) {
             .onFailure { error = it.message?.replace('\n', ' ')?.take(120) }
     }
 
+    BackHandler(enabled = true) { close() }
+
     Column(Modifier.fillMaxSize().background(C.Bg).testTag("action-editor")
         .statusBarsPadding().navigationBarsPadding().imePadding()
         .verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            EditorIconButton(Ic.Back, "返回任务列表") { state.actionEditing = null }
+            EditorIconButton(Ic.Back, "返回指令编辑") { close() }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 T(item.name, 24.sp, FontWeight.Bold, maxLines = 2)
@@ -230,12 +103,11 @@ private fun ActionEditorPage(state: AppState, cmd: Cmd, item: CommandItem) {
             ParameterTextField(item.parameter, "item-parameter") { value ->
                 state.setItemParameter(cmd.id, CommandSection.ACTIONS, item.id, value)
             }
-            var replacing by remember(item.id) { mutableStateOf(false) }
             if (!replacing) {
                 EditorPill("换成目录动作", "替换为目录动作") { replacing = true }
             } else {
                 T("选择新动作：当前步骤的参数会被替换成它的默认值。", 12.sp, color = C.OnSurfaceVar)
-                TaskReplaceList(state, cmd, item) { replacing = false }
+                ReplaceActionList(state, cmd, item) { replacing = false }
             }
         } else if (meta.params.isEmpty()) {
             T("该动作没有可配置参数。", 13.sp, color = C.OnSurfaceVar)
@@ -264,8 +136,32 @@ private fun ActionEditorPage(state: AppState, cmd: Cmd, item: CommandItem) {
             T("%{http.body} HTTP 请求的响应体", 12.sp, color = C.OnSurfaceVar)
             T("写在文本参数里即可，执行时替换；未定义的变量会原样保留。", 12.sp, color = C.Muted)
         }
-        EditorPill("完成", "完成编辑参数") { state.actionEditing = null }
+        EditorPill("完成", "完成编辑参数") { close() }
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun ReplaceActionList(state: AppState, cmd: Cmd, item: CommandItem, onDone: () -> Unit) {
+    val activeTier = if (state.root?.granted == true) com.flowglass.engine.Tier.ROOT else com.flowglass.engine.Tier.NORMAL
+    var rowIndex = 0
+    CommandCatalog.options(CommandSection.ACTIONS).groupBy { it.categoryName }.forEach { (category, options) ->
+        T(category, 13.sp, FontWeight.Bold, C.Muted, modifier = Modifier.padding(top = 8.dp, start = 6.dp))
+        options.forEach { option ->
+            val locked = option.minTier.ordinal > activeTier.ordinal
+            Row(Modifier.fillMaxWidth().testTag("task-replace-${option.typeId}").staggerIn(rowIndex++.coerceAtMost(8))
+                .clip(RoundedRectangle(24.dp)).background(C.Card)
+                .then(if (locked) Modifier else Modifier.editorAction("替换为：${option.name}") {
+                    state.replaceItem(cmd.id, CommandSection.ACTIONS, item.id, option)
+                    onDone()
+                })
+                .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                LineIcon(option.ic, if (locked) C.Muted else C.Primary, 22.dp)
+                Spacer(Modifier.width(12.dp))
+                T(option.name, 16.sp, color = if (locked) C.Muted else C.OnSurface, modifier = Modifier.weight(1f))
+                if (locked) T("需要 Root", 12.sp, color = C.Muted) else LineIcon(Ic.ChevronRight, C.Muted, 18.dp)
+            }
+        }
     }
 }
 
