@@ -246,7 +246,7 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
             }
             Spacer(Modifier.width(10.dp))
             if (cmd.auto) {
-                LiquidToggle({ cmd.enabled }, { state.setEnabled(cmd.id, it) }, cardBackdrop,
+                LiquidToggle({ cmd.enabled }, { PermissionGate.request(state, cmd, context) }, cardBackdrop,
                     Modifier.testTag("command-toggle-${cmd.id}")
                         // The liquid thumb observes gestures without consuming them. Consume on
                         // the parent's Main pass, after the thumb but before the card recognizer.
@@ -262,7 +262,7 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
                         role = Role.Switch
                         contentDescription = "启用${cmd.title}"
                         toggleableState = if (cmd.enabled) ToggleableState.On else ToggleableState.Off
-                        onClick { state.setEnabled(cmd.id, !cmd.enabled); true }
+                        onClick { PermissionGate.request(state, cmd, context); true }
                     })
             } else {
                 ExecButton(exec, Modifier.testTag("command-execute-${cmd.id}"),

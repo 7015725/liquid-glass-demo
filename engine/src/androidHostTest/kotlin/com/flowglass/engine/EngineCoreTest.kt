@@ -61,15 +61,19 @@ class EngineCoreTest {
     }
 
     @Test
-    fun builtInActionsExposeAllElevenStableTypeIdsAndPermissionTiers() {
+    fun builtInActionsExposeStableTypeIdsAndPermissionTiers() {
         val registry = ComponentRegistry()
         BuiltInActions.registerInto(registry)
 
-        assertEquals(11, registry.byKind(ComponentKind.ACTION).size)
-        assertEquals(11, registry.all().map { it.typeId }.distinct().size)
+        assertEquals(23, registry.byKind(ComponentKind.ACTION).size)
+        assertEquals(23, registry.all().map { it.typeId }.distinct().size)
         assertEquals(Tier.ROOT, registry.find("action.root_shell")?.minTier)
+        assertEquals(Tier.ROOT, registry.find("action.airplane_mode")?.minTier)
+        assertEquals(Tier.ROOT, registry.find("action.mobile_data")?.minTier)
         assertEquals(Tier.NORMAL, registry.find("action.post_notification")?.minTier)
         assertTrue(registry.find("action.set_brightness")!!.permissions.contains("write_settings"))
+        assertTrue(registry.find("action.screen_timeout")!!.permissions.contains("write_settings"))
+        assertTrue(registry.find("action.global_action")!!.permissions.contains("a11y"))
         assertEquals(ParamType.TRI_STATE, registry.find("action.wifi_switch")!!.params.single().type)
         assertEquals(ParamType.APPLICATION, registry.find("action.launch_app")!!.params.single().type)
         assertEquals(ParamExpansion.SHELL_QUOTED, registry.find("action.root_shell")!!.params.single().expansion)
@@ -83,7 +87,7 @@ class EngineCoreTest {
         assertEquals(BuiltInComponents.all.size, registry.all().size)
         assertTrue(registry.byKind(ComponentKind.TRIGGER).any { it.outputs.isNotEmpty() })
         assertTrue(registry.byKind(ComponentKind.CONDITION).isNotEmpty())
-        assertEquals(11, registry.byKind(ComponentKind.ACTION).size)
+        assertEquals(23, registry.byKind(ComponentKind.ACTION).size)
     }
 
     @Test

@@ -19,11 +19,16 @@ class CanonicalDisplayTest {
 
     @Test fun actualCommandItemsDisplayV05NamesAndParameterLabels() {
         val expected = listOf("时间：08:00 · 每天", "亮屏", "熄屏", "解锁", "插入充电器", "拔出充电器", "电量：低于 20%", "开机完成",
-            "电量低于：20%", "充电状态：开始充电", "进入地点：公司", "离开地点：家", "收到通知：验证码", "蓝牙连接：耳机",
-            "WiFi 连接/断开：连接家庭网络", "应用启动：应用包名",
+            "电量低于：20%", "充电状态：开始充电",
+            "WiFi 连接/断开：已连接", "蓝牙连接/断开：已连接", "收到通知",
+            "应用前台/离开：切到前台 · 应用包名", "耳机插入/拔出：已插入 · 任意耳机",
+            "进入地点：公司", "离开地点：家",
             "时间段：08:00–22:00", "星期：工作日", "电量范围：20%–80%", "充电状态：充电中", "屏幕状态：已亮屏", "网络类型：WiFi", "勿扰状态：已关闭",
             "开关 WiFi：开启", "开关蓝牙：开启", "开关勿扰：开启", "调节亮度：50%", "调节音量：50%", "启动应用：应用包名",
-            "发送通知：任务已完成", "复制到剪贴板：待复制文本", "延时等待：1 秒", "执行 Shell(Root)：echo 流光", "HTTP 请求：GET https://example.com")
+            "发送通知：任务已完成", "复制到剪贴板：待复制文本", "延时等待：1 秒", "执行 Shell(Root)：echo 流光", "HTTP 请求：GET https://example.com",
+            "振动：500 毫秒", "手电筒：切换", "响铃模式：响铃", "媒体控制：播放", "打开网页：https://example.com",
+            "文字朗读：你好，流光", "屏幕提示：任务已完成", "屏幕超时：30 秒", "自动旋转：开启", "系统导航：主页",
+            "飞行模式：开启", "移动数据：开启")
         val metas = BuiltInComponents.all
         fun components(kind: ComponentKind) = metas.filter { it.kind == kind }.map { RuleComponent(it.typeId, it.params.associate { p -> p.key to p.defaultValue }) }
         val state = RuleDocument(rules = listOf(com.flowglass.engine.Rule("golden", name = "显示",

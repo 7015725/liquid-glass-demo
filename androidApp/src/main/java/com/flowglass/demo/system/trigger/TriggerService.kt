@@ -14,6 +14,7 @@ import android.os.IBinder
 import com.flowglass.demo.MainActivity
 import com.flowglass.demo.system.exec.ExecutionRuntime
 import com.flowglass.demo.ui.AppRuntime
+import com.flowglass.demo.ui.snapshot
 import com.flowglass.engine.trigger.TriggerEvent
 import com.flowglass.engine.trigger.TriggerKinds
 import com.flowglass.engine.trigger.TriggerSource
@@ -34,28 +35,28 @@ import kotlinx.coroutines.withContext
  */
 class TriggerService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var host: TriggerHost? = null
+    @Volatile private var host: TriggerHost? = null
     private var starting = false
+    private var lastStartId = 0
     private val pending = mutableListOf<TriggerEvent>()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        current = this
         createChannel()
         startForegroundSafely(0)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         if (intent?.action == ACTION_STOP) {
             host?.stop(cancelAlarms = true)
-            stopSelf()
+            stopSelf(startId)
             return START_NOT_STICKY
         }
-        intent?.toTriggerEvent()?.let { event ->
-            val current = host
-            if (current != null) current.emit(event) else pending += event
-        }
+        intent?.toTriggerEvent()?.let(::deliver)
         ensureHost()
         return START_STICKY
     }
@@ -64,28 +65,51 @@ class TriggerService : Service() {
         // Do not cancel alarms here: a system kill must let the alarm restart this service.
         host?.stop(cancelAlarms = false)
         host = null
+        if (current === this) current = null
         TriggerStatus.reset()
         scope.cancel()
         super.onDestroy()
     }
 
+    /** A running host consumes the event directly, without another service start. */
+    private fun deliver(event: TriggerEvent) {
+        val existing = host
+        if (existing == null) {
+            pending += event
+            return
+        }
+        if (!existing.isRunning) existing.start()
+        if (existing.isRunning) existing.emit(event) else pending += event
+    }
+
     private fun ensureHost() {
-        if (host != null || starting) return
+        val existing = host
+        if (existing != null) {
+            // A quick engine off -> on can leave a stopped host behind; start it again instead
+            // of returning early and silently dropping every later event.
+            if (!existing.isRunning) existing.start()
+            return
+        }
+        if (starting) return
         starting = true
         scope.launch {
-            val state = withContext(Dispatchers.IO) { AppRuntime.of(this@TriggerService).load() }
-            val created = TriggerHost(
-                context = this@TriggerService,
-                state = state,
-                scope = scope,
-                onStatus = { count, _ -> updateNotification(count) },
-                onShouldStop = { stopSelf() },
-            )
-            host = created
-            created.prime(pending)
-            pending.clear()
-            created.start()
-            starting = false
+            try {
+                val state = withContext(Dispatchers.IO) { AppRuntime.of(this@TriggerService).load() }
+                val created = TriggerHost(
+                    context = this@TriggerService,
+                    state = state,
+                    scope = scope,
+                    onStatus = { count, _ -> updateNotification(count) },
+                    // stopSelf(startId) only stops this start; a newer onStartCommand survives.
+                    onShouldStop = { stopSelf(lastStartId) },
+                )
+                host = created
+                created.prime(pending)
+                pending.clear()
+                created.start()
+            } finally {
+                starting = false
+            }
         }
     }
 
@@ -144,13 +168,28 @@ class TriggerService : Service() {
         private const val CHANNEL = "triggers"
         private const val NOTIFICATION_ID = 2
 
-        fun start(context: Context, action: String = ACTION_START, configure: Intent.() -> Unit = {}) {
+        @Volatile
+        private var current: TriggerService? = null
+
+        /** Alarm fast path: true when a live in-process host accepted the event itself. */
+        fun deliverIfRunning(event: TriggerEvent): Boolean {
+            val service = current ?: return false
+            val running = service.host ?: return false
+            if (!running.isRunning) return false
+            running.emit(event)
+            return true
+        }
+
+        /** Returns false when the background service start was rejected by the system. */
+        fun start(context: Context, action: String = ACTION_START, configure: Intent.() -> Unit = { }): Boolean {
             val intent = Intent(context, TriggerService::class.java).setAction(action)
             intent.configure()
-            try {
+            return try {
                 if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
                 else context.startService(intent)
+                true
             } catch (_: Throwable) {
+                false
             }
         }
 
@@ -211,14 +250,51 @@ class TriggerAlarmReceiver : BroadcastReceiver() {
         val index = intent.getIntExtra(EXTRA_TRIGGER_INDEX, -1)
         if (index < 0) return
         val time = intent.getStringExtra(EXTRA_TIME) ?: formatLocalNow()
-        TriggerService.start(context, TriggerService.ACTION_EVENT) {
+        val triggerName = intent.getStringExtra(EXTRA_TRIGGER_NAME).orEmpty()
+        val cmdId = intent.getLongExtra(EXTRA_CMD_ID, 0L)
+        val now = System.currentTimeMillis()
+        val offset = java.util.TimeZone.getDefault().getOffset(now) / 60_000
+
+        // If the process and host are still alive, hand the event straight to the running
+        // dispatcher. Starting a foreground service from the background is restricted on
+        // Android 12+ (especially without the exact-alarm exemption) and must not be the
+        // default path for every alarm.
+        val event = TriggerEvent(
+            kind = TriggerKinds.TIME,
+            source = TriggerSource.TIME,
+            atEpochMs = now,
+            data = mapOf("time" to time, "zone_offset_minutes" to offset.toString()),
+            targetRuleId = ruleId,
+            targetTriggerIndex = index,
+        )
+        if (TriggerService.deliverIfRunning(event)) return
+
+        val started = TriggerService.start(context, TriggerService.ACTION_EVENT) {
             putAlarmEvent(
                 ruleId = ruleId,
-                cmdId = intent.getLongExtra(EXTRA_CMD_ID, 0L),
+                cmdId = cmdId,
                 triggerIndex = index,
-                triggerName = intent.getStringExtra(EXTRA_TRIGGER_NAME).orEmpty(),
+                triggerName = triggerName,
                 time = time,
             )
+        }
+        if (!started) recordStartFailure(context, cmdId, triggerName)
+    }
+
+    private fun recordStartFailure(context: Context, cmdId: Long, triggerName: String) {
+        ExecutionRuntime.scope.launch {
+            try {
+                val state = withContext(Dispatchers.IO) { AppRuntime.of(context).load() }
+                withContext(Dispatchers.Main.immediate) {
+                    state.recordTriggerFailure(
+                        cmdId,
+                        "触发：${triggerName.ifBlank { "时间" }}",
+                        "定时触发未能启动后台服务，请授予精确闹钟权限",
+                    )
+                    AppRuntime.of(context).requestSave { state.snapshot() }
+                }
+            } catch (_: Throwable) {
+            }
         }
     }
 

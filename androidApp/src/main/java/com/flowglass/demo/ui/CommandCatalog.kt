@@ -15,6 +15,9 @@ data class CommandItem(
             "action.post_notification" -> notificationDisplayText(parameter)
             "trigger.time" -> parameter.split('|').joinToString(" · ")
             "trigger.battery_level" -> parameter.split('|').joinToString(" ").trim()
+            "trigger.wifi", "trigger.bluetooth", "trigger.notification",
+            "trigger.app_foreground", "trigger.headset" ->
+                parameter.split('|').filter { it.isNotEmpty() }.joinToString(" · ")
             else -> parameter
         }
         return if (text.isEmpty()) name else "$name：$text"
@@ -58,24 +61,31 @@ object CommandCatalog {
     private fun icon(typeId: String) = when (typeId) {
         "trigger.time", "condition.time_range", "condition.weekday" -> Ic.Clock
         "trigger.location_enter", "trigger.location_exit" -> Ic.Location
-        "trigger.notification_received", "action.post_notification" -> Ic.Bell
+        "trigger.notification_received", "trigger.notification", "action.post_notification" -> Ic.Bell
         "trigger.battery_low", "trigger.battery_level", "condition.battery_range",
         "condition.charging", "trigger.power_connected", "trigger.power_disconnected" -> Ic.Battery
         "trigger.screen_on", "trigger.screen_off", "trigger.user_present", "trigger.boot_completed",
         "condition.screen_state" -> Ic.Phone
-        "trigger.charging", "action.wifi_switch" -> Ic.Wifi
-        "trigger.bluetooth_connected", "action.bluetooth_switch" -> Ic.Bluetooth
-        "trigger.wifi_changed", "condition.network_type" -> Ic.Wifi
-        "trigger.application_started", "action.launch_app" -> Ic.Grid
-        "condition.dnd_state", "action.dnd_switch" -> Ic.Moon
+        "trigger.charging", "action.wifi_switch", "trigger.wifi", "trigger.wifi_changed",
+        "condition.network_type" -> Ic.Wifi
+        "trigger.bluetooth_connected", "trigger.bluetooth", "trigger.headset", "action.bluetooth_switch" -> Ic.Bluetooth
+        "trigger.application_started", "trigger.app_foreground", "action.launch_app" -> Ic.Grid
+        "condition.dnd_state", "action.dnd_switch", "action.ringer_mode" -> Ic.Moon
         "action.set_brightness", "action.set_volume" -> Ic.Gauge
         "action.copy_clipboard" -> Ic.Copy
         "action.delay" -> Ic.Timer
         "action.root_shell" -> Ic.Terminal
+        "action.http_request", "action.open_url" -> Ic.Share
+        "action.vibrate", "action.flashlight" -> Ic.Bolt
+        "action.media_control" -> Ic.Play
+        "action.speak", "action.toast" -> Ic.Message
+        "action.screen_timeout", "action.auto_rotate" -> Ic.Phone
+        "action.global_action" -> Ic.Tap
+        "action.airplane_mode", "action.mobile_data" -> Ic.Wifi
         else -> Ic.Refresh
     }
 
-    private val categories = mapOf("定时" to 2, "通知" to 3, "位置" to 4, "设备" to 5, "网络" to 6, "应用" to 5)
+    private val categories = mapOf("定时" to 2, "通知" to 3, "位置" to 4, "设备" to 5, "网络" to 6, "应用" to 7)
 
     /** Superseded type ids stay readable in old rules but are not offered as new triggers. */
     private val hiddenFromCatalog = setOf("trigger.battery_low", "trigger.charging")

@@ -110,6 +110,18 @@ internal object NativeTasks {
                 }
             }
         }
+        "action.vibrate" -> SystemActions.vibrate(context, task.parameter)
+        "action.flashlight" -> SystemActions.flashlight(context, task.parameter)
+        "action.ringer_mode" -> SystemActions.ringerMode(context, task.parameter)
+        "action.media_control" -> SystemActions.mediaControl(context, task.parameter)
+        "action.open_url" -> SystemActions.openUrl(context, task.parameter)
+        "action.speak" -> SystemActions.speak(context, task.parameter)
+        "action.toast" -> SystemActions.toast(context, task.parameter)
+        "action.screen_timeout" -> SystemActions.screenTimeout(context, task.parameter)
+        "action.auto_rotate" -> SystemActions.autoRotate(context, task.parameter)
+        "action.global_action" -> SystemActions.globalAction(context, task.parameter)
+        "action.airplane_mode" -> RootActions.airplaneMode(context, task.parameter)
+        "action.mobile_data" -> RootActions.mobileData(context, task.parameter)
         "action.wifi_switch" -> RadioTask.run(context, "开关 WiFi", task.parameter)
         "action.bluetooth_switch" -> RadioTask.run(context, "开关蓝牙", task.parameter)
         else -> TaskOutcome(StepStatus.SKIPPED, "暂不支持该任务")
