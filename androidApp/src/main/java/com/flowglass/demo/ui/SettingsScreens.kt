@@ -1,6 +1,7 @@
 package com.flowglass.demo.ui
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -274,10 +275,20 @@ private fun SettingsMain(state: AppState) {
     }
     GroupTitle("关于", k++)
     GroupCard(k++) {
-        ListRow(Row1(Ic.Info, "版本", "0.6.0-alpha1"), true)
+        ListRow(Row1(Ic.Info, "版本", appVersionName(ctx)), true)
         ListRow(Row1(Ic.Puzzle, "开源组件", sub = "AndroidLiquidGlass · graphics-shapes") {}, false)
     }
 }
+
+internal fun appVersionName(ctx: Context): String = runCatching {
+    val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        ctx.packageManager.getPackageInfo(ctx.packageName, PackageManager.PackageInfoFlags.of(0))
+    } else {
+        @Suppress("DEPRECATION")
+        ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+    }
+    info.versionName
+}.getOrNull().orEmpty().ifBlank { "—" }
 
 private fun keepAliveReady(ctx: Context): Int {
     var n = 0
