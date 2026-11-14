@@ -90,8 +90,8 @@ class RuleExecutor(
                 steps += StepResult(component.type, StepStatus.SKIPPED, "暂不支持该动作", 0)
                 continue
             }
-            // Stored parameters keep %{var}; they are expanded when the step is read.
-            val expanded = ParamTemplate.expand(component.params, context.variables)
+            // Stored parameters keep %{var}; each ParamSpec declares how its value must be escaped.
+            val expanded = ParamTemplate.expand(component.params, meta.params, context.variables)
             val resolved = if (expanded == component.params) component else component.copy(params = expanded)
             val stepStart = kotlin.time.TimeSource.Monotonic.markNow()
             suspend fun attempt(): ActionOutcome = try {

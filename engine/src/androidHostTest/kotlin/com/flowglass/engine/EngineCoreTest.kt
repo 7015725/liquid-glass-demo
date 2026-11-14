@@ -72,6 +72,9 @@ class EngineCoreTest {
         assertTrue(registry.find("action.set_brightness")!!.permissions.contains("write_settings"))
         assertEquals(ParamType.TRI_STATE, registry.find("action.wifi_switch")!!.params.single().type)
         assertEquals(ParamType.APPLICATION, registry.find("action.launch_app")!!.params.single().type)
+        assertEquals(ParamExpansion.SHELL_QUOTED, registry.find("action.root_shell")!!.params.single().expansion)
+        assertEquals(ParamExpansion.HTTP_REQUEST, registry.find("action.http_request")!!.params.single().expansion)
+        assertEquals(ParamExpansion.PLAIN, registry.find("action.post_notification")!!.params.first().expansion)
     }
 
     @Test
