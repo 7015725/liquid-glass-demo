@@ -123,7 +123,8 @@ run(task):
 ## 9. 变量展开与安全
 
 `%{name}` 的替换方式由 `ParamSpec.expansion` 声明；执行器只按声明选择规则，不按组件
-`typeId` 写特例。
+`typeId` 写特例。`PLAIN`、`SHELL_QUOTED`、`URL_ENCODED` 是三种基础方式；`HTTP_REQUEST`
+是 HTTP 请求字段专用的复合方式。
 
 | 展开方式 | 使用位置 | 行为 |
 | --- | --- | --- |
