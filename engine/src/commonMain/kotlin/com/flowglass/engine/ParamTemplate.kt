@@ -8,7 +8,7 @@ import kotlinx.serialization.json.*
  * used so ordinary text containing a bare `%` stays untouched.
  *
  * Expansion is context-sensitive: [ParamSpec.expansion] decides whether a substituted value is
- * inserted verbatim, as one POSIX shell literal, or percent-encoded for a URL. Unknown names
+ * inserted verbatim, assigned to a shell variable, or percent-encoded for a URL. Unknown names
  * stay literal (a typo should be visible, not silently empty), and expansion is single-pass:
  * a value that itself contains `%{x}` is not expanded again, so a variable can never expand
  * into itself.
@@ -76,34 +76,194 @@ object ParamTemplate {
     private fun identity(value: String): String = value
 
     /**
-     * Shell substitution is quote-aware. In an unquoted position the value becomes one
-     * single-quoted literal. Inside double quotes it is escaped for that context; inside single
-     * quotes the static quote is closed, the value is inserted as a literal, and the quote is
-     * reopened. This matters because wrapping a value in single quotes while it already sits
-     * inside double quotes would let a value containing `"` break out and run commands.
+     * Shell values never appear in the user's command text. Each referenced value becomes a
+     * single-quoted assignment in a generated prelude (`FG_V1='...'`); the user command only
+     * contains a variable reference. Even if the quote scanner misclassifies a construct, the
+     * worst case is an extra quote or a different word split, never re-parsing the value as
+     * command syntax.
+     *
+     * The scanner still tracks quotes (and unquoted heredocs) to choose the reference spelling:
+     * unquoted `"${FG_V1}"`, already double-quoted `${FG_V1}`, single-quoted `'"${FG_V1}"'`,
+     * or heredoc body `${FG_V1}`. Names are allocated as FG_V1, FG_V2, ... so a user variable
+     * cannot overwrite PATH or another environment name.
      */
     private fun expandShell(text: String, variables: Map<String, Any?>): String {
+        val names = LinkedHashMap<String, String>()
+
+        fun fgName(name: String): String? {
+            if (variables[name] == null) return null
+            return names.getOrPut(name) { "FG_V${names.size + 1}" }
+        }
+
+        fun reference(fg: String, quote: ShellQuote): String {
+            val ref = "\${$fg}"
+            return when (quote) {
+                ShellQuote.NONE -> "\"$ref\""
+                ShellQuote.DOUBLE -> ref
+                ShellQuote.SINGLE -> "'\"$ref\"'"
+            }
+        }
+
+        fun expandHeredocLine(line: String): String {
+            val out = StringBuilder(line.length)
+            var index = 0
+            while (index < line.length) {
+                val end = tokenEnd(line, index)
+                if (end != null) {
+                    val name = line.substring(index + 2, end)
+                    val fg = fgName(name)
+                    if (fg == null) out.append(line, index, end + 1)
+                    else out.append("\${").append(fg).append('}')
+                    index = end + 1
+                } else {
+                    out.append(line[index])
+                    index++
+                }
+            }
+            return out.toString()
+        }
+
+        fun consumeHeredoc(start: Int, heredoc: Heredoc): Consumed {
+            val out = StringBuilder()
+            var index = start
+            while (true) {
+                val newline = text.indexOf('\n', index)
+                val lineEnd = if (newline < 0) text.length else newline
+                val line = text.substring(index, lineEnd)
+                val compared = if (heredoc.stripTabs) line.trimStart('\t') else line
+                if (compared == heredoc.delimiter) {
+                    out.append(line)
+                    if (newline < 0) return Consumed(out.toString(), text.length)
+                    out.append('\n')
+                    return Consumed(out.toString(), newline + 1)
+                }
+                out.append(if (heredoc.quoted) line else expandHeredocLine(line))
+                if (newline < 0) return Consumed(out.toString(), text.length)
+                out.append('\n')
+                index = newline + 1
+            }
+        }
+
+        fun parseHeredoc(start: Int): HeredocStart? {
+            var index = start + 2
+            var stripTabs = false
+            if (index < text.length && text[index] == '-') {
+                stripTabs = true
+                index++
+            }
+            while (index < text.length && (text[index] == ' ' || text[index] == '\t')) index++
+            if (index >= text.length) return null
+            val quoted: Boolean
+            val delimiter: String
+            if (text[index] == '\'' || text[index] == '"') {
+                val quoteChar = text[index++]
+                val begin = index
+                while (index < text.length && text[index] != quoteChar) index++
+                if (index >= text.length) return null
+                delimiter = text.substring(begin, index)
+                quoted = true
+                index++
+            } else {
+                val begin = index
+                while (index < text.length && !text[index].isWhitespace() &&
+                    text[index] != ';' && text[index] != '|' && text[index] != '&' &&
+                    text[index] != '(' && text[index] != ')' && text[index] != '<' && text[index] != '>'
+                ) {
+                    index++
+                }
+                if (index == begin) return null
+                delimiter = text.substring(begin, index)
+                quoted = false
+            }
+            if (delimiter.isEmpty()) return null
+            return HeredocStart(index, Heredoc(delimiter, quoted, stripTabs))
+        }
+
         val out = StringBuilder(text.length)
         var index = 0
         var quote = ShellQuote.NONE
+        var pendingHeredoc: Heredoc? = null
+        val quoteStack = ArrayDeque<ShellQuote>()
+        var parenDepth = 0
+        var inBacktick = false
         while (index < text.length) {
             val end = tokenEnd(text, index)
             if (end != null) {
-                val value = variables[text.substring(index + 2, end)]
-                if (value == null) {
-                    out.append(text, index, end + 1)
-                } else {
-                    val raw = value.toString()
-                    out.append(when (quote) {
-                        ShellQuote.NONE -> shellQuote(raw)
-                        ShellQuote.SINGLE -> "'" + shellQuote(raw) + "'"
-                        ShellQuote.DOUBLE -> escapeDoubleQuoted(raw)
-                    })
-                }
+                val name = text.substring(index + 2, end)
+                val fg = fgName(name)
+                if (fg == null) out.append(text, index, end + 1)
+                else out.append(reference(fg, quote))
                 index = end + 1
                 continue
             }
             val char = text[index]
+            if (quote == ShellQuote.NONE && char == '<' && index + 1 < text.length &&
+                text[index + 1] == '<' && isHeredocPosition(text, index)
+            ) {
+                val heredoc = parseHeredoc(index)
+                if (heredoc != null) {
+                    out.append(text, index, heredoc.end)
+                    pendingHeredoc = heredoc.heredoc
+                    index = heredoc.end
+                    continue
+                }
+            }
+            if (quote == ShellQuote.NONE && char == '\n' && pendingHeredoc != null) {
+                out.append('\n')
+                val consumed = consumeHeredoc(index + 1, pendingHeredoc)
+                out.append(consumed.text)
+                index = consumed.end
+                pendingHeredoc = null
+                continue
+            }
+            // `$(...)` and backticks open a fresh command context. A token there is not
+            // inside the surrounding double quotes for word-splitting purposes, so it must
+            // use a quoted reference too.
+            if (quote != ShellQuote.SINGLE && !inBacktick && char == '$' &&
+                index + 1 < text.length && text[index + 1] == '('
+            ) {
+                quoteStack.addLast(quote)
+                quote = ShellQuote.NONE
+                parenDepth++
+                out.append("$(")
+                index += 2
+                continue
+            }
+            if (quote != ShellQuote.SINGLE) {
+                if (inBacktick) {
+                    if (char == '`') {
+                        quote = quoteStack.removeLast()
+                        inBacktick = false
+                        out.append(char)
+                        index++
+                        continue
+                    }
+                } else if (char == '`') {
+                    quoteStack.addLast(quote)
+                    quote = ShellQuote.NONE
+                    inBacktick = true
+                    out.append(char)
+                    index++
+                    continue
+                }
+                if (parenDepth > 0 && quote == ShellQuote.NONE) {
+                    when (char) {
+                        '(' -> {
+                            parenDepth++
+                            out.append(char)
+                            index++
+                            continue
+                        }
+                        ')' -> {
+                            parenDepth--
+                            if (parenDepth == 0) quote = quoteStack.removeLast()
+                            out.append(char)
+                            index++
+                            continue
+                        }
+                    }
+                }
+            }
             when (quote) {
                 ShellQuote.NONE -> when {
                     char == '\\' && index + 1 < text.length -> {
@@ -127,7 +287,19 @@ object ParamTemplate {
             out.append(char)
             index++
         }
-        return out.toString()
+        if (names.isEmpty()) return text
+        val prefix = StringBuilder()
+        for ((name, fg) in names) {
+            prefix.append(fg).append('=').append(shellQuote(variables.getValue(name).toString())).append('\n')
+        }
+        return prefix.toString() + out.toString()
+    }
+
+    private fun isHeredocPosition(text: String, index: Int): Boolean {
+        if (index == 0) return true
+        val previous = text[index - 1]
+        return previous.isWhitespace() || previous == ';' || previous == '|' ||
+            previous == '&' || previous == '(' || previous == ')'
     }
 
     private fun tokenEnd(text: String, start: Int): Int? {
@@ -146,21 +318,15 @@ object ParamTemplate {
         return index
     }
 
-    private fun escapeDoubleQuoted(value: String): String {
-        val out = StringBuilder(value.length)
-        for (char in value) {
-            if (char == '\\' || char == '"' || char == '$' || char == '`') out.append('\\')
-            out.append(char)
-        }
-        return out.toString()
-    }
-
     private enum class ShellQuote { NONE, SINGLE, DOUBLE }
+    private data class Heredoc(val delimiter: String, val quoted: Boolean, val stripTabs: Boolean)
+    private data class HeredocStart(val end: Int, val heredoc: Heredoc)
+    private data class Consumed(val text: String, val end: Int)
 
     /**
      * Wraps one value in POSIX single quotes. A single quote inside the value is emitted as
-     * `'"'"'`, which closes the quote, adds an escaped quote, and reopens it. Shell syntax
-     * (`;`, `&&`, `|`, `$()`, backticks, newlines) therefore stays literal data.
+     * `'\"'\"'`, which closes the quote, adds an escaped quote, and reopens it. This is used
+     * only for the generated assignment prelude, whose surrounding context is fully controlled.
      */
     private fun shellQuote(value: String): String = "'" + value.replace("'", "'\"'\"'") + "'"
 

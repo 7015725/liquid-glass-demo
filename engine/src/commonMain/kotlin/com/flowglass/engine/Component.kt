@@ -37,7 +37,7 @@ enum class ParamExpansion {
     /** Plain text: substitute the value verbatim (notification body, clipboard text, ...). */
     PLAIN,
 
-    /** POSIX shell: every substituted value becomes one literal argument. */
+    /** POSIX shell: values become generated `FG_Vn='...'` assignments; the command only sees references. */
     SHELL_QUOTED,
 
     /** URL component: percent-encode the substituted value as UTF-8. */

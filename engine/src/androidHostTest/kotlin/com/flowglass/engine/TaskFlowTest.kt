@@ -211,7 +211,7 @@ class TaskFlowTest {
         val executor = executor(registry, mapOf(
             "a.produce" to Action { _, _ -> ActionOutcome(StepStatus.SUCCESS, "好", "x; rm -rf /") },
             "a.shell" to Action { _, component ->
-                seen = component.params["command"]?.toString()
+                seen = (component.params["command"] as? JsonPrimitive)?.content
                 ActionOutcome(StepStatus.SUCCESS, "好")
             },
         ))
@@ -223,7 +223,7 @@ class TaskFlowTest {
             )),
         ), "测试")
 
-        assertEquals("\"printf '%s' 'x; rm -rf /'\"", seen)
+        assertEquals("FG_V1='x; rm -rf /'\nprintf '%s' \"\${FG_V1}\"", seen)
     }
 
     @Test

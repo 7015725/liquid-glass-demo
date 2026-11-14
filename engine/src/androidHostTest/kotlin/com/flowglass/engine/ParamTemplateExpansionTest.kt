@@ -17,12 +17,77 @@ class ParamTemplateExpansionTest {
     }
 
     @Test
-    fun shellQuotingWrapsTheWholeValueAndEscapesSingleQuotes() {
-        assertEquals("echo 'a'\"'\"'b; c'", ParamTemplate.expand(
-            "echo %{value}",
-            mapOf("value" to "a'b; c"),
-            ParamExpansion.SHELL_QUOTED,
-        ))
+    fun shellExpansionAssignsTheValueAndReferencesItFromTheCommand() {
+        assertEquals(
+            "FG_V1='a'\"'\"'b; c'\necho \"\${FG_V1}\"",
+            ParamTemplate.expand(
+                "echo %{value}",
+                mapOf("value" to "a'b; c"),
+                ParamExpansion.SHELL_QUOTED,
+            ),
+        )
+    }
+
+    @Test
+    fun shellExpansionUsesOneReferenceSpellingPerQuoteContext() {
+        val variables = mapOf("value" to "a'b")
+
+        assertEquals(
+            "FG_V1='a'\"'\"'b'\necho \"\${FG_V1}\"",
+            ParamTemplate.expand("echo %{value}", variables, ParamExpansion.SHELL_QUOTED),
+        )
+        assertEquals(
+            "FG_V1='a'\"'\"'b'\necho \"\${FG_V1}\"",
+            ParamTemplate.expand("echo \"%{value}\"", variables, ParamExpansion.SHELL_QUOTED),
+        )
+        assertEquals(
+            "FG_V1='a'\"'\"'b'\necho ''\"\${FG_V1}\"''",
+            ParamTemplate.expand("echo '%{value}'", variables, ParamExpansion.SHELL_QUOTED),
+        )
+    }
+
+    @Test
+    fun shellExpansionNumbersVariablesInFirstUseOrderAndReusesNames() {
+        assertEquals(
+            "FG_V1='one'\nFG_V2='two'\necho \"\${FG_V1}\" \"\${FG_V2}\" \"\${FG_V1}\"",
+            ParamTemplate.expand(
+                "echo %{first} %{second} %{first}",
+                mapOf("first" to "one", "second" to "two"),
+                ParamExpansion.SHELL_QUOTED,
+            ),
+        )
+    }
+
+    @Test
+    fun shellExpansionUsesAnUnquotedReferenceInsideAnUnquotedHeredoc() {
+        assertEquals(
+            "FG_V1='a; b'\ncat <<EOF\n\${FG_V1}\nEOF",
+            ParamTemplate.expand(
+                "cat <<EOF\n%{value}\nEOF",
+                mapOf("value" to "a; b"),
+                ParamExpansion.SHELL_QUOTED,
+            ),
+        )
+    }
+
+    @Test
+    fun shellExpansionTreatsCommandSubstitutionAsAFreshCommandContext() {
+        assertEquals(
+            "FG_V1='a\nb'\necho \"\$(echo \"\${FG_V1}\")\"",
+            ParamTemplate.expand(
+                "echo \"\$(echo %{value})\"",
+                mapOf("value" to "a\nb"),
+                ParamExpansion.SHELL_QUOTED,
+            ),
+        )
+        assertEquals(
+            "FG_V1='a'\necho \${UNSET_VAR:-\"\${FG_V1}\"}",
+            ParamTemplate.expand(
+                "echo \${UNSET_VAR:-%{value}}",
+                mapOf("value" to "a"),
+                ParamExpansion.SHELL_QUOTED,
+            ),
+        )
     }
 
     @Test
@@ -73,7 +138,10 @@ class ParamTemplateExpansionTest {
             variables = mapOf("value" to "a; b"),
         )
 
-        assertEquals("echo 'a; b'", (expanded["command"] as JsonPrimitive).content)
+        assertEquals(
+            "FG_V1='a; b'\necho \"\${FG_V1}\"",
+            (expanded["command"] as JsonPrimitive).content,
+        )
         assertEquals("a; b", (expanded["body"] as JsonPrimitive).content)
     }
 }
