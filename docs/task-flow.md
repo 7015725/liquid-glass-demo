@@ -11,7 +11,7 @@ typed 组件模型重新设计，不复刻任何第三方实现。
 | --- | --- |
 | 指令 Command | 触发器 + 条件 + 任务 |
 | 任务 Task | **有序步骤数组**（就是 `Cmd.actions`） |
-| 步骤 Step | 一个动作组件 + 参数 + 失败策略 + 启用开关 |
+| 步骤 Step | 一个动作组件 + 参数 + 失败策略 |
 | 运行上下文 | 一次执行内的变量表 |
 
 ## 2. 设计取舍
@@ -48,7 +48,6 @@ run(task):
   context = { }                        // 变量表，跨步骤共享
   stopped = false
   for step in task.steps:
-      if !step.enabled:        record SKIPPED("已停用");     continue
       if stopped:              record SKIPPED("前序动作失败"); continue
 
       params = expand(step.params, context)      // %{var} 读取时展开
