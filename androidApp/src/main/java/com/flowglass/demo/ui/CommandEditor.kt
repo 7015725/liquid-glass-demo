@@ -8,9 +8,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -23,7 +21,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -90,7 +87,6 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                     Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         T(if (cmd.enabled) "已开启" else "已关闭", 14.sp, color = C.OnSurfaceVar)
                         Spacer(Modifier.width(12.dp))
-                        Box(Modifier.graphicsLayer { alpha = if (!cmd.enabled && issues.isNotEmpty()) 0.4f else 1f }) {
                         LiquidToggle({ cmd.enabled }, {
                             if (!cmd.enabled && issues.isNotEmpty()) state.editorNotice = issues.first()
                             else PermissionGate.request(state, cmd, context)
@@ -98,13 +94,8 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                             Modifier.testTag("editor-toggle").semantics {
                                 contentDescription = "启用指令"
                                 toggleableState = if (cmd.enabled) ToggleableState.On else ToggleableState.Off
-                                onClick {
-                                    if (!cmd.enabled && issues.isNotEmpty()) state.editorNotice = issues.first()
-                                    else PermissionGate.request(state, cmd, context)
-                                    true
-                                }
+                                onClick { PermissionGate.request(state, cmd, context); true }
                             })
-                        }
                     }
                 }
             }
@@ -473,33 +464,30 @@ private fun ActionTreeRow(
     Column(Modifier.fillMaxWidth().padding(start = indent), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(C.Tonal).padding(12.dp)
-                // One gesture owner: a quick tap opens the parameter page, a 300 ms hold drags.
+                // Tap opens the parameter page; the drag detector only starts after a 300 ms
+                // hold, and a scroll gesture cancels the tap because the list consumes it.
                 .pointerInput(item.id) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        if (awaitLongPressOrCancellation(down.id) == null) {
-                            state.actionEditingCmd = cmd.id
-                            state.actionEditing = item.id
-                            return@awaitEachGesture
-                        }
-                        var dy = 0f
-                        while (true) {
-                            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
-                            if (change.changedToUp()) break
-                            val delta = change.position.y - change.previousPosition.y
-                            if (delta != 0f) {
-                                change.consume()
-                                dy += delta
+                    detectTapGestures(onTap = {
+                        state.actionEditingCmd = cmd.id
+                        state.actionEditing = item.id
+                    })
+                }
+                .pointerInput(item.id) {
+                    var dy = 0f
+                    detectDragGesturesAfterLongPress(
+                        onDragEnd = {
+                            val raw = (dy / dragStep).roundToInt()
+                            dy = 0f
+                            if (raw in 1..nested && nested > 0) {
+                                state.editorNotice = "不能把「${item.name}」拖进它自己的子步骤"
+                            } else {
+                                val steps = if (raw > 0) raw - nested else raw
+                                if (steps != 0) state.moveItem(cmd.id, CommandSection.ACTIONS, item.id, steps)
                             }
-                        }
-                        val raw = (dy / dragStep).roundToInt()
-                        if (raw in 1..nested && nested > 0) {
-                            state.editorNotice = "不能把「${item.name}」拖进它自己的子步骤"
-                        } else {
-                            val steps = if (raw > 0) raw - nested else raw
-                            if (steps != 0) state.moveItem(cmd.id, CommandSection.ACTIONS, item.id, steps)
-                        }
-                    }
+                        },
+                        onDragCancel = { dy = 0f },
+                        onDrag = { change, amount -> change.consume(); dy += amount.y },
+                    )
                 }
                 .semantics {
                     contentDescription = "编辑${item.name}"
