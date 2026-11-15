@@ -162,7 +162,7 @@ class LegacyAliasCompatibilityTest {
         assertNull(loaded.error)
         val saved = requireNotNull(loaded.saved)
         assertEquals(source, File(file.parentFile, "commands.v1.bak.json").readText())
-        assertEquals(2, JSONObject(file.readText()).getInt("formatVersion"))
+        assertEquals(com.flowglass.engine.CURRENT_FORMAT_VERSION, JSONObject(file.readText()).getInt("formatVersion"))
         val reopened = CommandStore(file).load()
         assertNull(reopened.error)
         assertEquals(saved, reopened.saved)

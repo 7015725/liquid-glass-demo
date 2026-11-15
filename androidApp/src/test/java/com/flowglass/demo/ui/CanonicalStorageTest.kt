@@ -31,8 +31,9 @@ class CanonicalStorageTest {
         val disk = RuleJson.decode(file.readText())
         val rule = disk.rules.single { disk.ui.presentation[it.id]?.legacyId == command.id }
         assertEquals(JsonPrimitive(1500), rule.actions.single().params["duration"])
+        val itemId = item.id
         val presentation = JSONObject(file.readText()).getJSONObject("ui").getJSONObject("presentation")
-            .getJSONObject(rule.id).getJSONArray("actions").getJSONObject(0)
+            .getJSONObject(rule.id).getJSONObject("items").getJSONObject(itemId.toString())
         assertEquals(setOf("id", "icon"), presentation.keys().asSequence().toSet())
         val loaded = CommandStore(file).load()
         assertNull(loaded.error)

@@ -283,6 +283,7 @@ object LegacyCommandMigration {
         "充电状态" to "condition.charging",
         "网络类型" to "condition.network_type",
         "屏幕状态" to "condition.screen_state",
+        "变量比较" to "condition.var_compare",
         "勿扰状态" to "condition.dnd_state",
     )
 }

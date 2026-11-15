@@ -27,7 +27,7 @@ class EngineCoreTest {
     }
 
     @Test
-    fun ruleJsonRoundTripsVersionTwoAndRejectsUnsupportedVersions() {
+    fun ruleJsonRoundTripsCurrentVersionAndRejectsUnsupportedVersions() {
         val rule = RuleFactory.create(RuleType.MANUAL, "测试规则").copy(
             enabled = true,
             runMode = RunMode.QUEUE,
@@ -45,8 +45,9 @@ class EngineCoreTest {
 
         assertEquals(CURRENT_FORMAT_VERSION, decoded.formatVersion)
         assertEquals(document, decoded)
-        assertTrue(encoded.contains("\"formatVersion\":2"))
+        assertTrue(encoded.contains("\"formatVersion\":3"))
         assertFailsWith<IllegalArgumentException> { RuleJson.decode("{\"formatVersion\":9,\"rules\":[]}") }
+        assertFailsWith<IllegalArgumentException> { RuleJson.decode("{\"formatVersion\":1,\"rules\":[]}") }
     }
 
     @Test
@@ -57,7 +58,7 @@ class EngineCoreTest {
         assertNotEquals(first.id, second.id)
         assertTrue(first.triggers.isEmpty())
         assertTrue(first.conditions.isEmpty())
-        assertFailsWith<IllegalArgumentException> { RuleJson.decode("""{"formatVersion":2,"rules":[{"id":"x","type":"other"}]}""") }
+        assertFailsWith<IllegalArgumentException> { RuleJson.decode("""{"formatVersion":1,"rules":[{"id":"x","type":"other"}]}""") }
     }
 
     @Test
@@ -87,7 +88,8 @@ class EngineCoreTest {
         assertEquals(BuiltInComponents.all.size, registry.all().size)
         assertTrue(registry.byKind(ComponentKind.TRIGGER).any { it.outputs.isNotEmpty() })
         assertTrue(registry.byKind(ComponentKind.CONDITION).isNotEmpty())
-        assertEquals(23, registry.byKind(ComponentKind.ACTION).size)
+        // 23 plain actions + 7 task-chain blocks/system actions.
+        assertEquals(30, registry.byKind(ComponentKind.ACTION).size)
     }
 
     @Test

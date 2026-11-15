@@ -94,7 +94,7 @@ class LegacyLogIdMigrationTest {
         assertTrue(store.canSave)
         val saved = requireNotNull(loaded.saved)
         assertEquals(source, File(folder.root, "commands.v1.bak.json").readText())
-        assertEquals(2, JSONObject(file.readText()).getInt("formatVersion"))
+        assertEquals(com.flowglass.engine.CURRENT_FORMAT_VERSION, JSONObject(file.readText()).getInt("formatVersion"))
         // Exercise the UI projection, save, and reload so a second strict-ID check cannot block recovery.
         store.save(loaded.appState().snapshot())
         val reloaded = CommandStore(file).load()

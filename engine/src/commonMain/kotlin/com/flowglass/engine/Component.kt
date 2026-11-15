@@ -70,6 +70,22 @@ data class ParamSpec(
     val expansion: ParamExpansion = ParamExpansion.PLAIN,
 )
 
+/** Task-chain semantics executed by the interpreter instead of a plain action handler. */
+@Serializable
+enum class BlockKind {
+    IF,
+    LOOP,
+    WAIT,
+    BREAK,
+    STOP,
+    SET_VAR,
+    RUN_RULE,
+    ;
+
+    /** Blocks that own a nested sequence and therefore indent in the editor. */
+    val container: Boolean get() = this == IF || this == LOOP
+}
+
 @Serializable
 data class ComponentMeta(
     val typeId: String,
@@ -83,14 +99,59 @@ data class ComponentMeta(
     val description: String = "",
     /** Visible in the add panel but not selectable until a later stage lands. */
     val comingSoon: Boolean = false,
+    /** Non-null for if/loop/wait/break/stop/set_var/run_rule; plain actions leave it null. */
+    val block: BlockKind? = null,
 )
 
 @Serializable
-data class RuleComponent(
+data class RuleBranch(
+    val conditions: List<RuleComponent> = emptyList(),
+    val children: List<RuleComponent> = emptyList(),
+)
+
+@Serializable
+class RuleComponent(
     val type: String,
     val params: Map<String, JsonElement> = emptyMap(),
     val onError: OnError = OnError.STOP,
-)
+    /** v3: if 的 then、loop 的循环体；普通步骤为空。 */
+    val children: List<RuleComponent> = emptyList(),
+    /** v3: if 的 else-if / else；最后一项 conditions 为空表示 else。 */
+    val branches: List<RuleBranch> = emptyList(),
+    /** v3: if 的分支条件、while 循环条件、wait_until 条件。 */
+    val conditions: List<RuleComponent> = emptyList(),
+    /** Stable UI identity; the engine never interprets it and it is excluded from equality. */
+    val id: Long? = null,
+) {
+    fun copy(
+        type: String = this.type,
+        params: Map<String, JsonElement> = this.params,
+        onError: OnError = this.onError,
+        children: List<RuleComponent> = this.children,
+        branches: List<RuleBranch> = this.branches,
+        conditions: List<RuleComponent> = this.conditions,
+        id: Long? = this.id,
+    ): RuleComponent = RuleComponent(type, params, onError, children, branches, conditions, id)
+
+    // UI ids must not make two semantically identical rules compare unequal.
+    override fun equals(other: Any?): Boolean = other is RuleComponent &&
+        type == other.type && params == other.params && onError == other.onError &&
+        children == other.children && branches == other.branches && conditions == other.conditions
+
+    override fun hashCode(): Int {
+        var result = type.hashCode()
+        result = 31 * result + params.hashCode()
+        result = 31 * result + onError.hashCode()
+        result = 31 * result + children.hashCode()
+        result = 31 * result + branches.hashCode()
+        result = 31 * result + conditions.hashCode()
+        return result
+    }
+
+    override fun toString(): String =
+        "RuleComponent(type=$type, params=$params, onError=$onError, children=$children, " +
+            "branches=$branches, conditions=$conditions, id=$id)"
+}
 
 @Serializable
 data class ComponentPresentation(

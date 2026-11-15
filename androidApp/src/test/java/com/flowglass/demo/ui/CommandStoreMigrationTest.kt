@@ -104,17 +104,16 @@ class CommandStoreMigrationTest {
         assertEquals(kotlinx.serialization.json.JsonPrimitive(""), action.params["parameter"])
     }
 
-    @Test fun v2FileIsLoadedWithoutRemigrationOrBackup() {
+    @Test fun currentFileIsLoadedWithoutRemigrationOrBackup() {
         val state = AppState().snapshot()
-        val v2 = AppStateJson.encode(state)
-        // Current formatVersion=2 is not the old version=2 name-based schema.
-        assertEquals(2, JSONObject(v2).getInt("formatVersion"))
-        file.writeText(v2)
+        val current = AppStateJson.encode(state)
+        assertEquals(com.flowglass.engine.CURRENT_FORMAT_VERSION, JSONObject(current).getInt("formatVersion"))
+        file.writeText(current)
 
         val loaded = CommandStore(file).load()
 
         assertNotNull(loaded.saved)
-        assertEquals(v2, file.readText())
+        assertEquals(current, file.readText())
         assertFalse(backup.exists())
     }
 
@@ -128,7 +127,7 @@ class CommandStoreMigrationTest {
         assertNotNull(loaded.saved)
         assertTrue(backup.isFile)
         assertTrue(original.contentEquals(backup.readBytes()))
-        assertEquals(2, JSONObject(file.readText()).getInt("formatVersion"))
+        assertEquals(com.flowglass.engine.CURRENT_FORMAT_VERSION, JSONObject(file.readText()).getInt("formatVersion"))
     }
 
     @Test fun failedAtomicMigrationPreservesOriginalAndBlocksLaterWrites() {

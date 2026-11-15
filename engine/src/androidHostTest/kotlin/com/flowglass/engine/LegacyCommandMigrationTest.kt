@@ -36,7 +36,7 @@ class LegacyCommandMigrationTest {
         val document = LegacyCommandMigration.migrate(legacy)
         val rule = document.rules.single()
 
-        assertEquals(2, document.formatVersion)
+        assertEquals(CURRENT_FORMAT_VERSION, document.formatVersion)
         assertEquals(RuleType.AUTO, rule.type)
         assertEquals("夜间自动静音", rule.name)
         assertEquals("保留描述", rule.description)
