@@ -5,6 +5,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.random.Random
 
 internal fun newIdString(): String {
@@ -90,6 +92,9 @@ data class RulePresentation(
     val lastRun: String = "从未",
     val descriptionEdited: Boolean = true,
     val legacyId: Long? = null,
+    /** v3: every component id (any depth) mapped to its icon; structure lives in the rule tree. */
+    val items: Map<Long, ComponentPresentation> = emptyMap(),
+    // v2 fields kept so old files still decode; v3 migrates them into [items] and writes them empty.
     val triggers: List<ComponentPresentation> = emptyList(),
     val conditions: List<ComponentPresentation> = emptyList(),
     val actions: List<ComponentPresentation> = emptyList(),
@@ -100,6 +105,8 @@ data class RuleDocument(
     val formatVersion: Int = CURRENT_FORMAT_VERSION,
     val rules: List<Rule> = emptyList(),
     val ui: RuleUiMetadata = RuleUiMetadata(),
+    /** Cross-rule variables written by `global.` assignments. */
+    val globals: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap(),
 )
 
 @Serializable
@@ -146,18 +153,70 @@ object RuleJson {
         ignoreUnknownKeys = false
     }
 
+    data class Decoded(val document: RuleDocument, val migratedFrom: Int? = null)
+
     fun encode(document: RuleDocument): String {
         require(document.formatVersion == CURRENT_FORMAT_VERSION) { "不支持的格式版本" }
         ParameterCodec.validateDocument(document)
         return format.encodeToString(document)
     }
 
-    fun decode(text: String): RuleDocument {
-        val document = format.decodeFromString<RuleDocument>(text)
-        require(document.formatVersion == CURRENT_FORMAT_VERSION) { "不支持的格式版本 ${document.formatVersion}" }
-        ParameterCodec.validateDocument(document)
-        return document
+    fun decode(text: String): RuleDocument = decodeWithMigration(text).document
+
+    /** Reads v2 or v3. v2 files are converted in memory; the caller decides about the backup. */
+    fun decodeWithMigration(text: String): Decoded {
+        val element = format.parseToJsonElement(text)
+        val version = (element as? kotlinx.serialization.json.JsonObject)
+            ?.get("formatVersion")?.jsonPrimitive?.intOrNull
+            ?: throw IllegalArgumentException("缺少格式版本")
+        require(version in 2..CURRENT_FORMAT_VERSION) { "不支持的格式版本 $version" }
+        val document = format.decodeFromJsonElement(RuleDocument.serializer(), element)
+        val migrated = version < CURRENT_FORMAT_VERSION
+        val upgraded = if (migrated) document.migrateToV3() else document
+        ParameterCodec.validateDocument(upgraded)
+        return Decoded(upgraded, if (migrated) version else null)
     }
+
+    private fun RuleDocument.migrateToV3(): RuleDocument {
+        val presentation = ui.presentation.mapValues { (_, sidecar) ->
+            if (sidecar.items.isNotEmpty()) sidecar else sidecar.copy(
+                items = (sidecar.triggers + sidecar.conditions + sidecar.actions).associateBy { it.id },
+                triggers = emptyList(),
+                conditions = emptyList(),
+                actions = emptyList(),
+            )
+        }
+        // v2 sidecars were positional: adopt those ids so nothing renumbers on upgrade.
+        val migratedRules = rules.map { rule ->
+            val sidecar = ui.presentation[rule.id] ?: return@map rule
+            fun adopt(components: List<RuleComponent>, ids: List<ComponentPresentation>) =
+                components.mapIndexed { index, component ->
+                    component.adoptId(ids.getOrNull(index)?.id)
+                }
+            rule.copy(
+                triggers = adopt(rule.triggers, sidecar.triggers),
+                conditions = adopt(rule.conditions, sidecar.conditions),
+                actions = adopt(rule.actions, sidecar.actions),
+            )
+        }
+        return copy(
+            formatVersion = CURRENT_FORMAT_VERSION,
+            rules = migratedRules,
+            ui = ui.copy(presentation = presentation),
+        )
+    }
+
+    private fun RuleComponent.adoptId(value: Long?): RuleComponent = copy(
+        id = id ?: value,
+        children = children.map { it.adoptId(null) },
+        conditions = conditions.map { it.adoptId(null) },
+        branches = branches.map { branch ->
+            branch.copy(
+                children = branch.children.map { it.adoptId(null) },
+                conditions = branch.conditions.map { it.adoptId(null) },
+            )
+        },
+    )
 }
 
-const val CURRENT_FORMAT_VERSION = 2
+const val CURRENT_FORMAT_VERSION = 3

@@ -129,9 +129,20 @@ object BuiltInComponents {
             listOf(param("state", "勿扰状态", "off", ParamType.ENUM, options = listOf(
                 ParamOption("on", "已开启"), ParamOption("off", "已关闭")))),
             permissions = listOf("dnd")),
+        ComponentMeta("condition.var_compare", "变量比较", "流程控制", ComponentKind.CONDITION,
+            listOf(
+                param("left", "左侧", "%{run.x}", ParamType.TEXT, required = true,
+                    hint = "支持 %{变量} 或字面量。"),
+                param("op", "比较", "eq", ParamType.ENUM, options = listOf(
+                    ParamOption("eq", "等于"), ParamOption("ne", "不等于"),
+                    ParamOption("gt", "大于"), ParamOption("ge", "大于等于"),
+                    ParamOption("lt", "小于"), ParamOption("le", "小于等于"),
+                    ParamOption("contains", "包含"))),
+                param("right", "右侧", "", ParamType.TEXT),
+            )),
     )
 
-    val all: List<ComponentMeta> = triggers + conditions + BuiltInActions.metadata
+    val all: List<ComponentMeta> = triggers + conditions + BuiltInActions.metadata + BuiltInBlocks.metadata
 
     fun registry(): ComponentRegistry = ComponentRegistry().also { registry ->
         all.forEach(registry::register)

@@ -114,9 +114,9 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
         val exec = state.executing[cmd.id] ?: 0
         ExecButton(exec, Modifier.fillMaxWidth().testTag("editor-execute"), large = true,
             idleLabel = if (cmd.auto) "立即运行" else "一键执行",
-            failureLabel = if (state.executionMessages[cmd.id] == "执行环境未就绪") "执行环境未就绪" else "失败") {
-            state.execute(cmd, scope, if (cmd.auto) "手动测试" else "手动执行")
-        }
+            failureLabel = if (state.executionMessages[cmd.id] == "执行环境未就绪") "执行环境未就绪" else "失败",
+            onClick = { state.execute(cmd, scope, if (cmd.auto) "手动测试" else "手动执行") },
+            onStop = if (exec == 1) ({ state.stopExecution(cmd.id) }) else null)
         if (cmd.auto) T("跳过触发器和条件，直接执行任务", 12.sp, color = C.Muted)
         val sections = if (cmd.auto) CommandSection.entries else listOf(CommandSection.ACTIONS)
         sections.forEachIndexed { i, section ->
@@ -125,49 +125,57 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     T(section.label, 20.sp, FontWeight.Bold, modifier = Modifier.weight(1f))
-                    T("${cmd.items(section).size}", 13.sp, color = C.Muted)
+                    T("${if (section == CommandSection.ACTIONS) cmd.actions.allItems().size else cmd.items(section).size}", 13.sp, color = C.Muted)
                     Spacer(Modifier.width(10.dp))
                     EditorPill("添加", "添加${section.label}") { panel = EditorPanel.Add(section) }
                 }
                 if (cmd.items(section).isEmpty()) T("尚未添加${section.label}", 14.sp, color = C.Muted)
-                cmd.items(section).forEachIndexed { index, item ->
-                    key(item.id) {
-                        val itemMeta = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
-                        Column(Modifier.fillMaxWidth().testTag("item-${item.id}").animatePlacement().staggerIn(index)
-                            .clip(RoundedRectangle(24.dp)).background(C.Tonal)
-                            .editorAction("编辑${item.name}") {
-                                if (section == CommandSection.ACTIONS) {
-                                    state.actionEditingCmd = cmd.id
-                                    state.actionEditing = item.id
-                                } else {
-                                    panel = EditorPanel.Parameter(section, item.id)
+                if (section == CommandSection.ACTIONS) {
+                    cmd.actions.forEachIndexed { index, item ->
+                        key(item.id) {
+                            ActionTreeRow(state, cmd, item, 0, index, cmd.actions.lastIndex) { panel = it }
+                        }
+                    }
+                } else {
+                    cmd.items(section).forEachIndexed { index, item ->
+                        key(item.id) {
+                            val itemMeta = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
+                            Column(Modifier.fillMaxWidth().testTag("item-${item.id}").animatePlacement().staggerIn(index)
+                                .clip(RoundedRectangle(24.dp)).background(C.Tonal)
+                                .editorAction("编辑${item.name}") {
+                                    if (section == CommandSection.ACTIONS) {
+                                        state.actionEditingCmd = cmd.id
+                                        state.actionEditing = item.id
+                                    } else {
+                                        panel = EditorPanel.Parameter(section, item.id)
+                                    }
                                 }
-                            }
-                            .padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                LineIcon(item.ic, C.Primary, 22.dp)
-                                Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)) {
-                                    T(item.name, 15.sp, FontWeight.SemiBold)
-                                    T(itemParameterLabel(section, item), 13.sp, color = C.OnSurfaceVar)
+                                .padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    LineIcon(item.ic, C.Primary, 22.dp)
+                                    Spacer(Modifier.width(10.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        T(item.name, 15.sp, FontWeight.SemiBold)
+                                        T(itemParameterLabel(section, item), 13.sp, color = C.OnSurfaceVar)
+                                    }
                                 }
-                            }
-                            if (section != CommandSection.ACTIONS && itemMeta?.comingSoon == true) {
-                                T("即将支持，暂不会自动运行", 11.sp, color = C.Mid)
-                            }
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                TaskAuthorizationBadge(state, section, item) { destination ->
-                                    panel = null
-                                    onAuthorization(destination)
+                                if (section != CommandSection.ACTIONS && itemMeta?.comingSoon == true) {
+                                    T("即将支持，暂不会自动运行", 11.sp, color = C.Mid)
                                 }
-                                Spacer(Modifier.weight(1f))
-                                if (index > 0) EditorIconButton(Ic.ArrowUp, "上移第${index + 1}项") {
-                                    state.moveItem(cmd.id, section, item.id, -1)
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                    TaskAuthorizationBadge(state, section, item) { destination ->
+                                        panel = null
+                                        onAuthorization(destination)
+                                    }
+                                    Spacer(Modifier.weight(1f))
+                                    if (index > 0) EditorIconButton(Ic.ArrowUp, "上移第${index + 1}项") {
+                                        state.moveItem(cmd.id, section, item.id, -1)
+                                    }
+                                    if (index < cmd.items(section).lastIndex) EditorIconButton(Ic.ArrowDown, "下移第${index + 1}项") {
+                                        state.moveItem(cmd.id, section, item.id, 1)
+                                    }
+                                    EditorIconButton(Ic.Trash, "删除第${index + 1}项") { state.removeItem(cmd.id, section, item.id) }
                                 }
-                                if (index < cmd.items(section).lastIndex) EditorIconButton(Ic.ArrowDown, "下移第${index + 1}项") {
-                                    state.moveItem(cmd.id, section, item.id, 1)
-                                }
-                                EditorIconButton(Ic.Trash, "删除第${index + 1}项") { state.removeItem(cmd.id, section, item.id) }
                             }
                         }
                     }
@@ -207,11 +215,16 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                     val activeTier = if (state.root?.granted == true) com.flowglass.engine.Tier.ROOT
                         else com.flowglass.engine.Tier.NORMAL
                     ComponentPicker(active.section, activeTier) { option ->
-                        state.addItem(cmd.id, active.section, option)
+                        when {
+                            active.parentId == null -> state.addItem(cmd.id, active.section, option)
+                            active.section == CommandSection.CONDITIONS ->
+                                state.addConditionItem(cmd.id, active.parentId, active.branch, option)
+                            else -> state.addChildItem(cmd.id, active.parentId, active.branch, option)
+                        }
                         panel = null
                     }
                 }
-                is EditorPanel.Parameter -> cmd.items(active.section).firstOrNull { it.id == active.itemId }?.let { item ->
+                is EditorPanel.Parameter -> state.itemById(cmd.id, active.itemId)?.let { item ->
                     ActionParameterEditor(active.section, item,
                         onParameter = { state.setItemParameter(cmd.id, active.section, item.id, it) },
                         onDone = { panel = null }, commandTitle = cmd.title,
@@ -225,7 +238,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
 
 internal sealed interface EditorPanel {
     data object Icons : EditorPanel
-    data class Add(val section: CommandSection) : EditorPanel
+    data class Add(val section: CommandSection, val parentId: Long? = null, val branch: Int? = null) : EditorPanel
     data class Parameter(val section: CommandSection, val itemId: Long) : EditorPanel
 }
 
@@ -273,4 +286,116 @@ internal fun Modifier.editorAction(label: String, action: () -> Unit): Modifier 
 internal fun EditorIconButton(ic: Ic, label: String, modifier: Modifier = Modifier, action: () -> Unit) {
     Box(modifier.size(48.dp).clip(Capsule()).background(C.Card).editorAction(label, action),
         contentAlignment = Alignment.Center) { LineIcon(ic, C.OnSurface, 22.dp) }
+}
+
+/**
+ * One task step and everything nested in it.
+ *
+ * C1 keeps this deliberately plain: indent + move/delete + "add step/condition" buttons. C2 adds
+ * folding, drag and the validation banner on top of the same tree.
+ */
+@Composable
+private fun ActionTreeRow(
+    state: AppState,
+    cmd: Cmd,
+    item: CommandItem,
+    depth: Int,
+    index: Int,
+    lastIndex: Int,
+    onPanel: (EditorPanel) -> Unit,
+) {
+    val meta = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
+    val block = meta?.block
+    val indent = (depth * 18).dp
+    Column(Modifier.fillMaxWidth().padding(start = indent), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(C.Tonal).padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            LineIcon(item.ic, C.Primary, 22.dp)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                T(item.name, 15.sp, FontWeight.SemiBold)
+                val summary = when {
+                    block == com.flowglass.engine.BlockKind.IF ->
+                        "条件 ${item.conditions.size} · 分支 ${item.branches.size} · 步骤 ${item.children.size}"
+                    block == com.flowglass.engine.BlockKind.LOOP ->
+                        "循环 ${item.children.size} 步" + if (item.conditions.isNotEmpty()) " · 条件 ${item.conditions.size}" else ""
+                    block == com.flowglass.engine.BlockKind.WAIT ->
+                        "等待条件 ${item.conditions.size}"
+                    block != null -> item.parameter
+                    else -> item.parameter
+                }
+                T(summary, 13.sp, color = C.OnSurfaceVar)
+            }
+            if (index > 0) EditorIconButton(Ic.ArrowUp, "上移${item.name}") {
+                state.moveItem(cmd.id, CommandSection.ACTIONS, item.id, -1)
+            }
+            if (index < lastIndex) EditorIconButton(Ic.ArrowDown, "下移${item.name}") {
+                state.moveItem(cmd.id, CommandSection.ACTIONS, item.id, 1)
+            }
+            EditorIconButton(Ic.Trash, "删除${item.name}") { state.removeItem(cmd.id, CommandSection.ACTIONS, item.id) }
+        }
+        item.conditions.forEachIndexed { conditionIndex, condition ->
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp).clip(RoundedRectangle(20.dp))
+                .background(C.Card).padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                T("条件", 11.sp, color = C.Muted)
+                Spacer(Modifier.width(8.dp))
+                T(if (condition.parameter.isEmpty()) condition.name else "${condition.name}：${condition.parameter}",
+                    13.sp, color = C.OnSurfaceVar, modifier = Modifier.weight(1f))
+                EditorIconButton(Ic.Trash, "删除条件${conditionIndex + 1}") {
+                    state.removeItem(cmd.id, CommandSection.CONDITIONS, condition.id)
+                }
+            }
+        }
+        item.children.forEachIndexed { childIndex, child ->
+            key(child.id) {
+                ActionTreeRow(state, cmd, child, depth + 1, childIndex, item.children.lastIndex, onPanel)
+            }
+        }
+        item.branches.forEachIndexed { branchIndex, branch ->
+            Column(Modifier.fillMaxWidth().padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    T(if (branch.conditions.isEmpty()) "否则" else "否则如果（${branch.conditions.size} 个条件）",
+                        12.sp, color = C.Mid, modifier = Modifier.weight(1f))
+                    EditorIconButton(Ic.Trash, "删除分支${branchIndex + 1}") {
+                        state.removeBranch(cmd.id, item.id, branchIndex)
+                    }
+                }
+                branch.conditions.forEach { condition ->
+                    T("· ${condition.name}${if (condition.parameter.isEmpty()) "" else "：${condition.parameter}"}",
+                        12.sp, color = C.OnSurfaceVar)
+                }
+                branch.children.forEachIndexed { childIndex, child ->
+                    key(child.id) {
+                        ActionTreeRow(state, cmd, child, depth + 1, childIndex, branch.children.lastIndex, onPanel)
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    EditorPill("＋步骤", "向该分支添加步骤") {
+                        onPanel(EditorPanel.Add(CommandSection.ACTIONS, item.id, branchIndex))
+                    }
+                    if (branch.conditions.isNotEmpty()) EditorPill("＋条件", "向该分支添加条件") {
+                        onPanel(EditorPanel.Add(CommandSection.CONDITIONS, item.id, branchIndex))
+                    }
+                }
+            }
+        }
+        when (block) {
+            com.flowglass.engine.BlockKind.IF, com.flowglass.engine.BlockKind.LOOP, com.flowglass.engine.BlockKind.WAIT -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (block != com.flowglass.engine.BlockKind.WAIT) EditorPill("＋步骤", "向${item.name}添加步骤") {
+                        onPanel(EditorPanel.Add(CommandSection.ACTIONS, item.id))
+                    }
+                    EditorPill("＋条件", "向${item.name}添加条件") {
+                        onPanel(EditorPanel.Add(CommandSection.CONDITIONS, item.id))
+                    }
+                    if (block == com.flowglass.engine.BlockKind.IF) {
+                        EditorPill("＋否则如果", "添加否则如果") { state.addBranch(cmd.id, item.id, withCondition = true) }
+                        EditorPill("＋否则", "添加否则") { state.addBranch(cmd.id, item.id, withCondition = false) }
+                    }
+                }
+            }
+            else -> Unit
+        }
+    }
 }

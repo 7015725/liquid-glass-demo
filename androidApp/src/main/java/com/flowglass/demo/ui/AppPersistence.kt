@@ -168,6 +168,7 @@ internal class PersistedAppState(
     val running: Boolean, val mode: Int,
     engineRules: List<Rule> = emptyList(),
     val engineUi: RuleUiMetadata = RuleUiMetadata(running = running, mode = mode),
+    val engineGlobals: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap(),
 ) {
     val autoCmds = immutableCommands(autoCmds)
     val oneTaps = immutableCommands(oneTaps)
@@ -176,16 +177,35 @@ internal class PersistedAppState(
 
     override fun equals(other: Any?): Boolean = other is PersistedAppState &&
         autoCmds == other.autoCmds && oneTaps == other.oneTaps && logs == other.logs &&
-        running == other.running && mode == other.mode && engineRules == other.engineRules
-    override fun hashCode(): Int = listOf(autoCmds, oneTaps, logs, running, mode, engineRules).hashCode()
+        running == other.running && mode == other.mode && engineRules == other.engineRules &&
+        engineGlobals == other.engineGlobals
+    override fun hashCode(): Int =
+        listOf(autoCmds, oneTaps, logs, running, mode, engineRules, engineGlobals).hashCode()
 }
 
 private fun <T> immutableList(values: List<T>): List<T> = Collections.unmodifiableList(ArrayList(values))
 private fun immutableCommands(commands: List<Cmd>) = immutableList(commands.map {
-    it.copy(triggers = immutableList(it.triggers), conditions = immutableList(it.conditions), actions = immutableList(it.actions))
+    it.copy(
+        triggers = immutableList(it.triggers.map(::immutableItem)),
+        conditions = immutableList(it.conditions.map(::immutableItem)),
+        actions = immutableList(it.actions.map(::immutableItem)),
+    )
 })
 
-internal fun AppState.snapshot() = PersistedAppState(autoCmds, oneTaps, logs, running, mode, engineRules, engineUi)
+private fun immutableItem(item: CommandItem): CommandItem = item.copy(
+    children = immutableList(item.children.map(::immutableItem)),
+    conditions = immutableList(item.conditions.map(::immutableItem)),
+    branches = immutableList(item.branches.map { branch ->
+        branch.copy(
+            children = immutableList(branch.children.map(::immutableItem)),
+            conditions = immutableList(branch.conditions.map(::immutableItem)),
+        )
+    }),
+)
+
+internal fun AppState.snapshot() = PersistedAppState(
+    autoCmds, oneTaps, logs, running, mode, engineRules, engineUi, engineGlobals,
+)
 
 internal object AppStateJson {
     /** [backupName] names the pre-migration copy; it is per source format so upgrades never collide. */
@@ -195,7 +215,18 @@ internal object AppStateJson {
         val backupName: String? = null,
     )
 
-    fun encode(state: PersistedAppState): String = RuleJson.encode(state.toRuleDocument())
+    fun encode(state: PersistedAppState): String {
+        val document = state.toRuleDocument()
+        // Cycles, missing targets and too-deep chains are structural: never write them to disk.
+        // Loading stays tolerant so the user can open the editor and repair them.
+        val fatal = com.flowglass.engine.RuleValidator
+            .validateDocument(document, com.flowglass.engine.BuiltInComponents.registry())
+            .filter {
+                it.message.contains("成环") || it.message.contains("不存在") || it.message.contains("调用层级")
+            }
+        require(fatal.isEmpty()) { fatal.joinToString("；") { it.message } }
+        return RuleJson.encode(document)
+    }
 
     fun decode(text: String): PersistedAppState {
         checkNesting(text)
@@ -215,7 +246,14 @@ internal object AppStateJson {
                     migrated = true,
                     backupName = "commands.preview-v2.bak.json",
                 )
-            } else Decoded(RuleJson.decode(text).toPersistedAppState(), migrated = false)
+            } else {
+                val decoded = RuleJson.decodeWithMigration(text)
+                Decoded(
+                    decoded.document.toPersistedAppState(),
+                    migrated = decoded.migratedFrom != null,
+                    backupName = if (decoded.migratedFrom == 2) "commands.v2.bak.json" else null,
+                )
+            }
         } else {
             val document = LegacyCommandMigration.migrate(text)
             Decoded(document.toPersistedAppState(), migrated = true, backupName = "commands.v1.bak.json")
@@ -235,7 +273,7 @@ internal object AppStateJson {
                 else if (char == quote) quote = '\u0000'
             } else when (char) {
                 '"', '\'' -> quote = char
-                '{', '[' -> { depth++; require(depth <= 16) { "存储嵌套过深" } }
+                '{', '[' -> { depth++; require(depth <= 256) { "存储嵌套过深" } }
                 '}', ']' -> depth--
             }
         }

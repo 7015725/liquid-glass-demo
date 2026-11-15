@@ -36,8 +36,8 @@ data class Cmd(
     val descriptionEdited: Boolean = true,
 ) {
     val meta: String
-        get() = if (auto) "触发器 ${triggers.size} · 条件 ${conditions.size} · 任务 ${actions.size}"
-        else "任务 ${actions.size} 项"
+        get() = if (auto) "触发器 ${triggers.size} · 条件 ${conditions.size} · 任务 ${actions.allItems().size}"
+        else "任务 ${actions.allItems().size} 项"
 }
 
 private fun Cmd.automaticDescription(): String {
@@ -65,7 +65,8 @@ fun newId(): Long {
 @Synchronized
 private fun reserveIds(saved: PersistedAppState) {
     val maximum = ((saved.autoCmds + saved.oneTaps).flatMap { cmd ->
-        listOf(cmd.id) + (cmd.triggers + cmd.conditions + cmd.actions).map { it.id }
+        listOf(cmd.id) + (cmd.triggers + cmd.conditions).allItems().map { it.id } +
+            cmd.actions.allItems().map { it.id }
     } + saved.logs.map { it.id } + saved.logs.flatMap { log -> log.steps.map { it.itemId } }).maxOrNull() ?: 0L
     require(maximum < Long.MAX_VALUE) { "存储标识超出范围" }
     nextId = maxOf(nextId, maximum + 1)
@@ -148,11 +149,63 @@ private fun seedOneTap() = listOf(
 class AppState internal constructor(saved: PersistedAppState?) {
     constructor() : this(null)
     private var executionEngine: com.flowglass.demo.system.exec.ExecutionEngine? = null
-    fun bindExecutionContext(context: android.content.Context) {
-        executionEngine = com.flowglass.demo.system.exec.ExecutionRuntime.engine(context)
-    }
+    fun bindExecutionContext(context: android.content.Context) =
+        bindExecutionEngine(com.flowglass.demo.system.exec.ExecutionRuntime.engine(context))
+
     internal fun bindExecutionEngine(engine: com.flowglass.demo.system.exec.ExecutionEngine) {
         executionEngine = engine
+        // Async run_rule starts a normal AppState run: its own log row, job, stop button and budget.
+        engine.ruleLookup = { target ->
+            (autoCmds + oneTaps).firstOrNull { it.title.trim() == target.trim() }
+        }
+        engine.ruleResolver = { cmdId ->
+            val ruleId = engineUi.presentation.entries.firstOrNull { it.value.legacyId == cmdId }?.key
+            engineRules.firstOrNull { it.id == ruleId }
+        }
+        engine.ruleLauncher = { target, reason, vars ->
+            val cmd = (autoCmds + oneTaps).firstOrNull { it.title.trim() == target.trim() }
+            if (cmd == null) com.flowglass.engine.ActionOutcome(
+                com.flowglass.engine.StepStatus.FAILURE, "找不到指令：$target",
+            ) else if (executing.containsKey(cmd.id)) com.flowglass.engine.ActionOutcome(
+                com.flowglass.engine.StepStatus.FAILURE, "「$target」正在运行，已跳过本次调用",
+            ) else {
+                com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch {
+                    execute(cmd, com.flowglass.demo.system.exec.ExecutionRuntime.scope, reason, vars)
+                }
+                com.flowglass.engine.ActionOutcome(com.flowglass.engine.StepStatus.SUCCESS, "已发起「$target」")
+            }
+        }
+        engine.variableWriter = { ruleId, ruleWrites, globalWrites ->
+            com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                applyVariableWrites(ruleId, ruleWrites, globalWrites)
+            }
+        }
+    }
+
+    /** Merge-by-key write-back: keys the run never touched keep their stored value. */
+    private fun applyVariableWrites(ruleId: String, ruleWrites: Map<String, Any?>, globalWrites: Map<String, Any?>) {
+        if (ruleWrites.isNotEmpty()) {
+            engineRules = engineRules.map { rule ->
+                if (rule.id != ruleId) rule else {
+                    var locals = rule.locals
+                    for ((name, value) in ruleWrites) {
+                        val text = value?.toString().orEmpty()
+                        val index = locals.indexOfFirst { it.name == name }
+                        locals = if (index >= 0) locals.toMutableList().also {
+                            it[index] = it[index].copy(initial = kotlinx.serialization.json.JsonPrimitive(text))
+                        } else locals + com.flowglass.engine.LocalVariable(
+                            name = name, type = "text", initial = kotlinx.serialization.json.JsonPrimitive(text),
+                        )
+                    }
+                    rule.copy(locals = locals)
+                }
+            }
+        }
+        if (globalWrites.isNotEmpty()) {
+            engineGlobals = engineGlobals + globalWrites.mapValues {
+                kotlinx.serialization.json.JsonPrimitive(it.value?.toString().orEmpty())
+            }
+        }
     }
 
     var editing by mutableStateOf<Long?>(null)
@@ -162,6 +215,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
     var actionEditing by mutableStateOf<Long?>(null)
     var storageError by mutableStateOf<String?>(null)
     internal var engineRules by mutableStateOf(saved?.engineRules.orEmpty())
+    internal var engineGlobals by mutableStateOf(saved?.engineGlobals.orEmpty())
     internal var engineUi by mutableStateOf(saved?.engineUi ?: com.flowglass.engine.RuleUiMetadata())
     fun openEditor(id: Long) { if (find(id) != null) editing = id }
     fun closeEditor() {
@@ -177,6 +231,49 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun setTitle(id: Long, text: String) = update(id) { it.copy(title = text) }
     fun setDescription(id: Long, text: String) = update(id) { it.copy(desc = text, descriptionEdited = true) }
     fun setIcon(id: Long, ic: Ic) = update(id) { it.copy(ic = ic) }
+    /** Appends a step inside a container (if then / loop body / branch body). */
+    fun addChildItem(cmdId: Long, parentId: Long, branch: Int?, option: CommandOption) =
+        editActions(cmdId) { items ->
+            items.updateItem(parentId) { parent ->
+                val child = CommandItem(newId(), option.name, option.defaultParameter, option.ic, option.typeId)
+                if (branch == null) parent.copy(children = parent.children + child)
+                else parent.copy(branches = parent.branches.mapIndexed { index, b ->
+                    if (index == branch) b.copy(children = b.children + child) else b
+                })
+            }
+        }
+
+    /** Adds a condition to if/while/wait; [branch] null means the block's own condition list. */
+    fun addConditionItem(cmdId: Long, parentId: Long, branch: Int?, option: CommandOption) =
+        editActions(cmdId) { items ->
+            items.updateItem(parentId) { parent ->
+                val condition = CommandItem(newId(), option.name, option.defaultParameter, option.ic, option.typeId)
+                if (branch == null) parent.copy(conditions = parent.conditions + condition)
+                else parent.copy(branches = parent.branches.mapIndexed { index, b ->
+                    if (index == branch) b.copy(conditions = b.conditions + condition) else b
+                })
+            }
+        }
+
+    /** Appends an else-if (with its own condition) or a plain else branch. */
+    fun addBranch(cmdId: Long, parentId: Long, withCondition: Boolean) = editActions(cmdId) { items ->
+        items.updateItem(parentId) { parent ->
+            val branch = CommandBranch()
+            parent.copy(branches = parent.branches + branch)
+        }
+    }
+
+    fun removeBranch(cmdId: Long, parentId: Long, branch: Int) = editActions(cmdId) { items ->
+        items.updateItem(parentId) { parent ->
+            parent.copy(branches = parent.branches.filterIndexed { index, _ -> index != branch })
+        }
+    }
+
+    private fun editActions(cmdId: Long, change: (List<CommandItem>) -> List<CommandItem>) =
+        update(cmdId) { cmd -> cmd.copy(actions = change(cmd.actions)).let { updated ->
+            if (updated.descriptionEdited) updated else updated.copy(desc = updated.automaticDescription())
+        } }
+
     fun addItem(cmdId: Long, section: CommandSection, option: CommandOption) {
         editItems(cmdId, section) { it + CommandItem(newId(), option.name, option.defaultParameter, option.ic, option.typeId) }
         if (section == CommandSection.TRIGGERS) update(cmdId) {
@@ -198,21 +295,16 @@ class AppState internal constructor(saved: PersistedAppState?) {
         }
 
     fun setItemOnError(cmdId: Long, section: CommandSection, itemId: Long, onError: com.flowglass.engine.OnError) =
-        editItems(cmdId, section) { items -> items.map { if (it.id == itemId) it.copy(onError = onError) else it } }
+        editItems(cmdId, section) { items -> items.updateItem(itemId) { it.copy(onError = onError) } }
 
     fun setItemParameter(cmdId: Long, section: CommandSection, itemId: Long, text: String) =
-        editItems(cmdId, section) { items -> items.map { if (it.id == itemId) it.copy(parameter = text) else it } }
+        editItems(cmdId, section) { items -> items.updateItem(itemId) { it.copy(parameter = text) } }
 
     fun moveItem(cmdId: Long, section: CommandSection, itemId: Long, delta: Int) =
-        editItems(cmdId, section) { items ->
-            val from = items.indexOfFirst { it.id == itemId }
-            val to = from.toLong() + delta.toLong()
-            if (from < 0 || to !in 0L until items.size.toLong()) items
-            else items.toMutableList().apply { add(to.toInt(), removeAt(from)) }
-        }
+        editItems(cmdId, section) { items -> items.moveItem(itemId, delta) }
 
     fun removeItem(cmdId: Long, section: CommandSection, itemId: Long) =
-        editItems(cmdId, section) { items -> items.filterNot { it.id == itemId } }
+        editItems(cmdId, section) { items -> items.removeItem(itemId) }
 
     private fun editItems(id: Long, section: CommandSection, change: (List<CommandItem>) -> List<CommandItem>) =
         update(id) { cmd ->
@@ -243,6 +335,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
     val oneTaps = mutableStateListOf<Cmd>().apply { addAll(saved?.oneTaps ?: seedOneTap()) }
     var autoFilter by mutableIntStateOf(0)
     private val executionTokens = mutableMapOf<Long, Any>()
+    private val executionJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
     val executing = mutableStateMapOf<Long, Int>() // id -> 1 running, 2 done, 3 failed
     val executionMessages = mutableStateMapOf<Long, String>()
     val logs = mutableStateListOf<RunLog>().apply { addAll(saved?.logs.orEmpty()) }
@@ -255,7 +348,21 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun matches(c: Cmd): Boolean {
         val q = query?.trim().orEmpty()
         return q.isEmpty() || c.title.contains(q, true) || c.desc.contains(q, true) ||
-            (c.triggers + c.conditions + c.actions).any { it.display.contains(q, true) }
+            (c.triggers + c.conditions + c.actions).allItems().any { it.display.contains(q, true) }
+    }
+
+    fun itemById(cmdId: Long, id: Long): CommandItem? = find(cmdId)?.let {
+        (it.triggers + it.conditions + it.actions).findItem(id)
+    }
+
+    /** Cancels a running execution; the job records no result, matching a manual stop. */
+    fun stopExecution(cmdId: Long) {
+        val cmd = find(cmdId) ?: return
+        executionJobs.remove(cmdId)?.cancel()
+        executing[cmdId] = 0
+        executionMessages[cmdId] = "已手动停止"
+        logs.add(0, RunLog(newId(), cmd.title, "手动停止", now(), false, cmd.ic, "已手动停止", emptyList(), skipped = true))
+        if (logs.size > 50) logs.removeAt(logs.lastIndex)
     }
 
     // overlays
@@ -333,7 +440,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         executionTokens[cmd.id] = token
         executionMessages.remove(cmd.id)
         executing[cmd.id] = 1
-        return com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch {
+        val job = com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch {
             try {
                 val result = try {
                     engine?.run(cmd, reason, variables) ?: com.flowglass.demo.system.exec.RunResult(
@@ -375,6 +482,9 @@ class AppState internal constructor(saved: PersistedAppState?) {
                 }
             }
         }
+        executionJobs[cmd.id] = job
+        job.invokeOnCompletion { if (executionJobs[cmd.id] === job) executionJobs.remove(cmd.id) }
+        return job
     }
 
     /** A condition/support failure is visible in the same list but never counts as an execution. */

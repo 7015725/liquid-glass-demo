@@ -260,7 +260,7 @@ object ParameterCodec {
     /** Checks declared values, not completeness: incomplete editor drafts can omit keys. */
     fun validateDocument(document: RuleDocument) {
         val metadata = BuiltInComponents.all.associateBy { it.typeId }
-        for (rule in document.rules) for (component in rule.triggers + rule.conditions + rule.actions) {
+        fun walk(component: RuleComponent) {
             if (component.type == "action.post_notification") {
                 val title = component.params["title"]
                 require(title == null || title is JsonPrimitive && title.isString && '|' !in title.content) {
@@ -270,6 +270,12 @@ object ParameterCodec {
             metadata[component.type]?.params?.forEach { spec ->
                 component.params[spec.key]?.let { validate(spec, it) }
             }
+            component.conditions.forEach(::walk)
+            component.children.forEach(::walk)
+            component.branches.forEach { branch -> branch.children.forEach(::walk) }
+        }
+        for (rule in document.rules) {
+            (rule.triggers + rule.conditions + rule.actions).forEach(::walk)
         }
     }
 

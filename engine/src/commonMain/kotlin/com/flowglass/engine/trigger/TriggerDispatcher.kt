@@ -57,69 +57,27 @@ object TriggerConditions {
         environment: TriggerEnvironment,
         nowEpochMs: Long,
         zoneOffsetMinutes: Int,
+        variables: Map<String, Any?> = emptyMap(),
     ): ConditionOutcome {
         if (conditions.isEmpty()) return ConditionOutcome(true)
+        val conditionEnvironment = object : com.flowglass.engine.ConditionEnvironment {
+            override fun zoneOffsetMinutes(atEpochMs: Long): Int = environment.zoneOffsetMinutes(atEpochMs)
+            override fun batteryPercent(): Int? = environment.batteryPercent()
+            override fun isCharging(): Boolean = environment.isCharging()
+            override fun isScreenOn(): Boolean = environment.isScreenOn()
+            override fun isDndOn(): Boolean? = environment.isDndOn()
+            override fun networkType(): NetworkType = environment.networkType()
+        }
         val failed = conditions.mapNotNull { condition ->
-            if (check(condition, environment, nowEpochMs, zoneOffsetMinutes)) null else condition.name
+            val passed = com.flowglass.engine.Conditions.evaluate(
+                com.flowglass.engine.RuleComponent(condition.typeId, condition.params),
+                variables,
+                conditionEnvironment,
+                nowEpochMs,
+            )
+            if (passed) null else condition.name
         }
         return ConditionOutcome(failed.isEmpty(), failed)
-    }
-
-    private fun check(
-        condition: TriggerComponent,
-        environment: TriggerEnvironment,
-        nowEpochMs: Long,
-        zoneOffsetMinutes: Int,
-    ): Boolean = when (condition.typeId) {
-        "condition.time_range" -> {
-            val range = condition.params["range"] as? JsonObject
-            val from = range?.get("from")?.jsonPrimitive?.content ?: return false
-            val to = range["to"]?.jsonPrimitive?.content ?: return false
-            val now = TriggerSchedule.localTime(nowEpochMs, zoneOffsetMinutes)
-            if (from <= to) now >= from && now < to else now >= from || now < to
-        }
-        "condition.weekday" -> {
-            val mode = condition.params["days"]?.stringValue() ?: return false
-            val weekday = TriggerMatcher.isoWeekday(nowEpochMs, zoneOffsetMinutes)
-            when (mode) {
-                "everyday" -> true
-                "workday" -> weekday in 1..5
-                "weekend" -> weekday in 6..7
-                else -> false
-            }
-        }
-        "condition.battery_range" -> {
-            val range = condition.params["range"] as? JsonObject ?: return false
-            val min = range["min"]?.jsonPrimitive?.intOrNull ?: return false
-            val max = range["max"]?.jsonPrimitive?.intOrNull ?: return false
-            val level = environment.batteryPercent() ?: return false
-            level in min..max
-        }
-        "condition.charging" -> when (condition.params["state"]?.stringValue()) {
-            "charging" -> environment.isCharging()
-            "not_charging" -> !environment.isCharging()
-            else -> false
-        }
-        "condition.screen_state" -> when (condition.params["state"]?.stringValue()) {
-            "on" -> environment.isScreenOn()
-            "off" -> !environment.isScreenOn()
-            else -> false
-        }
-        "condition.dnd_state" -> {
-            val dnd = environment.isDndOn() ?: return false
-            when (condition.params["state"]?.stringValue()) {
-                "on" -> dnd
-                "off" -> !dnd
-                else -> false
-            }
-        }
-        "condition.network_type" -> when (condition.params["network"]?.stringValue()) {
-            "wifi" -> environment.networkType() == NetworkType.WIFI
-            "mobile" -> environment.networkType() == NetworkType.MOBILE
-            "none" -> environment.networkType() == NetworkType.NONE
-            else -> false
-        }
-        else -> false
     }
 }
 
@@ -173,7 +131,7 @@ class TriggerDispatcher(
                 dropped++
                 continue
             }
-            val conditions = TriggerConditions.evaluate(rule.conditions, environment, now, offset)
+            val conditions = TriggerConditions.evaluate(rule.conditions, environment, now, offset, variablesOf(event))
             if (!conditions.passed) {
                 val detail = conditions.detail
                 val previous = lastSkipLog[rule.id]
@@ -230,3 +188,7 @@ class TriggerDispatcher(
         return variables
     }
 }
+
+/** Event data is visible to conditions as event.time / event.battery / ... */
+private fun variablesOf(event: TriggerEvent): Map<String, Any?> =
+    event.data.mapKeys { (key, _) -> "event.$key" }

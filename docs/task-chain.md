@@ -13,7 +13,7 @@ C2（编辑器界面）两个 PR，C2 基于 C1。
 | 存储 | **嵌套树**（`children` / `branches`），格式版本升到 3；平铺标记不采用 |
 | 迁移 | 读 v2 → 包成单个根序列 → 写 v3；沿用 `LegacyFileMigration` 的 `commands.v2.bak.json` |
 | 执行器 | `RuleExecutor` 内部改成递归解释器，外层签名不变；共享 `RunBudget` |
-| 上限 | 1000 次/循环、10000 步/运行（跨调用累计）、5 层调用深度、保存时环检测、10 分钟墙钟 |
+| 上限 | 1000 次/循环、10000 步/运行（跨调用累计）、5 层调用深度、保存时环检测；不设墙钟，长跑由用户停止 |
 | 停止 | 每次运行持有 `Job`，取消即触发 `CancellationCheckpoint`；日志记「已手动停止」而非失败 |
 | 条件 | 抽出 `ConditionEvaluator` 给触发器和块共用，新增 `condition.var_compare` |
 | 变量 | 运行级 `RunContext.variables`、指令级 `Rule.locals`、全局 `RuleDocument.globals`，用 `run./rule./global.` 前缀区分 |
@@ -135,14 +135,14 @@ data class RuleBranch(
 `RuleExecutor.run(rule, reason, initialVariables)` 的对外签名保持不变，内部把「for 循环」换成：
 
 ```
-run(): budget = RunBudget(10_000 步, 10 分钟)
+run(): budget = RunBudget(10_000 步)
        ctx = RunContext(rule, reason, vars)
        root = rule.actions
        outcome = execSequence(root, depth = 0)
 
 execSequence(nodes, depth):
   for node in nodes:
-    budget.ensureAlive()                 // 步数/墙钟；超限抛 BudgetExceeded
+    budget.ensureAlive()                 // 步数；超限抛 BudgetExceeded
     checkpoint.ensureActive()            // 手动停止 + 协程取消
     when kind(node):
       STEP  -> 现有动作分支（参数展开、执行、RETRY、output 写回）
@@ -156,8 +156,8 @@ execSequence(nodes, depth):
 
 - 失败语义沿用 v1：步骤失败且 `onError != CONTINUE` 时，**当前序列**停止，块以
   `FAILURE` 返回给父序列；父块自己的 `onError` 再决定「停 / 继续 / 重试一次」。
-- `RETRY` 仍然是「失败后立即重试一次」。块级 `RETRY` = 整块重跑一次，文档和 UI 都要标注
-  「可能重复副作用」，默认仍是 `STOP`。
+- `RETRY` 只保留在**步骤级**（失败后立即重试一次）；块级 `onError` 只允许 `STOP` / `CONTINUE`，
+  避免整块重跑放大副作用。
 - `SKIPPED` 不计失败：`if` 条件全不成立且没有 `else` → 整块 `SKIPPED("没有命中的分支")`；
   `loop` 次数为 0 → `SKIPPED("循环体未执行")`。
 - 取消（手动停止）不写终态：`CancellationException` 一路抛出，由外层包装成
@@ -168,15 +168,13 @@ execSequence(nodes, depth):
 | 上限 | 位置 | 计数方式 | 超限行为 |
 | --- | --- | --- | --- |
 | 循环 1000 次 | 每个 loop 节点 | 每轮 +1（嵌套循环各自计数） | 该块 `FAILURE("超过单循环 1000 次")` |
-| 10000 步/运行 | `RunBudget` | 每执行一个节点 +1，含块头、`wait` 的每次轮询、被调用指令的全部步骤 | 整次运行 `FAILURE("超过单次运行 10000 步")`，剩余步骤不再执行 |
+| 10000 步/运行 | `RunBudget` | 每执行一个节点 +1，含块头、`wait`（整个等待只计 1 步）、被调用指令的全部步骤 | 整次运行 `FAILURE("超过单次运行 10000 步")`，剩余步骤不再执行 |
 | 5 层调用 | `RuleCaller` | 直接调用 = 1；被调用指令再调 = 2 | `FAILURE("调用层级超过 5 层")` |
 | 环 | 保存 + 加载 | 见 2.5 | 保存拒绝；加载时该规则标记非法并禁用 |
-| 墙钟 10 分钟 | `RunBudget` | 单调时钟 | 同 10000 步，`FAILURE("运行超过 10 分钟")` |
 
-`wait` 的轮询每次计一步，是为了防止「条件永不成立 + 超时参数被写成很大」把执行器拖死。
-需要注意：单次运行有 10 分钟墙钟上限，所以 `wait` 的 30 分钟超时实际上最多只能等约 10 分钟；
-要么把 `wait` 的 timeout 上限也压到 10 分钟，要么在文档里明确「整条任务最多跑 10 分钟」。
-本文按后者：30 分钟是参数允许值，但会被运行墙钟提前截断，错误文案写「运行超过 10 分钟」。
+`wait` 整个等待只计 1 步（每次轮询不再计步），超时范围 1 秒–1 小时；轮询间隔 250ms–5 秒，
+**每次轮询前**都调用 `checkpoint.ensureActive()`，所以等待期间也能被手动停止。不设运行墙钟：
+防死循环靠 10000 步上限，长时间运行由用户停止。
 
 ### 2.3 手动停止
 
@@ -189,7 +187,8 @@ execSequence(nodes, depth):
 - 触发器发起的运行走同一个 `execute()`，所以历史面板也能停。
 - 取消是协作式的：`RuleExecutor` 在每个节点、每轮循环、每次 `wait` 轮询前调用
   `checkpoint.ensureActive()`；阻塞型动作（Shell/HTTP）已有的 `BoundedProcess` 会响应取消并杀进程组。
-- 指令串联：父运行被取消时，`RuleCaller` 用 `coroutineScope` 结构化并发，子运行一起取消。
+- 指令串联：`wait = true` 的子运行用 `coroutineScope` 结构化并发，父运行取消时一起取消；
+  `wait = false` 的子运行是独立任务（见 2.5），父运行取消不影响它。
 
 ### 2.4 日志
 
@@ -205,16 +204,19 @@ execSequence(nodes, depth):
 
 - 新动作 `action.run_rule`：`rule` 选目标指令，`wait = true`（默认，等执行完再继续）/
   `false`（发起后立即继续）。
-- 同步调用：子运行用**共享的 `RunBudget`**（步数/墙钟累计）和 `depth + 1`；子运行状态映射为
-  父步骤结果：成功 → SUCCESS，失败/超时 → FAILURE（父块的 `onError` 生效）。
-- 异步调用：`launch` 一个独立运行（自己的 budget，但仍 `depth + 1`，仍参与环检测），父步骤
-  立即 SUCCESS，日志写「已发起」；父运行被取消时子运行一并取消。
+- 同步调用（`wait = true`）：子运行用**共享的 `RunBudget`**（步数累计）和 `depth + 1`，
+  结构化并发；子运行状态映射为父步骤结果：成功 → SUCCESS，失败/超时 → FAILURE（父块的
+  `onError` 生效）。
+- 异步调用（`wait = false`）：通过 `AppState.execute` 发起一次**独立运行**——独立执行记录、
+  独立 `Job` 与停止按钮、独立步数预算；父步骤立即 SUCCESS（日志「已发起」），父运行结束或
+  取消都不影响它。`depth` 仍然 +1，并参与环检测。
 - 变量：子运行拿父运行变量的**只读快照**，自己写自己的 `run.` 作用域，不回传（v1 不做返回值）。
 - 环检测：把每个 `action.run_rule` 当成有向边，`TaskChainValidator` 在**保存时**做 DFS
   （含 `wait = false` 的边，异步也能无限递归），发现环返回
   `ValidationIssue(path, "指令调用形成环：A → B → C → A")`，保存直接拒绝；自调用算环。
 - 加载时同样跑一次校验（防止手工改文件/旧版本写入）：环上的规则 `enabled = false` 并打
   「调用成环」标记，不会执行，但数据保留。
+- 被调用指令**只执行它的动作**，不检查它自己的触发器和条件；允许跨「自动指令 / 一键指令」调用。
 - 目标不存在：保存时是**警告**（允许先存草稿），运行时该步骤 `FAILURE("目标指令不存在")`。
 
 ## 3. 条件与变量
@@ -235,8 +237,9 @@ interface ConditionEvaluator {
 ```
 
 - 触发器路径：`TriggerConditions.evaluate` 改为调用同一个 `evaluate`，行为不变（回归测试锁住）。
-- 任务路径：块条件传当前 `RunContext.variables`，所以能读 `run.` 变量；触发器路径传空表。
-  （不传整个 `RunContext`，因为触发器侧没有 Rule，避免为了复用造一个假 Rule。）
+- 任务路径：块条件传当前 `RunContext.variables`，所以能读 `run.` 变量。
+- 触发器路径：传入事件变量（`event.*`，如 `event.time`、`event.battery`），条件里可以直接用
+  `%{event.battery}`；不传整个 `RunContext`，因为触发器侧没有 Rule。
 - 现有 5 个条件之外，`condition.dnd_state` / `condition.network_type` 目前是 `comingSoon = true`
   （编辑器不可选，引擎里也恒为 false）。块的条件列表要沿用同一过滤，不把 `comingSoon` 组件放进去；
   否则会出现「选了但永远不成立」。补实现留到后续 PR。
@@ -248,16 +251,16 @@ interface ConditionEvaluator {
 | 作用域 | 语法 | 存储 | 生命周期 | 上限 |
 | --- | --- | --- | --- | --- |
 | 运行级 | `%{run.x}`，裸 `%{x}` 等价 | `RunContext.variables`（内存） | 一次运行；串联调用时子运行拿只读快照 | 100 个键 |
+| 事件级（只读） | `%{event.x}` | 触发器事件数据（`time`、`battery`、`wifi` 等） | 单次触发；运行期间不变 | — |
 | 指令级 | `%{rule.x}` | `Rule.locals`（commands.json） | 跨运行保留；`resetEachRun = true` 时每次运行重置为 `initial` | 50 个键/规则 |
 | 全局 | `%{global.x}` | `RuleDocument.globals: Map<String, JsonElement>` | 跨规则、跨运行；设置页可清空 | 100 个键、总计 16KB |
 
 - 裸 `%{x}` 继续解析到运行级，保证 v1 的 `%{last}`、`%{shell.stdout}`、`%{http.body}` 不变。
 - `Rule.locals` 字段已经存在（`name/type/initial/resetEachRun`），执行器目前完全没用；本次把它
   接进 `RunContext` 的初始化：运行开始时按 `locals` 建表，`resetEachRun` 决定是否覆盖。
-- 指令级变量的写回发生在运行**正常结束**时（一次 `CommandStore.save`）；手动停止/崩溃不写回，
-  避免「停在一半留下半套状态」。
-- 全局变量同样只在正常结束时写回；`action.set_var` 的 `name` 允许带前缀
-  （`global.x` / `rule.x`），不带前缀默认写运行级。
+- 指令级与全局变量在运行结束时写回（**成功或失败都写**，手动停止不写，崩溃不写）；写回按
+  键合并到现有值，不整表覆盖，避免把并发运行刚写入的键抹掉。
+- `action.set_var` 的 `name` 允许带前缀（`global.x` / `rule.x`），不带前缀默认写运行级。
 - 变量名规则沿用 `%{name}`：`A-Za-z0-9_.-`，大小写敏感；三种作用域重名互不覆盖（前缀不同）。
 
 ## 4. 编辑页
@@ -318,10 +321,12 @@ interface ConditionEvaluator {
 
 1. 数据模型 v3（`children` / `branches` / `conditions` / `globals`）+ 迁移 + `.bak` 备份 +
    sidecar 改 id 映射。
-2. 递归执行器：块语义、`RunBudget`、`BreakSignal`/`StopSignal`、日志 `path/nodeId`、
-   `ExecutionEngine` 反查修正。
-3. 条件：`ConditionEvaluator` 抽取 + `condition.var_compare` + 三个作用域的初始化/写回。
-4. 串联：`action.run_rule`（同步/异步）+ `RuleCaller` + 保存/加载环检测 + 深度限制。
+2. 递归执行器：块语义、`RunBudget`（只计步数，无墙钟）、`BreakSignal`/`StopSignal`、
+   日志 `path/nodeId`、`ExecutionEngine` 反查修正；块级 `onError` 只有 STOP / CONTINUE。
+3. 条件：`ConditionEvaluator` 抽取 + `condition.var_compare` + 事件变量 + 四个作用域的初始化/写回
+   （运行级 / 事件级 / 指令级 / 全局；结束时按键合并）。
+4. 串联：`action.run_rule` 同步（共享预算 + 结构化并发）与异步（独立 `AppState.execute` 运行）
+   + `RuleCaller` + 保存/加载环检测 + 深度限制。
 5. 手动停止的引擎侧（取消语义、日志「已手动停止」）与 `AppState.runs` + 停止按钮（最小界面：
    列表行内出现「停止」）。
 6. 最小编辑器：块类型注册进组件表，添加面板能插入块、缩进显示、上下移/删除；暂不做折叠和拖动。
@@ -360,7 +365,7 @@ interface ConditionEvaluator {
 ## 6. 测试与验收
 
 - 每个 PR 的 CI 门槛与现在一致：engine + androidApp 单测、`lintRelease`、release APK。
-- 新增测试不依赖真实时间：`Clock` 注入 + 虚拟时间推进；`wait` 用 250ms 轮询在测试里改成 1ms。
+- 新增测试不依赖真实时间：`Clock` 注入 + 虚拟时间推进；`wait` 的轮询在测试里降到 1ms（整个等待仍只计 1 步）。
 - 上限测试用小预算版本（`RunBudget(maxSteps = 10)`）验证计数与错误文案，避免跑一万步。
 - 迁移测试必须覆盖：v2 原文件字节完全不变、`.bak.json` 内容等于原文件、迁移后可回读、
   二次启动不再重复迁移。
@@ -371,15 +376,17 @@ interface ConditionEvaluator {
 1. **迁移 + sidecar 改形**：v2→v3 理论上只是加默认字段，但 `RulePresentation` 从列表改成 map
    会碰所有保存路径；一旦漏掉某个保存入口，可能出现「规则在、图标丢」。缓解：迁移用现有
    `backupBeforeWrite`、sidecar 转换写单测、加载后再保存一次做往返比对。
-2. **执行语义变化**：块内 `onError` / `SKIPPED` / 取消的组合容易出微妙 bug（例如块 RETRY 重复
-   副作用、取消后仍写了终态）。缓解：引擎层穷举用例 + 日志断言；`RunBudget` 只在解释器内部，
+2. **执行语义变化**：块内 `onError` / `SKIPPED` / 取消的组合容易出微妙 bug（例如失败块向上
+   传递、取消后仍写了终态）。缓解：引擎层穷举用例 + 日志断言；`RunBudget` 只在解释器内部，
    不散落到动作实现。
 3. **编辑器交互**：拖动整块在玻璃面板上容易和滚动手势冲突。缓解：长按 300ms 才进入拖动、
    提供菜单兜底、C2 单独冒烟。
 
-## 8. 待确认
+## 8. 已确认（0.7.0 实现口径）
 
-- `wait` 的轮询是否计入 10000 步（本文按计入设计，防止空转）。
-- 块级 `RETRY` 是否允许（本文允许但默认关闭；若担心副作用可只保留步骤级）。
-- 串联调用是否允许跨「一键指令 / 自动指令」（本文允许，统一按规则 id 调）。
-- `versionCode`：C1 用 19、C2 用 20；若 18 空着，可整体前移一位。
+- 不设墙钟上限；死循环由 10000 步拦住，长跑由用户手动停止。
+- `wait` 整个等待只计 1 步；超时 1 秒–1 小时；轮询前检查取消。
+- 块级 `RETRY` 不做，块 `onError` 只有 STOP / CONTINUE；步骤级 RETRY 不变。
+- 允许跨类型调用；被调用指令只跑动作，不看自己的触发器/条件。
+- 异步调用是独立运行（独立记录、Job、停止、预算），父运行取消不影响它。
+- `versionCode` 18 留给 0.6.1；C1 用 19、C2 用 20。

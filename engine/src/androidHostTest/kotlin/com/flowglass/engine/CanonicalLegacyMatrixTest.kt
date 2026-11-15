@@ -36,7 +36,7 @@ class CanonicalLegacyMatrixTest {
             "condition.time_range" to "08:00–22:00", "condition.weekday" to "工作日",
             "condition.battery_range" to "20%–80%", "condition.charging" to "充电中",
             "condition.screen_state" to "已亮屏", "condition.network_type" to "WiFi",
-            "condition.dnd_state" to "已关闭",
+            "condition.dnd_state" to "已关闭", "condition.var_compare" to "%{run.x}|等于|",
             "action.wifi_switch" to "开启", "action.bluetooth_switch" to "开启",
             "action.dnd_switch" to "开启", "action.set_brightness" to "50%",
             "action.set_volume" to "50%", "action.launch_app" to "应用包名",
@@ -50,8 +50,10 @@ class CanonicalLegacyMatrixTest {
             "action.auto_rotate" to "开启", "action.global_action" to "主页",
             "action.airplane_mode" to "开启", "action.mobile_data" to "开启",
         )
-        assertEquals(expected.keys, BuiltInComponents.all.map { it.typeId }.toSet())
-        for (meta in BuiltInComponents.all) {
+        // Task-chain blocks did not exist in v0.5, so they have no legacy text form.
+        val legacyComponents = BuiltInComponents.all.filter { it.block == null }
+        assertEquals(expected.keys, legacyComponents.map { it.typeId }.toSet())
+        for (meta in legacyComponents) {
             val text = expected.getValue(meta.typeId)
             for (version in listOf(1, 2)) {
                 val component = migrate(meta, text, version)

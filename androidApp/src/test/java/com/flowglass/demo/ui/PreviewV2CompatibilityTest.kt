@@ -85,7 +85,7 @@ class PreviewV2CompatibilityTest {
         assertTrue(store.canSave)
         assertEquals("the earlier backup must stay untouched", earlier, backup.readText())
         assertEquals(original, File(folder.root, "commands.preview-v2.bak.json").readText())
-        assertEquals(2, JSONObject(file.readText()).getInt("formatVersion"))
+        assertEquals(com.flowglass.engine.CURRENT_FORMAT_VERSION, JSONObject(file.readText()).getInt("formatVersion"))
     }
 
     @Test fun aSecondFailedAttemptKeepsBothBackups() {
@@ -119,7 +119,7 @@ class PreviewV2CompatibilityTest {
         assertTrue("preview upgrade must back up the original bytes", previewBackup.isFile)
         assertEquals(original, previewBackup.readText())
         val rewritten = file.readText()
-        assertEquals(2, JSONObject(rewritten).getInt("formatVersion"))
+        assertEquals(com.flowglass.engine.CURRENT_FORMAT_VERSION, JSONObject(rewritten).getInt("formatVersion"))
         assertFalse("canonical v2 must not persist display text", rewritten.contains("\"parameter\""))
         assertEquals(JsonPrimitive(10), com.flowglass.engine.RuleJson.decode(rewritten).rules
             .first().actions[1].params.getValue("value"))

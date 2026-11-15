@@ -14,10 +14,12 @@ import com.flowglass.engine.LegacyCommandMigration
 import com.flowglass.engine.PersistedLog
 import com.flowglass.engine.PersistedLogStep
 import com.flowglass.engine.Rule
+import com.flowglass.engine.RuleBranch
 import com.flowglass.engine.RuleComponent
 import com.flowglass.engine.RuleDocument
 import com.flowglass.engine.RulePresentation
 import com.flowglass.engine.RuleUiMetadata
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
 internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Boolean = true): RuleDocument = RuleDocument(
@@ -25,22 +27,18 @@ internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Bool
         val oldRuleId = engineUi.presentation.entries.firstOrNull { it.value.legacyId == command.id }?.key
         val oldRule = engineRules.firstOrNull { it.id == oldRuleId }
         val oldPresentation = oldRuleId?.let(engineUi.presentation::get)
+        // Ids survive reordering; the positional fallback only serves pre-v3 files.
+        val oldById = oldRule?.let { rule ->
+            (rule.triggers + rule.conditions + rule.actions).allComponents().associateBy { it.id }
+        }.orEmpty()
         fun prior(
             items: List<CommandItem>,
             kind: ComponentKind,
             old: List<RuleComponent>,
             sidecar: List<ComponentPresentation>,
-        ) =
-            items.map { item ->
-                val oldIndex = sidecar.indexOfFirst { it.id == item.id }
-                item.toRuleComponent(
-                    kind,
-                    when (oldIndex) {
-                        in old.indices -> old[oldIndex]
-                        else -> null
-                    },
-                )
-            }
+        ) = items.mapIndexed { index, item ->
+            item.toRuleComponent(kind, oldById[item.id] ?: old.getOrNull(index), sidecar.getOrNull(index))
+        }
         Rule(
             id = oldRule?.id ?: uuidFor(command.id),
             name = command.title,
@@ -83,6 +81,7 @@ internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Bool
                 val ruleId = engineRules.firstOrNull { rule ->
                     engineUi.presentation[rule.id]?.legacyId == command.id
                 }?.id ?: uuidFor(command.id)
+                val previous = engineUi.presentation[ruleId]
                 ruleId to RulePresentation(
                     category = command.category,
                     icon = command.ic.name,
@@ -90,12 +89,16 @@ internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Bool
                     lastRun = command.lastRun,
                     descriptionEdited = command.descriptionEdited,
                     legacyId = command.id,
-                    triggers = command.triggers.map { it.toPresentation() },
-                    conditions = command.conditions.map { it.toPresentation() },
-                    actions = command.actions.map { it.toPresentation() },
+                    // v3: one id -> icon entry per node, no positional lists.
+                    items = (command.triggers + command.conditions + command.actions).allItems()
+                        .associate { it.id to ComponentPresentation(it.id, it.ic.name) },
+                    triggers = emptyList(),
+                    conditions = emptyList(),
+                    actions = emptyList(),
                 )
             },
     ),
+    globals = engineGlobals,
 )
 
 internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
@@ -111,7 +114,9 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
     require(commandIds.all { it > 0L && it < Long.MAX_VALUE } && commandIds.distinct().size == commandIds.size) {
         "指令 id 必须为正数、小于 Long.MAX_VALUE 且不重复"
     }
-    val itemIds = metadata.presentation.values.flatMap { it.triggers + it.conditions + it.actions }.map { it.id }
+    val itemIds = metadata.presentation.values.flatMap { sidecar ->
+        sidecar.items.keys + (sidecar.triggers + sidecar.conditions + sidecar.actions).map { it.id }
+    }
     val commandIdSet = commandIds.toSet()
     require(itemIds.all { it > 0L && it < Long.MAX_VALUE && it !in commandIdSet } && itemIds.distinct().size == itemIds.size) {
         "条目 id 必须为正数、小于 Long.MAX_VALUE、不重复且不与指令 id 冲突"
@@ -119,7 +124,7 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
     val logIds = metadata.logs.map { it.id }
     val commandAndItemIds = (commandIds + itemIds).toSet()
     // Legacy nonpositive log IDs have already been replaced by the migration.
-    // Canonical v2 declarations stay strict; only references may repeat.
+    // Canonical v3 declarations stay strict; only references may repeat.
     require(logIds.all { it > 0L && it < Long.MAX_VALUE && it !in commandAndItemIds } && logIds.distinct().size == logIds.size) {
         "执行记录 id 必须为正数、小于 Long.MAX_VALUE、不重复且不与指令、条目 id 冲突"
     }
@@ -141,11 +146,11 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
         val sidecar = metadata.presentation[rule.id] ?: RulePresentation()
         val commandId = sidecar.legacyId ?: allocateId()
         val auto = rule.type == RuleType.AUTO
-        fun items(components: List<RuleComponent>, old: List<ComponentPresentation>) = components.mapIndexed { index, item ->
-            val prior = old.getOrNull(index)
-            val mapped = item.toCommandItem(prior, ::allocateId)
-            if (prior == null) usedIds.add(mapped.id)
-            mapped
+        fun items(
+            components: List<RuleComponent>,
+            old: List<ComponentPresentation>,
+        ) = components.mapIndexed { index, component ->
+            component.toCommandItem(old.getOrNull(index), sidecar, ::allocateId)
         }
         val triggers = items(rule.triggers, sidecar.triggers)
         val conditions = items(rule.conditions, sidecar.conditions)
@@ -165,15 +170,32 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
             lastRun = sidecar.lastRun,
             descriptionEdited = sidecar.descriptionEdited,
         )
+        val all = (triggers + conditions + actions).allItems()
         normalizedPresentation[rule.id] = sidecar.copy(
             legacyId = commandId,
-            triggers = triggers.map { it.toPresentation() },
-            conditions = conditions.map { it.toPresentation() },
-            actions = actions.map { it.toPresentation() },
+            items = all.associate { it.id to ComponentPresentation(it.id, it.ic.name) },
+            triggers = emptyList(),
+            conditions = emptyList(),
+            actions = emptyList(),
         )
         command
     }
     require(rules.map { it.id }.distinct().size == rules.size) { "规则兼容标识重复" }
+    // Components carry the same UI ids as their CommandItem counterparts, so the next save can
+    // pair old and new by id instead of position (and keep unknown extension params).
+    val annotatedRules = this.rules.zip(rules).map { (rule, command) ->
+        rule.copy(
+            triggers = rule.triggers.mapIndexed { index, component ->
+                command.triggers.getOrNull(index)?.let(component::withIds) ?: component
+            },
+            conditions = rule.conditions.mapIndexed { index, component ->
+                command.conditions.getOrNull(index)?.let(component::withIds) ?: component
+            },
+            actions = rule.actions.mapIndexed { index, component ->
+                command.actions.getOrNull(index)?.let(component::withIds) ?: component
+            },
+        )
+    }
     return PersistedAppState(
         autoCmds = rules.filter { it.auto },
         oneTaps = rules.filterNot { it.auto },
@@ -184,8 +206,9 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
         },
         running = this.ui.running,
         mode = this.ui.mode,
-        engineRules = this.rules,
+        engineRules = annotatedRules,
         engineUi = ui.copy(presentation = normalizedPresentation),
+        engineGlobals = globals,
     )
 }
 
@@ -194,18 +217,46 @@ private val componentRegistry = BuiltInComponents.registry()
 private fun CommandItem.toRuleComponent(
     kind: ComponentKind,
     old: RuleComponent?,
+    oldPresentation: ComponentPresentation?,
 ): RuleComponent {
     val typeId = this.typeId ?: componentRegistry.byKind(kind).firstOrNull { it.name == name }?.typeId ?: "legacy.unknown"
     val previous = old?.takeIf { it.type == typeId }
+    fun oldChild(list: List<RuleComponent>?, id: Long?, index: Int): RuleComponent? =
+        list?.firstOrNull { it.id != null && it.id == id } ?: list?.getOrNull(index)
+    val children = children.mapIndexed { index, child ->
+        child.toRuleComponent(ComponentKind.ACTION, oldChild(previous?.children, child.id, index), null)
+    }
+    val branches = branches.mapIndexed { index, branch ->
+        val oldBranch = previous?.branches?.getOrNull(index)
+        RuleBranch(
+            conditions = branch.conditions.mapIndexed { cIndex, condition ->
+                condition.toRuleComponent(ComponentKind.CONDITION, oldChild(oldBranch?.conditions, condition.id, cIndex), null)
+            },
+            children = branch.children.mapIndexed { cIndex, child ->
+                child.toRuleComponent(ComponentKind.ACTION, oldChild(oldBranch?.children, child.id, cIndex), null)
+            },
+        )
+    }
+    val conditions = conditions.mapIndexed { index, condition ->
+        condition.toRuleComponent(ComponentKind.CONDITION, oldChild(previous?.conditions, condition.id, index), null)
+    }
     // Compare with a projection of authoritative params, never persisted display text.
-    if (previous != null && parameter == previous.parameterText()) return previous
+    if (previous != null && parameter == previous.parameterText() &&
+        children.size == previous.children.size && branches.size == previous.branches.size &&
+        conditions.size == previous.conditions.size) {
+        return previous.copy(id = id, children = children, branches = branches, conditions = conditions)
+    }
     val meta = componentRegistry.find(typeId)
     if (meta == null) {
-        if (previous != null) return previous.copy(params = previous.params + mapOf(
-            "parameter" to JsonPrimitive(parameter), "name" to JsonPrimitive(name),
-            "raw" to JsonPrimitive("$name：$parameter"),
-        ))
-        return unknownComponent()
+        if (previous != null) return previous.copy(
+            id = id,
+            params = previous.params + mapOf(
+                "parameter" to JsonPrimitive(parameter), "name" to JsonPrimitive(name),
+                "raw" to JsonPrimitive("$name：$parameter"),
+            ),
+            children = children, branches = branches, conditions = conditions,
+        )
+        return unknownComponent().copy(id = id, children = children, branches = branches, conditions = conditions)
     }
     // A live edit is not a legacy migration: reject invalid text before touching disk.
     // The editor retains the draft while the last valid component and its extensions remain recoverable.
@@ -216,9 +267,13 @@ private fun CommandItem.toRuleComponent(
         parsed.filterKeys { oldFields[it] != newFields[it] }
     } else parsed
     return RuleComponent(
+        id = id,
         type = typeId,
         params = previous?.params.orEmpty() + changed,
         onError = onError,
+        children = children,
+        branches = branches,
+        conditions = conditions,
     )
 }
 
@@ -232,8 +287,6 @@ private fun CommandItem.unknownComponent() = RuleComponent(
         "raw" to JsonPrimitive("$name：$parameter"),
     ),
 )
-
-private fun CommandItem.toPresentation() = ComponentPresentation(id, ic.name)
 
 private fun notificationFields(parameter: String): Map<String, String> {
     val meta = componentRegistry.find("action.post_notification")
@@ -264,10 +317,56 @@ private fun RuleComponent.parameterText(): String {
     else params["parameter"]?.displayText() ?: params["raw"]?.displayText().orEmpty()
 }
 
-private fun RuleComponent.toCommandItem(old: ComponentPresentation?, allocateId: () -> Long): CommandItem {
-    val name = componentRegistry.find(type)?.name ?: params["name"]?.displayText() ?: "未知组件"
-    return CommandItem(old?.id ?: allocateId(), name, parameterText(),
-        iconOrDefault(old?.icon ?: params["icon"]?.displayText() ?: "Bolt"), type, onError)
+private fun RuleComponent.toCommandItem(
+    old: ComponentPresentation?,
+    sidecar: RulePresentation,
+    allocateId: () -> Long,
+): CommandItem {
+    val id = this.id ?: old?.id ?: allocateId()
+    val icon = sidecar.items[id]?.icon ?: old?.icon ?: params["icon"]?.displayText() ?: "Bolt"
+    return CommandItem(
+        id = id,
+        name = componentRegistry.find(type)?.name ?: params["name"]?.displayText() ?: "未知组件",
+        parameter = parameterText(),
+        ic = iconOrDefault(icon),
+        typeId = type,
+        onError = onError,
+        children = children.map { it.toCommandItem(null, sidecar, allocateId) },
+        branches = branches.map { branch ->
+            CommandBranch(
+                children = branch.children.map { it.toCommandItem(null, sidecar, allocateId) },
+                conditions = branch.conditions.map { it.toCommandItem(null, sidecar, allocateId) },
+            )
+        },
+        conditions = conditions.map { it.toCommandItem(null, sidecar, allocateId) },
+    )
+}
+
+private fun RuleComponent.withIds(item: CommandItem): RuleComponent = copy(
+    id = item.id,
+    children = children.mapIndexed { index, child ->
+        item.children.getOrNull(index)?.let(child::withIds) ?: child
+    },
+    conditions = conditions.mapIndexed { index, condition ->
+        item.conditions.getOrNull(index)?.let(condition::withIds) ?: condition
+    },
+    branches = branches.mapIndexed { index, branch ->
+        val mapped = item.branches.getOrNull(index)
+        branch.copy(
+            conditions = branch.conditions.mapIndexed { cIndex, condition ->
+                mapped?.conditions?.getOrNull(cIndex)?.let(condition::withIds) ?: condition
+            },
+            children = branch.children.mapIndexed { cIndex, child ->
+                mapped?.children?.getOrNull(cIndex)?.let(child::withIds) ?: child
+            },
+        )
+    },
+)
+
+/** Depth-first walk over every component of a rule. */
+private fun List<RuleComponent>.allComponents(): List<RuleComponent> = flatMap { component ->
+    listOf(component) + component.conditions.allComponents() + component.children.allComponents() +
+        component.branches.flatMap { it.conditions.allComponents() + it.children.allComponents() }
 }
 
 private fun iconOrDefault(value: String): Ic = runCatching { Ic.valueOf(value) }.getOrDefault(Ic.Bolt)

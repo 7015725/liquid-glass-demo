@@ -17,6 +17,12 @@ data class CommandItem(
     val typeId: String? = null,
     /** 失败策略：STOP 失败即停 / CONTINUE 继续 / RETRY 重试一次。 */
     val onError: com.flowglass.engine.OnError = com.flowglass.engine.OnError.STOP,
+    /** v3：如果的 then、循环的循环体。 */
+    val children: List<CommandItem> = emptyList(),
+    /** v3：如果的否则如果/否则分支。 */
+    val branches: List<CommandBranch> = emptyList(),
+    /** v3：如果的分支条件、while 循环条件、wait_until 条件。 */
+    val conditions: List<CommandItem> = emptyList(),
 ) {
     val display: String get() {
         val text = when (typeId) {
@@ -34,6 +40,65 @@ data class CommandItem(
         return if (text.isEmpty()) name else "$name：$text"
     }
     override fun toString() = display
+}
+
+data class CommandBranch(
+    val children: List<CommandItem> = emptyList(),
+    val conditions: List<CommandItem> = emptyList(),
+)
+
+/** Depth-first walk: the node itself first, then conditions, body and branches. */
+fun List<CommandItem>.allItems(): List<CommandItem> = flatMap { item ->
+    listOf(item) + item.conditions.allItems() + item.children.allItems() +
+        item.branches.flatMap { branch -> branch.conditions.allItems() + branch.children.allItems() }
+}
+
+fun List<CommandItem>.findItem(id: Long): CommandItem? =
+    firstOrNull { it.id == id } ?: firstNotNullOfOrNull { item ->
+        item.conditions.findItem(id) ?: item.children.findItem(id)
+            ?: item.branches.firstNotNullOfOrNull { it.conditions.findItem(id) ?: it.children.findItem(id) }
+    }
+
+fun List<CommandItem>.updateItem(id: Long, change: (CommandItem) -> CommandItem): List<CommandItem> = map { item ->
+    if (item.id == id) change(item) else item.copy(
+        conditions = item.conditions.updateItem(id, change),
+        children = item.children.updateItem(id, change),
+        branches = item.branches.map { branch ->
+            branch.copy(
+                conditions = branch.conditions.updateItem(id, change),
+                children = branch.children.updateItem(id, change),
+            )
+        },
+    )
+}
+
+fun List<CommandItem>.removeItem(id: Long): List<CommandItem> =
+    filterNot { it.id == id }.map { item ->
+        item.copy(
+            conditions = item.conditions.removeItem(id),
+            children = item.children.removeItem(id),
+            branches = item.branches.map { branch ->
+                branch.copy(conditions = branch.conditions.removeItem(id), children = branch.children.removeItem(id))
+            },
+        )
+    }
+
+/** Moves an item inside whichever sibling list contains it. */
+fun List<CommandItem>.moveItem(id: Long, delta: Int): List<CommandItem> {
+    val from = indexOfFirst { it.id == id }
+    if (from >= 0) {
+        val to = from + delta
+        return if (to !in indices) this else toMutableList().apply { add(to, removeAt(from)) }
+    }
+    return map { item ->
+        item.copy(
+            conditions = item.conditions.moveItem(id, delta),
+            children = item.children.moveItem(id, delta),
+            branches = item.branches.map { branch ->
+                branch.copy(conditions = branch.conditions.moveItem(id, delta), children = branch.children.moveItem(id, delta))
+            },
+        )
+    }
 }
 
 /**

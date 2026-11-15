@@ -38,9 +38,13 @@ class RuleDocumentValidationTest {
     @Test fun duplicateItemDeclarationsAreRejected() {
         val base = document()
         val sidecar = base.ui.presentation.getValue(ruleId)
+        val other = com.flowglass.engine.Rule(id = "other", name = "另一条", type = com.flowglass.engine.RuleType.MANUAL)
         assertRejected(base.copy(
-            rules = listOf(base.rules.single().copy(actions = base.rules.single().actions + base.rules.single().actions)),
-            ui = base.ui.copy(presentation = mapOf(ruleId to sidecar.copy(actions = sidecar.actions + sidecar.actions))),
+            rules = base.rules + other,
+            ui = base.ui.copy(presentation = mapOf(
+                ruleId to sidecar.copy(items = mapOf(1L to com.flowglass.engine.ComponentPresentation(1L, "Bolt"))),
+                "other" to RulePresentation(items = mapOf(1L to com.flowglass.engine.ComponentPresentation(1L, "Bolt"))),
+            )),
         ), "duplicate item declarations")
     }
 
