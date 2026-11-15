@@ -35,7 +35,7 @@ import com.kyant.shapes.RoundedRectangle
 @Composable
 internal fun ActionEditorHost(state: AppState) {
     val cmd = state.actionEditingCmd?.let(state::find)
-    val item = cmd?.actions?.firstOrNull { it.id == state.actionEditing }
+    val item = cmd?.actions?.findItem(state.actionEditing ?: -1)
     var lastCmd by remember { mutableStateOf<Cmd?>(null) }
     var lastItem by remember { mutableStateOf<CommandItem?>(null) }
     if (cmd != null && item != null) {

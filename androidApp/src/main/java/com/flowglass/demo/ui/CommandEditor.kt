@@ -308,7 +308,12 @@ private fun ActionTreeRow(
     val block = meta?.block
     val indent = (depth * 18).dp
     Column(Modifier.fillMaxWidth().padding(start = indent), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(C.Tonal).padding(12.dp),
+        Row(Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(C.Tonal)
+            .editorAction("编辑${item.name}") {
+                state.actionEditingCmd = cmd.id
+                state.actionEditing = item.id
+            }
+            .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically) {
             LineIcon(item.ic, C.Primary, 22.dp)
             Spacer(Modifier.width(10.dp))
