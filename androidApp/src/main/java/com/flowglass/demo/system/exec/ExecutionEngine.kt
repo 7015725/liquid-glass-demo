@@ -28,7 +28,9 @@ data class TaskOutcome(val status: StepStatus, val detail: String, val output: S
 data class RunResult(val cmdId: Long, val reason: String, val steps: List<StepResult>, val durationMs: Long, val ignored: Boolean = false) {
     val ok: Boolean get() = !ignored && steps.none { it.status == StepStatus.FAILURE }
     val detail: String get() = steps.firstOrNull { it.status == StepStatus.FAILURE }?.detail
-        ?: steps.joinToString("；") { "${it.name}：${it.detail}" }.ifEmpty { "没有可执行任务" }
+        ?: steps.joinToString("；") { "${it.name}：${it.detail}" }.ifEmpty { "没有可执行任务" }.let {
+            if (it.length <= 600) it else it.take(600) + "…"
+        }
 }
 
 internal fun Cmd.itemAtPath(path: List<Int>): CommandItem? {
@@ -156,10 +158,14 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
                 durationMs = step.durationMs,
             )
         }
+        // A budget/stop failure has no failing step of its own: surface it so the log is not green.
+        val failureStep = if (log.status == EngineStepStatus.FAILURE && steps.none { it.status == StepStatus.FAILURE }) {
+            listOf(StepResult(cmd.id, "运行结果", StepStatus.FAILURE, log.detail.ifBlank { "运行失败" }, 0))
+        } else emptyList()
         return RunResult(
             cmdId = cmd.id,
             reason = reason,
-            steps = steps,
+            steps = steps + failureStep,
             durationMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos),
         )
     }

@@ -246,6 +246,7 @@ class RuleExecutor(
             stopped != null && !stopped.success -> "任务按失败结束"
             failed != null -> failed.detail
             else -> steps.joinToString("；") { it.detail }.ifEmpty { "没有可执行动作" }
+                .let { if (it.length <= 600) it else it.take(600) + "…" }
         }
         val elapsed = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
             monotonicStart.elapsedNow().inWholeNanoseconds.coerceAtLeast(0),
@@ -306,7 +307,9 @@ class RuleExecutor(
         val started = kotlin.time.TimeSource.Monotonic.markNow()
         fun record(status: StepStatus, detail: String) {
             val ms = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(started.elapsedNow().inWholeNanoseconds.coerceAtLeast(0))
-            steps += StepResult(node.type, status, detail, ms, path)
+            // A growing variable (e.g. 10k appends) must not turn one step detail into megabytes.
+            val text = if (detail.length <= 200) detail else detail.take(200) + "…"
+            steps += StepResult(node.type, status, text, ms, path)
         }
         val block = meta.block ?: return runPlainStep(node, meta, path, context, scopes, steps)
 
