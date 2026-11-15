@@ -50,7 +50,7 @@ class ConditionEditingTest {
         val command = state.create(auto = true)
         state.addItem(command.id, CommandSection.ACTIONS, blockType(typeId))
         val block = requireNotNull(state.find(command.id)).actions.single()
-        repeat(3) { state.addConditionItem(command.id, block.id, null, charging()) }
+        repeat(3) { addConditionFromBlockMenu(state, command.id, block.id, null, charging()) }
         state.openEditor(command.id)
 
         withActivity(state) { activity ->

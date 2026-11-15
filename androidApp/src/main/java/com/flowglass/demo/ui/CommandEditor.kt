@@ -302,23 +302,18 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                     val activeTier = if (state.root?.granted == true) com.flowglass.engine.Tier.ROOT
                         else com.flowglass.engine.Tier.NORMAL
                     ComponentPicker(active.section, activeTier) { option ->
-                        when {
-                            active.parentId == null -> state.addItem(cmd.id, active.section, option)
-                            active.section == CommandSection.CONDITIONS ->
-                                state.addConditionItem(cmd.id, active.parentId, active.branch, option)
-                            else -> state.addChildItem(cmd.id, active.parentId, active.branch, option)
+                        val addedConditionId = if (active.section == CommandSection.CONDITIONS) {
+                            addConditionFromBlockMenu(state, cmd.id, active.parentId, active.branch, option)
+                        } else {
+                            when {
+                                active.parentId == null -> state.addItem(cmd.id, active.section, option)
+                                else -> state.addChildItem(cmd.id, active.parentId, active.branch, option)
+                            }
+                            null
                         }
                         // A newly added condition is only half configured; jump straight to its
                         // parameter page instead of making the user find the new row again.
-                        val addedCondition = if (active.section == CommandSection.CONDITIONS) {
-                            when {
-                                active.parentId == null -> state.find(cmd.id)?.conditions?.lastOrNull()
-                                active.branch == null -> state.itemById(cmd.id, active.parentId)?.conditions?.lastOrNull()
-                                else -> state.itemById(cmd.id, active.parentId)?.branches
-                                    ?.getOrNull(active.branch)?.conditions?.lastOrNull()
-                            }
-                        } else null
-                        panel = addedCondition?.let { EditorPanel.Parameter(CommandSection.CONDITIONS, it.id) }
+                        panel = addedConditionId?.let { EditorPanel.Parameter(CommandSection.CONDITIONS, it) }
                     }
                 }
                 is EditorPanel.Parameter -> state.itemById(cmd.id, active.itemId)?.let { item ->
@@ -638,6 +633,28 @@ private fun ConditionRowMenu(
 }
 
 
+
+
+/** Shared by the block add menu and the component picker; returns the new condition id. */
+internal fun addConditionFromBlockMenu(
+    state: AppState,
+    cmdId: Long,
+    parentId: Long?,
+    branch: Int?,
+    option: CommandOption,
+): Long? {
+    val command = state.find(cmdId) ?: return null
+    if (parentId == null) {
+        state.addItem(cmdId, CommandSection.CONDITIONS, option)
+        return state.find(cmdId)?.conditions?.lastOrNull()?.id
+    }
+    state.addConditionItem(cmdId, parentId, branch, option)
+    val parent = command.actions.findItem(parentId) ?: return null
+    return when {
+        branch == null -> parent.conditions.lastOrNull()
+        else -> parent.branches.getOrNull(branch)?.conditions?.lastOrNull()
+    }?.id
+}
 
 /** Pure menu model; tested without opening a Popup window. */
 internal fun blockAddMenuLabels(
