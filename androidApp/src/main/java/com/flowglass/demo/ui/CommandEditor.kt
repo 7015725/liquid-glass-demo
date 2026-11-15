@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -89,6 +90,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                     Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         T(if (cmd.enabled) "已开启" else "已关闭", 14.sp, color = C.OnSurfaceVar)
                         Spacer(Modifier.width(12.dp))
+                        Box(Modifier.graphicsLayer { alpha = if (!cmd.enabled && issues.isNotEmpty()) 0.4f else 1f }) {
                         LiquidToggle({ cmd.enabled }, {
                             if (!cmd.enabled && issues.isNotEmpty()) state.editorNotice = issues.first()
                             else PermissionGate.request(state, cmd, context)
@@ -96,8 +98,13 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                             Modifier.testTag("editor-toggle").semantics {
                                 contentDescription = "启用指令"
                                 toggleableState = if (cmd.enabled) ToggleableState.On else ToggleableState.Off
-                                onClick { PermissionGate.request(state, cmd, context); true }
+                                onClick {
+                                    if (!cmd.enabled && issues.isNotEmpty()) state.editorNotice = issues.first()
+                                    else PermissionGate.request(state, cmd, context)
+                                    true
+                                }
                             })
+                        }
                     }
                 }
             }
