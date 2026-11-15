@@ -348,3 +348,82 @@ fun List<CommandItem>.canMoveIntoPreviousBlock(id: Long, canHost: (CommandItem) 
             item.branches.any { it.conditions.canMoveIntoPreviousBlock(id, canHost) || it.children.canMoveIntoPreviousBlock(id, canHost) }
     }
 }
+
+/** Registry-backed container check shared by the editor and the move-target panel. */
+fun CommandItem.canHostSteps(): Boolean {
+    val block = typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it)?.block }
+    return block == com.flowglass.engine.BlockKind.IF || block == com.flowglass.engine.BlockKind.LOOP
+}
+
+/** Walks only steps and their bodies/branches; conditions are not movable steps. */
+fun List<CommandItem>.actionNodes(): List<CommandItem> = flatMap { item ->
+    listOf(item) + item.children.actionNodes() +
+        item.branches.flatMap { branch -> branch.children.actionNodes() }
+}
+
+fun List<CommandItem>.findActionNode(id: Long): CommandItem? =
+    firstOrNull { it.id == id } ?: firstNotNullOfOrNull { item ->
+        item.children.findActionNode(id)
+            ?: item.branches.firstNotNullOfOrNull { it.children.findActionNode(id) }
+    }
+
+private fun CommandItem.containsActionNode(id: Long): Boolean =
+    children.any { it.id == id || it.containsActionNode(id) } ||
+        branches.any { branch -> branch.children.any { it.id == id || it.containsActionNode(id) } }
+
+internal fun List<CommandItem>.actionChildrenOf(parentId: Long?, branch: Int?): List<CommandItem>? {
+    if (parentId == null) return if (branch == null) this else null
+    val parent = findActionNode(parentId) ?: return null
+    if (!parent.canHostSteps()) return null
+    if (branch == null) return parent.children
+    return parent.branches.getOrNull(branch)?.children
+}
+
+/**
+ * Moves a step between any two action lists. [targetParentId] null means the root list;
+ * a non-null branch selects an else-if/else body, otherwise the block body is used.
+ *
+ * [targetIndex] is the final index in the destination after the source is removed. Empty
+ * destination lists accept only index 0. Invalid targets return null without changing the tree.
+ */
+fun List<CommandItem>.moveActionTo(
+    sourceId: Long,
+    targetParentId: Long?,
+    targetBranch: Int?,
+    targetIndex: Int,
+    canHost: (CommandItem) -> Boolean = { it.canHostSteps() },
+): List<CommandItem>? {
+    val source = findActionNode(sourceId) ?: return null
+    if (sourceId == targetParentId) return null
+    if (targetParentId == null) {
+        if (targetBranch != null) return null
+    } else {
+        val parent = findActionNode(targetParentId) ?: return null
+        if (!canHost(parent)) return null
+        if (targetBranch != null && targetBranch !in parent.branches.indices) return null
+    }
+    if (targetParentId != null && source.containsActionNode(targetParentId)) return null
+
+    val targetList = actionChildrenOf(targetParentId, targetBranch) ?: return null
+    val sourceInTarget = targetList.any { it.id == sourceId }
+    val maxIndex = if (sourceInTarget) targetList.lastIndex else targetList.size
+    if (targetIndex !in 0..maxIndex) return null
+
+    val removed = removeItem(sourceId)
+    val insertAt = targetIndex.coerceIn(0, actionChildrenOf(targetParentId, targetBranch)?.size ?: 0)
+    return when {
+        targetParentId == null -> removed.toMutableList().apply { add(insertAt, source) }
+        targetBranch == null -> removed.updateItem(targetParentId) { parent ->
+            val children = parent.children.toMutableList().apply { add(insertAt, source) }
+            parent.copy(children = children)
+        }
+        else -> removed.updateItem(targetParentId) { parent ->
+            parent.copy(branches = parent.branches.mapIndexed { index, branch ->
+                if (index != targetBranch) branch else {
+                    val children = branch.children.toMutableList().apply { add(insertAt, source) }
+                    branch.copy(children = children)
+                }
+            })
+        }
+    }
+}

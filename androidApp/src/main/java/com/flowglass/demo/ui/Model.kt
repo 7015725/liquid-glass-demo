@@ -72,6 +72,8 @@ data class UndoInfo(
     val label: String = cmd.title,
     /** Restores the whole command snapshot instead of reinserting a deleted command. */
     val restoreCommand: Boolean = false,
+    /** Optional undo-bar text; delete keeps the existing wording. */
+    val message: String? = null,
 )
 
 private var nextId = 1000L
@@ -349,6 +351,32 @@ class AppState internal constructor(saved: PersistedAppState?) {
                 })
             }
         }
+
+    /**
+     * Moves one action step between any two lists. Returns false for a no-op or invalid target
+     * (self/descendant, non-container, bad branch or index) without writing state.
+     */
+    fun moveActionTo(
+        cmdId: Long,
+        sourceId: Long,
+        targetParentId: Long?,
+        targetBranch: Int?,
+        targetIndex: Int,
+    ): Boolean {
+        val before = find(cmdId) ?: return false
+        val source = before.actions.findActionNode(sourceId) ?: return false
+        val moved = before.actions.moveActionTo(sourceId, targetParentId, targetBranch, targetIndex) ?: return false
+        if (moved == before.actions) return false
+        update(cmdId) { cmd ->
+            val updated = cmd.copy(actions = moved)
+            if (updated.descriptionEdited) updated else updated.copy(desc = updated.automaticDescription())
+        }
+        undo = UndoInfo(
+            before, index = -1, label = source.name, restoreCommand = true,
+            message = "已移动「${source.name}」",
+        )
+        return true
+    }
 
     /** Commits one drag result; [parentId] null means the top-level action list. */
     fun moveStepTo(cmdId: Long, parentId: Long?, branch: Int?, itemId: Long, newIndex: Int) =
