@@ -66,7 +66,13 @@ data class RunLog(val id: Long, val title: String, val reason: String, val time:
     val skipped: Boolean = false, val at: Long = 0, val durationMs: Long = 0)
 
 data class MenuReq(val cmdId: Long, val auto: Boolean, val anchor: Offset)
-data class UndoInfo(val cmd: Cmd, val index: Int)
+data class UndoInfo(
+    val cmd: Cmd,
+    val index: Int,
+    val label: String = cmd.title,
+    /** Restores the whole command snapshot instead of reinserting a deleted command. */
+    val restoreCommand: Boolean = false,
+)
 
 private var nextId = 1000L
 @Synchronized
@@ -325,6 +331,14 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun removeItem(cmdId: Long, section: CommandSection, itemId: Long) =
         editItems(cmdId, section) { items -> items.removeItem(itemId) }
 
+    /** Deletes an action step and keeps the whole command snapshot for the undo bar. */
+    fun removeActionItemWithUndo(cmdId: Long, itemId: Long) {
+        val before = find(cmdId) ?: return
+        val item = before.actions.findItem(itemId) ?: return
+        editActions(cmdId) { items -> items.removeItem(itemId) }
+        undo = UndoInfo(before, index = -1, label = item.name, restoreCommand = true)
+    }
+
     /** Removes a condition nested in a block (branch null) or in an else-if branch. */
     fun removeConditionItem(cmdId: Long, parentId: Long, branch: Int?, conditionId: Long) =
         editActions(cmdId) { items ->
@@ -445,13 +459,26 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun togglePin(id: Long) = update(id) { it.copy(pinned = !it.pinned) }
     fun rename(id: Long, title: String) = update(id) { it.copy(title = title.ifBlank { it.title }) }
 
-    fun duplicate(id: Long) {
-        val src = find(id) ?: return
+    fun duplicate(id: Long): Long? {
+        val src = find(id) ?: return null
         val l = listFor(src.auto)
         val i = l.indexOf(src)
-        fun copied(items: List<CommandItem>) = items.map { it.copy(id = newId()) }
-        l.add(i + 1, src.copy(id = newId(), title = "${src.title} 副本", pinned = false, lastRun = "从未",
-            triggers = copied(src.triggers), conditions = copied(src.conditions), actions = copied(src.actions)))
+        fun copied(items: List<CommandItem>): List<CommandItem> = items.map { item ->
+            item.copy(
+                id = newId(),
+                conditions = copied(item.conditions),
+                children = copied(item.children),
+                branches = item.branches.map { branch ->
+                    branch.copy(conditions = copied(branch.conditions), children = copied(branch.children))
+                },
+            )
+        }
+        val copy = src.copy(
+            id = newId(), title = "${src.title} 副本", pinned = false, lastRun = "从未",
+            triggers = copied(src.triggers), conditions = copied(src.conditions), actions = copied(src.actions),
+        )
+        l.add(i + 1, copy)
+        return copy.id
     }
 
     fun delete(id: Long) {
@@ -466,8 +493,12 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     fun undoDelete() {
         val u = undo ?: return
-        val l = listFor(u.cmd.auto)
-        l.add(u.index.coerceIn(0, l.size), u.cmd)
+        if (u.restoreCommand) {
+            update(u.cmd.id) { u.cmd }
+        } else {
+            val l = listFor(u.cmd.auto)
+            l.add(u.index.coerceIn(0, l.size), u.cmd)
+        }
         undo = null
     }
 

@@ -67,6 +67,6 @@ internal fun EditorGlassPanel(backdrop: Backdrop, title: String, bottom: Boolean
 internal fun EditorPill(text: String, label: String, modifier: Modifier = Modifier, action: () -> Unit) {
     Box(modifier.heightIn(min = 48.dp).clip(Capsule()).background(C.PrimarySoft)
         .editorAction(label, action).padding(horizontal = 18.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
-        T(text, 14.sp, FontWeight.SemiBold, C.Primary)
+        T(text, 14.sp, FontWeight.SemiBold, C.Primary, maxLines = 1)
     }
 }

@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -180,6 +182,7 @@ private fun PrimaryButton(text: String, ic: Ic, onClick: () -> Unit, modifier: M
 }
 
 /** Hero-style status card used by every sub page. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StatusCard(
     index: Int,
@@ -225,7 +228,7 @@ private fun StatusCard(
                 T(unit, 13.sp, color = C.Muted, modifier = Modifier.padding(bottom = 8.dp))
             }
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { chips.forEach { TonalChip(it) } }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { chips.forEach { TonalChip(it) } }
             if (action != null) {
                 Spacer(Modifier.height(16.dp))
                 action()

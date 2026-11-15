@@ -29,7 +29,7 @@ enum class Ic {
     Home, Grid, List, Settings, Bolt, Copy, ChevronRight, UpDown, ArrowUp, ArrowDown,
     Play, Stop, Plus, Bell, Refresh, Shield, Wifi, Moon, Battery, Timer, Location,
     Leaf, Gauge, Rocket, Clock, Phone, Bluetooth, Message, Camera, Info, Search, Accessibility,
-    Tap, Back, Lock, Terminal, Puzzle, Key, Pin, Edit, Share, Trash
+    Tap, Back, Lock, Terminal, Puzzle, Key, Pin, Edit, Share, Trash, More
 }
 
 @Composable
@@ -107,6 +107,9 @@ private fun DrawScope.drawIcon(ic: Ic, color: Color, filled: Boolean, strokeUnit
         Ic.UpDown -> {
             drawPath(p { moveTo(8f, 9.5f); lineTo(12f, 5.5f); lineTo(16f, 9.5f) }, color, style = st)
             drawPath(p { moveTo(8f, 14.5f); lineTo(12f, 18.5f); lineTo(16f, 14.5f) }, color, style = st)
+        }
+        Ic.More -> listOf(Offset(5.5f, 12f), Offset(12f, 12f), Offset(18.5f, 12f)).forEach {
+            drawCircle(color, radius = 1.35f, center = it)
         }
         Ic.ArrowUp -> { line(12f, 19f, 12f, 5f); drawPath(p { moveTo(6.5f, 10.5f); lineTo(12f, 5f); lineTo(17.5f, 10.5f) }, color, style = st) }
         Ic.ArrowDown -> { line(12f, 5f, 12f, 19f); drawPath(p { moveTo(6.5f, 13.5f); lineTo(12f, 19f); lineTo(17.5f, 13.5f) }, color, style = st) }

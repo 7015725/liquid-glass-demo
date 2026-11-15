@@ -28,10 +28,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -217,7 +220,7 @@ fun TonalChip(text: String, icon: Ic? = null) {
             LineIcon(icon, C.OnSurfaceVar, 16.dp)
             Gap(Modifier.width(6.dp))
         }
-        T(text, 13.sp, FontWeight.Medium, C.OnSurfaceVar)
+        T(text, 13.sp, FontWeight.Medium, C.OnSurfaceVar, maxLines = 1)
     }
 }
 
@@ -399,84 +402,58 @@ fun ScallopButton(running: Boolean, onToggle: () -> Unit, size: Dp = 120.dp) {
 
 // ---------------------------------------------------------------- selection controls
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SegmentedSelector(options: List<Pair<Ic, String>>, selected: Int, onSelect: (Int) -> Unit) {
-    val gap = 8.dp
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val itemW = (maxWidth - gap * (options.size - 1)) / options.size
-        val x by animateDpAsState((itemW + gap) * selected, spatial(), label = "segX")
-        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-            repeat(options.size) {
-                Box(Modifier.width(itemW).height(80.dp).clip(RoundedRectangle(22.dp)).background(C.Tonal))
-            }
-        }
-        Box(
-            Modifier.offset(x = x).width(itemW).height(80.dp)
-                .clip(RoundedRectangle(22.dp)).background(C.Primary)
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-            options.forEachIndexed { i, (ic, label) ->
-                val on = i == selected
-                val fg by animateColorAsState(if (on) C.OnPrimary else C.OnSurfaceVar, effect(), label = "segFg")
+    FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        options.forEachIndexed { i, (ic, label) ->
+            val on = i == selected
+            val fg by animateColorAsState(if (on) C.OnPrimary else C.OnSurfaceVar, effect(), label = "segFg")
+            Box(
+                Modifier.heightIn(min = 80.dp).clip(RoundedRectangle(22.dp))
+                    .background(if (on) C.Primary else C.Tonal)
+                    .pressable(0.95f) { onSelect(i) }
+                    .semantics { contentDescription = label }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
                 Column(
-                    Modifier.width(itemW).height(80.dp)
-                        .pressable(0.95f) { onSelect(i) }
-                        .semantics { contentDescription = label },
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                    verticalArrangement = Arrangement.Center,
                 ) {
                     LineIcon(ic, fg, 24.dp, filled = on)
                     Gap(Modifier.height(6.dp))
-                    T(label, 13.sp, FontWeight.SemiBold, fg)
+                    T(label, 13.sp, FontWeight.SemiBold, fg, maxLines = 1)
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FilterChips(items: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
-    val density = LocalDensity.current
-    val bounds = remember { mutableStateMapOf<Int, Pair<Float, Float>>() }
-    val target = bounds[selected]
-    val ix by animateFloatAsState(target?.first ?: 0f, spatial(), label = "chipX")
-    val iw by animateFloatAsState(target?.second ?: 0f, spatial(), label = "chipW")
-    Box(modifier.horizontalScroll(rememberScrollState())) {
-        if (target != null) {
+    FlowRow(
+        modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items.forEachIndexed { i, label ->
+            val on = i == selected
+            val bg by animateColorAsState(if (on) C.Primary else C.Card, effect(), label = "chipBg")
+            val fg by animateColorAsState(if (on) C.OnPrimary else C.OnSurfaceVar, effect(), label = "chipFg")
             Box(
-                Modifier
-                    .offset { IntOffset(ix.roundToInt(), 0) }
-                    .width(with(density) { iw.toDp() })
-                    .height(38.dp)
-                    .clip(Capsule())
-                    .background(C.Primary)
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items.forEachIndexed { i, label ->
-                val on = i == selected
-                val bg by animateColorAsState(if (on) Color.Transparent else C.Card, effect(), label = "chipBg")
-                val fg by animateColorAsState(if (on) C.OnPrimary else C.OnSurfaceVar, effect(), label = "chipFg")
-                Box(
-                    Modifier
-                        .onGloballyPositioned { c ->
-                            bounds[i] = c.boundsInParentX()
-                        }
-                        .height(38.dp)
-                        .clip(Capsule())
-                        .background(bg)
-                        .pressable(0.94f) { onSelect(i) }
-                        .padding(horizontal = 18.dp),
-                    contentAlignment = Alignment.Center
-                ) { T(label, 14.sp, FontWeight.SemiBold, fg) }
-            }
+                Modifier.height(38.dp).clip(Capsule()).background(bg)
+                    .pressable(0.94f) { onSelect(i) }
+                    .padding(horizontal = 18.dp),
+                contentAlignment = Alignment.Center,
+            ) { T(label, 14.sp, FontWeight.SemiBold, fg, maxLines = 1) }
         }
     }
-}
-
-private fun androidx.compose.ui.layout.LayoutCoordinates.boundsInParentX(): Pair<Float, Float> {
-    val pos = parentLayoutCoordinates?.localPositionOf(this, Offset.Zero) ?: Offset.Zero
-    return pos.x to size.width.toFloat()
 }
 
 /** Primary circle with a check that springs in (overshoot) and draws its stroke. */
