@@ -395,7 +395,12 @@ class RuleExecutor(
         // Then branch keeps plain indices; only else-if/else need a marker, so no ambiguity.
         val childPath = if (branchIndex < 0) path else path + (-(branchIndex + 1))
         val outcome = execSequence(children, childPath, depth, context, scopes, budget, steps)
-        record(outcome.status, if (outcome.status == StepStatus.FAILURE) outcome.detail else "条件命中")
+        val picked = when {
+            branchIndex < 0 -> "条件命中"
+            node.branches.getOrNull(branchIndex)?.conditions?.isNotEmpty() == true -> "否则如果命中"
+            else -> "进入否则"
+        }
+        record(outcome.status, if (outcome.status == StepStatus.FAILURE) outcome.detail else picked)
         return outcome
     }
 
