@@ -2,6 +2,8 @@ package com.flowglass.demo.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -21,6 +23,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -35,7 +42,7 @@ import androidx.compose.ui.unit.sp
 import com.flowglass.demo.liquid.LiquidToggle
 import com.flowglass.demo.system.trigger.listenState
 import kotlinx.coroutines.CoroutineScope
-import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 import androidx.compose.ui.state.ToggleableState
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
@@ -75,11 +82,16 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
     Column(Modifier.fillMaxSize().layerBackdrop(backdrop)
         .then(if (panel != null) Modifier.clearAndSetSemantics { } else Modifier)
         .statusBarsPadding().navigationBarsPadding().imePadding()
-        .verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        .verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             EditorIconButton(Ic.Back, "返回") { back() }
             Spacer(Modifier.weight(1f))
+            if (cmd.auto) {
+                ListenStatePill(cmd.listenState(state.running, context))
+                Spacer(Modifier.width(8.dp))
+            }
+            EditorPill("变量", "编辑指令和全局变量") { panel = EditorPanel.Variables }
             if (cmd.auto) {
                 val toggleBackdrop = rememberLayerBackdrop()
                 Box(Modifier.clip(Capsule()).heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
@@ -100,9 +112,25 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 }
             }
         }
-        Box(Modifier.size(76.dp).clip(PolygonShape(M3EShapes.Clover4)).background(C.PrimarySoft)
-            .editorAction("选择图标") { panel = EditorPanel.Icons }, contentAlignment = Alignment.Center) {
-            LineIcon(cmd.ic, C.Primary, 34.dp)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(56.dp).clip(PolygonShape(M3EShapes.Clover4)).background(C.PrimarySoft)
+                .editorAction("选择图标") { panel = EditorPanel.Icons }, contentAlignment = Alignment.Center) {
+                LineIcon(cmd.ic, C.Primary, 28.dp)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                BasicTextField(cmd.title, { state.setTitle(cmd.id, it) },
+                    Modifier.fillMaxWidth().testTag("editor-name"),
+                    textStyle = TextStyle(color = C.OnSurface, fontSize = 24.sp, fontWeight = FontWeight.Bold),
+                    cursorBrush = SolidColor(C.Primary),
+                    decorationBox = { inner -> Box { if (cmd.title.isEmpty()) T("指令名称", 24.sp, color = C.Muted); inner() } })
+                BasicTextField(cmd.desc, { state.setDescription(cmd.id, it) },
+                    Modifier.fillMaxWidth().testTag("editor-description"),
+                    textStyle = TextStyle(color = C.OnSurfaceVar, fontSize = 13.sp, lineHeight = 18.sp),
+                    maxLines = 2,
+                    cursorBrush = SolidColor(C.Primary),
+                    decorationBox = { inner -> Box { if (cmd.desc.isEmpty()) T("添加描述", 13.sp, color = C.Muted); inner() } })
+            }
         }
         StorageErrorNotice(state.storageError)
         state.editorNotice?.let { notice ->
@@ -115,33 +143,6 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 C.Bad, C.BadSoft,
             )
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            EditorPill("变量", "编辑指令和全局变量") { panel = EditorPanel.Variables }
-            val locals = state.localsOf(cmd.id)
-            T(
-                "指令变量 ${locals.size} · 全局 ${state.engineGlobals.size}",
-                12.sp, color = C.Muted,
-            )
-        }
-        BasicTextField(cmd.title, { state.setTitle(cmd.id, it) },
-            Modifier.fillMaxWidth().testTag("editor-name"),
-            textStyle = TextStyle(color = C.OnSurface, fontSize = 32.sp, fontWeight = FontWeight.Bold),
-            cursorBrush = SolidColor(C.Primary),
-            decorationBox = { inner -> Box { if (cmd.title.isEmpty()) T("指令名称", 32.sp, color = C.Muted); inner() } })
-        BasicTextField(cmd.desc, { state.setDescription(cmd.id, it) },
-            Modifier.fillMaxWidth().testTag("editor-description"),
-            textStyle = TextStyle(color = C.OnSurfaceVar, fontSize = 15.sp, lineHeight = 22.sp),
-            cursorBrush = SolidColor(C.Primary),
-            decorationBox = { inner -> Box { if (cmd.desc.isEmpty()) T("添加描述", 15.sp, color = C.Muted); inner() } })
-        if (cmd.auto) {
-            val listen = cmd.listenState(state.running, context)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                T("监听状态", 13.sp, color = C.OnSurfaceVar)
-                Spacer(Modifier.width(8.dp))
-                ListenStatePill(listen)
-            }
-        }
         MissingPermissionNotice(cmd) { onAuthorization(SettingsPage.Permissions) }
         val exec = state.executing[cmd.id] ?: 0
         ExecButton(exec, Modifier.fillMaxWidth().testTag("editor-execute"), large = true,
@@ -149,11 +150,11 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
             failureLabel = if (state.executionMessages[cmd.id] == "执行环境未就绪") "执行环境未就绪" else "失败",
             onClick = { state.execute(cmd, scope, if (cmd.auto) "手动测试" else "手动执行") },
             onStop = if (exec == 1) ({ state.stopExecution(cmd.id) }) else null)
-        if (cmd.auto) T("跳过触发器和条件，直接执行任务", 12.sp, color = C.Muted)
+        if (cmd.auto) T("跳过触发器和条件，直接执行任务", 11.sp, color = C.Muted)
         val sections = if (cmd.auto) CommandSection.entries else listOf(CommandSection.ACTIONS)
         sections.forEachIndexed { i, section ->
             Column(Modifier.fillMaxWidth().testTag("section-${section.name}")
-                .staggerIn(i).clip(com.kyant.shapes.RoundedRectangle(28.dp)).background(C.Card).padding(18.dp),
+                .staggerIn(i).clip(com.kyant.shapes.RoundedRectangle(28.dp)).background(C.Card).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     T(section.label, 20.sp, FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -163,11 +164,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 }
                 if (cmd.items(section).isEmpty()) T("尚未添加${section.label}", 14.sp, color = C.Muted)
                 if (section == CommandSection.ACTIONS) {
-                    cmd.actions.forEachIndexed { index, item ->
-                        key(item.id) {
-                            ActionTreeRow(state, cmd, item, 0, index, cmd.actions.lastIndex) { panel = it }
-                        }
-                    }
+                    ActionList(state, cmd, cmd.actions, 0, null, null) { panel = it }
                 } else {
                     cmd.items(section).forEachIndexed { index, item ->
                         key(item.id) {
@@ -382,6 +379,8 @@ private fun ActionRowMenu(
     depth: Int,
     index: Int,
     lastIndex: Int,
+    parentId: Long?,
+    branch: Int?,
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
@@ -394,11 +393,11 @@ private fun ActionRowMenu(
                 ) {
                     MenuEntry("上移", enabled = index > 0) {
                         open = false
-                        state.moveItem(cmd.id, CommandSection.ACTIONS, item.id, -1)
+                        state.moveStepTo(cmd.id, parentId, branch, item.id, index - 1)
                     }
                     MenuEntry("下移", enabled = index < lastIndex) {
                         open = false
-                        state.moveItem(cmd.id, CommandSection.ACTIONS, item.id, 1)
+                        state.moveStepTo(cmd.id, parentId, branch, item.id, index + 1)
                     }
                     MenuEntry("移入上一个块", enabled = state.canMoveIntoPreviousBlock(cmd.id, item.id)) {
                         open = false
@@ -427,9 +426,132 @@ private fun MenuEntry(label: String, enabled: Boolean, action: () -> Unit) {
 }
 
 @Composable
+private fun CompactDelete(label: String, action: () -> Unit) {
+    Box(Modifier.size(40.dp).clip(Capsule()).background(C.Tonal)
+        .editorAction(label, action), contentAlignment = Alignment.Center) {
+        LineIcon(Ic.Trash, C.OnSurfaceVar, 18.dp)
+    }
+}
+
+@Composable
 internal fun EditorIconButton(ic: Ic, label: String, modifier: Modifier = Modifier, action: () -> Unit) {
     Box(modifier.size(48.dp).clip(Capsule()).background(C.Card).editorAction(label, action),
         contentAlignment = Alignment.Center) { LineIcon(ic, C.OnSurface, 22.dp) }
+}
+
+/**
+ * Siblings of one action list. Dragging only edits a local id order; AppState is touched once on
+ * release so undo records a single move and nothing is persisted on every drag delta.
+ */
+@Composable
+private fun ActionList(
+    state: AppState,
+    cmd: Cmd,
+    items: List<CommandItem>,
+    depth: Int,
+    parentId: Long?,
+    branch: Int?,
+    onPanel: (EditorPanel) -> Unit,
+) {
+    var preview by remember(items) { mutableStateOf<List<Long>?>(null) }
+    var draggingId by remember { mutableStateOf<Long?>(null) }
+    var startIndex by remember { mutableIntStateOf(0) }
+    var dragY by remember { mutableFloatStateOf(0f) }
+    val offset = remember { Animatable(0f) }
+    val heights = remember { mutableMapOf<Long, Int>() }
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val gap = with(density) { 8.dp.toPx() }
+    val shadow = with(density) { 18.dp.toPx() }
+    val shown = preview?.let { ids -> ids.mapNotNull { id -> items.firstOrNull { it.id == id } } } ?: items
+
+    fun movePreview(id: Long, direction: Int) {
+        val order = (preview ?: items.map { it.id }).toMutableList()
+        val from = order.indexOf(id)
+        val to = from + direction
+        if (from >= 0 && to in order.indices) {
+            order[from] = order[to]
+            order[to] = id
+            preview = order
+        }
+    }
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        shown.forEachIndexed { index, item ->
+            key(item.id) {
+                val isDragging = draggingId == item.id
+                Box(
+                    Modifier.fillMaxWidth()
+                        .zIndex(if (isDragging) 1f else 0f)
+                        .graphicsLayer {
+                            if (isDragging) {
+                                translationY = offset.value
+                                scaleX = 1.02f
+                                scaleY = 1.02f
+                                shadowElevation = shadow
+                            }
+                        }
+                        .then(if (isDragging) Modifier else Modifier.animatePlacement()),
+                ) {
+                    ActionTreeRow(
+                        state = state, cmd = cmd, item = item, depth = depth,
+                        index = index, lastIndex = shown.lastIndex,
+                        parentId = parentId, branch = branch,
+                        onMeasuredHeight = { heights[item.id] = it },
+                        onDragStart = {
+                            if (draggingId == null) {
+                                draggingId = item.id
+                                startIndex = items.indexOfFirst { it.id == item.id }
+                                preview = items.map { it.id }
+                                dragY = 0f
+                                scope.launch { offset.snapTo(0f) }
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                        },
+                        onDrag = { dy ->
+                            if (draggingId == item.id) {
+                                dragY += dy
+                                val step = (heights[item.id]?.toFloat() ?: 72f) + gap
+                                while (dragY > step / 2f && (preview?.indexOf(item.id) ?: 0) < shown.lastIndex) {
+                                    movePreview(item.id, 1)
+                                    dragY -= step
+                                }
+                                while (dragY < -step / 2f && (preview?.indexOf(item.id) ?: 0) > 0) {
+                                    movePreview(item.id, -1)
+                                    dragY += step
+                                }
+                                scope.launch { offset.snapTo(dragY) }
+                            }
+                        },
+                        onDragEnd = {
+                            if (draggingId == item.id) {
+                                val target = preview?.indexOf(item.id) ?: startIndex
+                                if (target != startIndex) {
+                                    state.moveStepTo(cmd.id, parentId, branch, item.id, target)
+                                }
+                                preview = null
+                                dragY = 0f
+                                scope.launch {
+                                    offset.animateTo(0f, spring(dampingRatio = 0.78f, stiffness = 420f))
+                                    if (draggingId == item.id) draggingId = null
+                                }
+                            }
+                        },
+                        onDragCancel = {
+                            preview = null
+                            dragY = 0f
+                            scope.launch {
+                                offset.animateTo(0f, spring(dampingRatio = 0.78f, stiffness = 420f))
+                                if (draggingId == item.id) draggingId = null
+                            }
+                        },
+                        onPanel = onPanel,
+                    )
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -446,6 +568,13 @@ private fun ActionTreeRow(
     depth: Int,
     index: Int,
     lastIndex: Int,
+    parentId: Long?,
+    branch: Int?,
+    onMeasuredHeight: (Int) -> Unit,
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
     onPanel: (EditorPanel) -> Unit,
 ) {
     val meta = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
@@ -456,14 +585,20 @@ private fun ActionTreeRow(
     val nested = item.conditions.size + item.children.size +
         item.branches.sumOf { it.children.size + it.conditions.size }
     val open = !item.collapsed
+    val timesLoop = block == com.flowglass.engine.BlockKind.LOOP &&
+        item.parameter.substringBefore('|') in listOf("按次数", "times")
     val indent = (depth * 18).dp
-    val density = LocalDensity.current
-    var dragY by remember { mutableFloatStateOf(0f) }
-    val dragStep = with(density) { 64.dp.toPx() }
+    // pointerInput keeps its first lambda; read the latest callbacks so a recomposed sibling
+    // order is visible during a long drag.
+    val dragStart = rememberUpdatedState(onDragStart)
+    val dragMove = rememberUpdatedState(onDrag)
+    val dragEnd = rememberUpdatedState(onDragEnd)
+    val dragCancel = rememberUpdatedState(onDragCancel)
     val hint = state.validationIssues(cmd).firstOrNull { it.contains("「${item.name}」") }
     Column(Modifier.fillMaxWidth().padding(start = indent), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
-            Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(C.Tonal).padding(12.dp)
+            Modifier.fillMaxWidth().onGloballyPositioned { onMeasuredHeight(it.size.height) }
+                .clip(RoundedRectangle(24.dp)).background(C.Tonal).padding(12.dp)
                 // Tap opens the parameter page; the drag detector only starts after a 300 ms
                 // hold, and a scroll gesture cancels the tap because the list consumes it.
                 .pointerInput(item.id) {
@@ -473,20 +608,11 @@ private fun ActionTreeRow(
                     })
                 }
                 .pointerInput(item.id) {
-                    var dy = 0f
                     detectDragGesturesAfterLongPress(
-                        onDragEnd = {
-                            val raw = (dy / dragStep).roundToInt()
-                            dy = 0f
-                            if (raw in 1..nested && nested > 0) {
-                                state.editorNotice = "不能把「${item.name}」拖进它自己的子步骤"
-                            } else {
-                                val steps = if (raw > 0) raw - nested else raw
-                                if (steps != 0) state.moveItem(cmd.id, CommandSection.ACTIONS, item.id, steps)
-                            }
-                        },
-                        onDragCancel = { dy = 0f },
-                        onDrag = { change, amount -> change.consume(); dy += amount.y },
+                        onDragStart = { dragStart.value() },
+                        onDragEnd = { dragEnd.value() },
+                        onDragCancel = { dragCancel.value() },
+                        onDrag = { change, amount -> change.consume(); dragMove.value(amount.y) },
                     )
                 }
                 .semantics {
@@ -517,22 +643,30 @@ private fun ActionTreeRow(
                 T(summary, 13.sp, color = C.OnSurfaceVar)
                 hint?.let { T(it, 11.sp, color = C.Bad) }
             }
-            ActionRowMenu(state, cmd, item, depth, index, lastIndex)
+            ActionRowMenu(state, cmd, item, depth, index, lastIndex, parentId, branch)
             EditorIconButton(Ic.Trash, "删除${item.name}") { state.removeItem(cmd.id, CommandSection.ACTIONS, item.id) }
         }
         if (open) {
             item.conditions.forEachIndexed { conditionIndex, condition ->
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp).clip(RoundedRectangle(20.dp))
-                    .background(C.Card).padding(horizontal = 12.dp, vertical = 8.dp),
+                    .background(C.Card)
+                    .editorAction("编辑条件${condition.name}") {
+                        onPanel(EditorPanel.Parameter(CommandSection.CONDITIONS, condition.id))
+                    }
+                    .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     T("条件", 11.sp, color = C.Muted)
                     Spacer(Modifier.width(8.dp))
-                    T(if (condition.parameter.isEmpty()) condition.name else "${condition.name}：${condition.parameter}",
-                        13.sp, color = C.OnSurfaceVar, modifier = Modifier.weight(1f))
-                    EditorIconButton(Ic.Trash, "删除条件${conditionIndex + 1}") {
-                        state.removeItem(cmd.id, CommandSection.CONDITIONS, condition.id)
+                    T(ActionSummary.conditionRowText(condition),
+                        12.sp, color = C.OnSurfaceVar, modifier = Modifier.weight(1f))
+                    CompactDelete("删除条件${conditionIndex + 1}") {
+                        state.removeConditionItem(cmd.id, item.id, null, condition.id)
                     }
                 }
+            }
+            if (timesLoop && item.conditions.isNotEmpty()) {
+                T("按次数循环不会使用这些条件；需要条件循环请切换方式。", 11.sp, color = C.Mid,
+                    modifier = Modifier.padding(start = 16.dp))
             }
             if (item.children.isNotEmpty()) {
                 Column(
@@ -542,11 +676,7 @@ private fun ActionTreeRow(
                     }.padding(start = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    item.children.forEachIndexed { childIndex, child ->
-                        key(child.id) {
-                            ActionTreeRow(state, cmd, child, depth + 1, childIndex, item.children.lastIndex, onPanel)
-                        }
-                    }
+                    ActionList(state, cmd, item.children, depth + 1, item.id, null, onPanel)
                 }
             }
             item.branches.forEachIndexed { branchIndex, branch ->
@@ -558,15 +688,20 @@ private fun ActionTreeRow(
                             state.removeBranch(cmd.id, item.id, branchIndex)
                         }
                     }
-                    branch.conditions.forEach { condition ->
-                        T("· ${condition.name}${if (condition.parameter.isEmpty()) "" else "：${condition.parameter}"}",
-                            12.sp, color = C.OnSurfaceVar)
-                    }
-                    branch.children.forEachIndexed { childIndex, child ->
-                        key(child.id) {
-                            ActionTreeRow(state, cmd, child, depth + 1, childIndex, branch.children.lastIndex, onPanel)
+                    branch.conditions.forEachIndexed { conditionIndex, condition ->
+                        Row(Modifier.fillMaxWidth().clip(RoundedRectangle(16.dp)).background(C.Card)
+                            .editorAction("编辑条件${condition.name}") {
+                                onPanel(EditorPanel.Parameter(CommandSection.CONDITIONS, condition.id))
+                            }.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            T(ActionSummary.conditionRowText(condition), 12.sp, color = C.OnSurfaceVar,
+                                modifier = Modifier.weight(1f))
+                            EditorIconButton(Ic.Trash, "删除条件${conditionIndex + 1}") {
+                                state.removeConditionItem(cmd.id, item.id, branchIndex, condition.id)
+                            }
                         }
                     }
+                    ActionList(state, cmd, branch.children, depth + 1, item.id, branchIndex, onPanel)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         EditorPill("＋步骤", "向该分支添加步骤") {
                             onPanel(EditorPanel.Add(CommandSection.ACTIONS, item.id, branchIndex))
@@ -583,7 +718,7 @@ private fun ActionTreeRow(
                         if (block != com.flowglass.engine.BlockKind.WAIT) EditorPill("＋步骤", "向${item.name}添加步骤") {
                             onPanel(EditorPanel.Add(CommandSection.ACTIONS, item.id))
                         }
-                        EditorPill("＋条件", "向${item.name}添加条件") {
+                        if (!timesLoop) EditorPill("＋条件", "向${item.name}添加条件") {
                             onPanel(EditorPanel.Add(CommandSection.CONDITIONS, item.id))
                         }
                         if (block == com.flowglass.engine.BlockKind.IF) {

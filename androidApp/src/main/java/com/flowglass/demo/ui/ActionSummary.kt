@@ -45,6 +45,12 @@ internal object ActionSummary {
         else -> parameterText(item).ifBlank { item.name }
     }
 
+    /** Name plus readable value, without repeating the name when the value already starts with it. */
+    fun conditionRowText(item: CommandItem): String {
+        val value = conditionText(item)
+        return if (value.startsWith(item.name)) value else "${item.name}：$value"
+    }
+
     fun summarize(item: CommandItem, nested: Int, open: Boolean): String {
         if (!open) return "已折叠 · $nested 项"
         return when (item.typeId) {

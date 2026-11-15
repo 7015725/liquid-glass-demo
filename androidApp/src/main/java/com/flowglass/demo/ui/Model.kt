@@ -42,11 +42,23 @@ data class Cmd(
 }
 
 private fun Cmd.automaticDescription(): String {
-    val tasks = actions.joinToString(" → ").ifEmpty { "请添加任务" }
+    fun nested(item: CommandItem) = item.conditions.size + item.children.size +
+        item.branches.sumOf { it.children.size + it.conditions.size }
+    val tasks = actions.joinToString(" → ") { ActionSummary.summarize(it, nested(it), open = true) }
+        .ifEmpty { "请添加任务" }
     if (!auto) return tasks
-    val trigger = triggers.joinToString(" 或 ").let { if (it.isEmpty()) "请添加触发器" else "$it 时" }
-    val condition = conditions.joinToString(" 且 ").let { if (it.isEmpty()) "" else "，若 $it" }
+    val trigger = triggers.joinToString(" 或 ") { ActionSummary.conditionText(it) }
+        .let { if (it.isEmpty()) "请添加触发器" else "$it 时" }
+    val condition = conditions.joinToString(" 且 ") { ActionSummary.conditionText(it) }
+        .let { if (it.isEmpty()) "" else "，若 $it" }
     return "$trigger$condition，则 $tasks"
+}
+
+/** Rewrites a generated description after the summary wording changed; edited text is kept. */
+private fun Cmd.withRefreshedDescription(): Cmd {
+    if (descriptionEdited) return this
+    val fresh = automaticDescription()
+    return if (fresh == desc) this else copy(desc = fresh)
 }
 
 data class RunLog(val id: Long, val title: String, val reason: String, val time: String, val ok: Boolean, val ic: Ic,
@@ -240,8 +252,16 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun setItemOnError(cmdId: Long, section: CommandSection, itemId: Long, onError: com.flowglass.engine.OnError) =
         editItems(cmdId, section) { items -> items.updateItem(itemId) { it.copy(onError = onError) } }
 
-    fun setItemParameter(cmdId: Long, section: CommandSection, itemId: Long, text: String) =
-        editItems(cmdId, section) { items -> items.updateItem(itemId) { it.copy(parameter = text) } }
+    fun setItemParameter(cmdId: Long, section: CommandSection, itemId: Long, text: String) {
+        // One-tap rules have no top-level condition list; block conditions still live in actions.
+        val nestedCondition = section == CommandSection.CONDITIONS &&
+            find(cmdId)?.actions?.findItem(itemId) != null
+        if (nestedCondition) {
+            editActions(cmdId) { items -> items.updateItem(itemId) { it.copy(parameter = text) } }
+        } else {
+            editItems(cmdId, section) { items -> items.updateItem(itemId) { it.copy(parameter = text) } }
+        }
+    }
 
     fun toggleCollapsed(cmdId: Long, itemId: Long) =
         editActions(cmdId) { items -> items.updateItem(itemId) { it.copy(collapsed = !it.collapsed) } }
@@ -305,6 +325,29 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun removeItem(cmdId: Long, section: CommandSection, itemId: Long) =
         editItems(cmdId, section) { items -> items.removeItem(itemId) }
 
+    /** Removes a condition nested in a block (branch null) or in an else-if branch. */
+    fun removeConditionItem(cmdId: Long, parentId: Long, branch: Int?, conditionId: Long) =
+        editActions(cmdId) { items ->
+            items.updateItem(parentId) { parent ->
+                if (branch == null) parent.copy(conditions = parent.conditions.filterNot { it.id == conditionId })
+                else parent.copy(branches = parent.branches.mapIndexed { index, b ->
+                    if (index == branch) b.copy(conditions = b.conditions.filterNot { it.id == conditionId }) else b
+                })
+            }
+        }
+
+    /** Commits one drag result; [parentId] null means the top-level action list. */
+    fun moveStepTo(cmdId: Long, parentId: Long?, branch: Int?, itemId: Long, newIndex: Int) =
+        editActions(cmdId) { items ->
+            if (parentId == null) items.moveItemTo(itemId, newIndex)
+            else items.updateItem(parentId) { parent ->
+                if (branch == null) parent.copy(children = parent.children.moveItemTo(itemId, newIndex))
+                else parent.copy(branches = parent.branches.mapIndexed { index, b ->
+                    if (index == branch) b.copy(children = b.children.moveItemTo(itemId, newIndex)) else b
+                })
+            }
+        }
+
     private fun editItems(id: Long, section: CommandSection, change: (List<CommandItem>) -> List<CommandItem>) =
         update(id) { cmd ->
             if (!cmd.auto && section != CommandSection.ACTIONS) cmd
@@ -340,8 +383,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
     var accessibility by mutableStateOf(true)
 
     // lists
-    val autoCmds = mutableStateListOf<Cmd>().apply { addAll(saved?.autoCmds.orEmpty()) }
-    val oneTaps = mutableStateListOf<Cmd>().apply { addAll(saved?.oneTaps.orEmpty()) }
+    val autoCmds = mutableStateListOf<Cmd>().apply { addAll(saved?.autoCmds.orEmpty().map { it.withRefreshedDescription() }) }
+    val oneTaps = mutableStateListOf<Cmd>().apply { addAll(saved?.oneTaps.orEmpty().map { it.withRefreshedDescription() }) }
     var autoFilter by mutableIntStateOf(0)
     private val executionTokens = mutableMapOf<Long, Any>()
     private val executionJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
