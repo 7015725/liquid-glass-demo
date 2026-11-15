@@ -513,16 +513,7 @@ private fun ActionTreeRow(
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 T(item.name, 15.sp, FontWeight.SemiBold)
-                val summary = when {
-                    !open -> "已折叠 · $nested 项"
-                    block == com.flowglass.engine.BlockKind.IF ->
-                        "条件 ${item.conditions.size} · 分支 ${item.branches.size} · 步骤 ${item.children.size}"
-                    block == com.flowglass.engine.BlockKind.LOOP ->
-                        "循环 ${item.children.size} 步" + if (item.conditions.isNotEmpty()) " · 条件 ${item.conditions.size}" else ""
-                    block == com.flowglass.engine.BlockKind.WAIT ->
-                        "等待条件 ${item.conditions.size}"
-                    else -> item.parameter
-                }
+                val summary = ActionSummary.summarize(item, nested, open)
                 T(summary, 13.sp, color = C.OnSurfaceVar)
                 hint?.let { T(it, 11.sp, color = C.Bad) }
             }

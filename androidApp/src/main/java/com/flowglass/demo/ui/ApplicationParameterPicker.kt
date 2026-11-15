@@ -84,7 +84,8 @@ internal fun itemParameterLabel(section: CommandSection, item: CommandItem): Str
             }
             item.typeId == "trigger.time" -> item.parameter.split('|').joinToString(" · ")
             item.typeId == "trigger.battery_level" -> item.parameter.split('|').joinToString(" ").trim()
-            else -> item.parameter
+            // Same plain-language mapping as the block summaries, so cards and rows agree.
+            else -> ActionSummary.parameterText(item).ifEmpty { item.parameter }
         }
     }
     return label.ifEmpty { "点按设置参数" }

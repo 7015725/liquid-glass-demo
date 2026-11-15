@@ -116,6 +116,8 @@ data class RuleDocument(
 data class RuleUiMetadata(
     val running: Boolean = true,
     val mode: Int = 1,
+    /** Epoch millis when the engine last started; 0 for files written before this field existed. */
+    val startedAt: Long = 0,
     val logs: List<PersistedLog> = emptyList(),
     val presentation: Map<String, RulePresentation> = emptyMap(),
 )
@@ -132,6 +134,10 @@ data class PersistedLog(
     val steps: List<PersistedLogStep> = emptyList(),
     /** Condition/support failures are kept in the same log list but render as 跳过. */
     val skipped: Boolean = false,
+    /** Epoch millis of the run; 0 for legacy rows that only carried a "HH:mm" label. */
+    val at: Long = 0,
+    /** Wall-clock duration of the run; 0 for legacy rows. */
+    val durationMs: Long = 0,
 )
 
 @Serializable

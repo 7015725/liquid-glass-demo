@@ -74,6 +74,8 @@ internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Bool
                     PersistedLogStep(step.itemId, step.name, step.status.name, step.detail, step.durationMs)
                 },
                 skipped = log.skipped,
+                at = log.at,
+                durationMs = log.durationMs,
             )
         },
         presentation = (engineUi.presentation.filterKeys { id -> engineRules.any { it.id == id } }) +
@@ -205,7 +207,7 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
         logs = this.ui.logs.map { log ->
             RunLog(log.id, log.title, log.reason, log.time, log.ok, iconOrDefault(log.icon), log.detail,
                 log.steps.map { step -> StepResult(step.itemId, step.name, UiStepStatus.valueOf(step.status), step.detail, step.durationMs) },
-                log.skipped)
+                log.skipped, at = log.at, durationMs = log.durationMs)
         },
         running = this.ui.running,
         mode = this.ui.mode,

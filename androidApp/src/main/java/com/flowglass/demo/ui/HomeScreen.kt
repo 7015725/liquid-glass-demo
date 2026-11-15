@@ -24,6 +24,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -59,16 +60,30 @@ fun HomeScreen(state: AppState, onOpenTab: (Int) -> Unit) {
 
 @Composable
 private fun HeroCard(state: AppState, modifier: Modifier) {
+    // Tick once a minute; elapsed time itself comes from the persisted start stamp, so closing
+    // the screen no longer freezes or restarts the counter.
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(state.running) {
         while (isActive && state.running) {
-            delay(1000)
-            state.uptime += 1
+            now = System.currentTimeMillis()
+            delay(60_000)
         }
     }
-    val h = state.uptime / 3600
-    val m = (state.uptime / 60) % 60
-    val s = state.uptime % 60
-    val uptime = "%d:%02d:%02d".format(h, m, s)
+    val uptime = when {
+        !state.running -> "已暂停"
+        state.engineStartedAt <= 0L -> "刚刚启动"
+        else -> run {
+            val mins = ((now - state.engineStartedAt).coerceAtLeast(0L)) / 60_000
+            val days = mins / (24 * 60)
+            val hours = (mins / 60) % 24
+            when {
+                days > 0 -> "已运行 $days 天 $hours 小时"
+                mins >= 60 -> "已运行 $hours 小时 ${mins % 60} 分钟"
+                else -> "已运行 ${mins} 分钟"
+            }
+        }
+    }
+    val stats = computeRunStats(state.logs, now)
     val enabled = state.autoCmds.count { it.enabled }
     val listening = if (state.running && com.flowglass.demo.system.trigger.TriggerStatus.serviceActive)
         com.flowglass.demo.system.trigger.TriggerStatus.listeningRules else 0
@@ -125,11 +140,11 @@ private fun HeroCard(state: AppState, modifier: Modifier) {
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        TonalChip("今日 ${state.todayRuns} 次")
+                        TonalChip("今日 ${stats.todayCount} 次")
                         TonalChip(listOf("省电", "均衡", "极速")[state.mode])
                     }
                 }
-                ScallopButton(state.running, { state.running = !state.running })
+                ScallopButton(state.running, { state.setEngineRunning(!state.running) })
             }
             Spacer(Modifier.height(20.dp))
             Row {
@@ -279,37 +294,60 @@ private fun Meta(label: String, value: String, modifier: Modifier) {
 
 @Composable
 private fun MetricsCard(state: AppState, modifier: Modifier) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            now = System.currentTimeMillis()
+            delay(60_000)
+        }
+    }
+    val stats = computeRunStats(state.logs, now)
     PressCard(modifier.fillMaxWidth()) {
         Column {
-            SectionTitle("实时指标") { T("每秒刷新", 13.sp, color = C.Muted) }
+            SectionTitle("执行统计") { T("来自运行记录", 13.sp, color = C.Muted) }
             Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                val a = rememberLiveSeries(base = 42f, amp = 10f, seed = 7)
-                val b = rememberLiveSeries(base = 30f, amp = 8f, seed = 11)
-                MetricTile(Ic.ArrowUp, "触发频率", a.points.last().toInt().toString(), "次/分", "累计 12,480 次", a, Modifier.weight(1f))
-                MetricTile(Ic.ArrowDown, "执行延迟", b.points.last().toInt().toString(), "ms", "平均 31 ms", b, Modifier.weight(1f))
+            if (!stats.hasData) {
+                EmptyState(
+                    Ic.Gauge, "还没有执行数据",
+                    "运行一条指令后，这里会显示今日次数、成功率和最近 24 小时的曲线。",
+                )
+            } else {
+                T("最近 24 小时", 12.sp, color = C.Muted)
+                Spacer(Modifier.height(4.dp))
+                Sparkline(
+                    LiveSeries(stats.hourly.map { it.toFloat() }, 0f),
+                    C.Primary,
+                    Modifier.fillMaxWidth().height(72.dp),
+                )
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                    T("24 小时前", 11.sp, color = C.Muted, modifier = Modifier.weight(1f))
+                    T("现在", 11.sp, color = C.Muted)
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StatBlock(
+                        "今日执行", "${stats.todayCount}", "次",
+                        stats.successPercent?.let { "成功率 $it%" } ?: "暂无成功数据",
+                        Modifier.weight(1f),
+                    )
+                    StatBlock(
+                        "平均耗时", stats.averageMs?.toString() ?: "—", "ms",
+                        "最近 24 小时 ${stats.last24Count} 次",
+                        Modifier.weight(1f),
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MetricTile(
-    ic: Ic, label: String, value: String, unit: String, total: String,
-    series: LiveSeries, modifier: Modifier,
-) {
-    Box(modifier.height(168.dp).clip(RoundedRectangle(24.dp)).background(C.Tonal)) {
-        Sparkline(series, C.Primary, Modifier.fillMaxWidth().height(56.dp).align(Alignment.BottomCenter))
-        Column(Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                LineIcon(ic, C.Primary, 16.dp)
-                Spacer(Modifier.width(4.dp))
-                T(label, 13.sp, FontWeight.Medium, C.OnSurfaceVar)
-            }
-            Spacer(Modifier.height(6.dp))
-            BigValue(value, unit, 36.sp)
-            T(total, 12.sp, color = C.Muted)
-        }
+private fun StatBlock(label: String, value: String, unit: String, hint: String, modifier: Modifier) {
+    Column(modifier.clip(RoundedRectangle(20.dp)).background(C.Tonal).padding(14.dp)) {
+        T(label, 12.sp, color = C.OnSurfaceVar)
+        Spacer(Modifier.height(6.dp))
+        BigValue(value, unit, 30.sp)
+        T(hint, 11.sp, color = C.Muted)
     }
 }
 
