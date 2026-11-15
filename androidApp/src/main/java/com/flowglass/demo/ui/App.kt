@@ -35,9 +35,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -112,7 +112,28 @@ fun FlowGlassApp() {
         }
     }
     val backdrop = rememberLayerBackdrop()
-    var tab by remember { mutableIntStateOf(0) }
+    var nav by rememberSaveable(stateSaver = NavSnapshotSaver) { mutableStateOf(NavSnapshot()) }
+    val tab = nav.tab
+    fun setTab(value: Int) { nav = nav.copy(tab = value.coerceIn(0, Dests.lastIndex)) }
+    var navRestored by remember(state) { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        if (!navRestored) {
+            nav = restoreNavigation(state, nav)
+            navRestored = true
+        }
+    }
+    // Keep the saveable snapshot in step with navigation performed directly on AppState.
+    SideEffect {
+        if (navRestored) {
+            val next = nav.copy(
+                editing = state.editing ?: 0L,
+                actionCmd = state.actionEditingCmd ?: 0L,
+                action = state.actionEditing ?: 0L,
+                settingsPage = state.settingsPage,
+            )
+            if (next != nav) nav = next
+        }
+    }
     val scrolls = remember { mutableMapOf<Int, ScrollState>() }
     // settings sub pages get their own page key so each keeps its own scroll position
     val pageKey = if (tab == 3) 30 + state.settingsPage else tab
@@ -177,7 +198,7 @@ fun FlowGlassApp() {
                 ) {
                     StorageErrorNotice(state.storageError)
                     when {
-                        page == 0 -> HomeScreen(state) { tab = it }
+                        page == 0 -> HomeScreen(state) { setTab(it) }
                         page == 1 -> AutoCommandsScreen(state)
                         page == 2 -> OneTapCommandsScreen(state)
                         else -> SettingsHost(
@@ -228,7 +249,7 @@ fun FlowGlassApp() {
             ) {
                 Box(
                     Modifier.size(40.dp).clip(Capsule()).pressable {
-                        if (tab != 1 && tab != 2) tab = 1
+                        if (tab != 1 && tab != 2) setTab(1)
                         state.query = ""
                     },
                     contentAlignment = Alignment.Center
@@ -239,7 +260,7 @@ fun FlowGlassApp() {
                         if (tab == 2) {
                             state.openEditor(state.create(auto = false).id)
                         } else {
-                            tab = 1
+                            setTab(1)
                             state.openEditor(state.create(auto = true).id)
                         }
                     },
@@ -266,12 +287,12 @@ fun FlowGlassApp() {
         ) {
             LiquidBottomTabs(
                 selectedTabIndex = { tab },
-                onTabSelected = { if (it == tab && it == 3) state.settingsPage = 0; tab = it },
+                onTabSelected = { if (it == tab && it == 3) state.settingsPage = 0; setTab(it) },
                 backdrop = backdrop,
                 tabsCount = Dests.size,
             ) {
                 Dests.forEachIndexed { i, d ->
-                    LiquidBottomTab({ tab = i }) {
+                    LiquidBottomTab({ setTab(i) }) {
                         NavIcon(d.ic, selected = tab == i)
                         T(d.label, 11.sp, FontWeight.Medium, C.OnSurfaceVar)
                     }
@@ -284,7 +305,7 @@ fun FlowGlassApp() {
             // Edits are already in the persisted AppState; close overlays before changing tabs.
             state.closeEditor()
             state.settingsPage = destination
-            tab = 3
+            setTab(3)
         }
         ActionEditorHost(state)
         if (state.historyOpen) HistoryPanel(state) { state.historyOpen = false }
