@@ -201,6 +201,10 @@ class RuleExecutor(
     private val sink: VariableSink = VariableSink.Noop,
     private val maxSteps: Int = 10_000,
     private val environment: ConditionEnvironment? = null,
+    /**
+     * Wait poll. The host injects a cancellable `delay`; `Thread.sleep` stays as the fallback for
+     * pure-JVM hosts so a long wait never blocks a coroutine dispatcher on Android.
+     */
     private val sleeper: suspend (Long) -> Unit = { Thread.sleep(it) },
 ) {
     suspend fun run(
@@ -224,6 +228,9 @@ class RuleExecutor(
             execSequence(rule.actions, emptyList(), startDepth, context, scopes, budget, steps)
         } catch (stop: StopSignal) {
             stopped = stop
+        } catch (broken: BreakSignal) {
+            // Only loops catch BreakSignal; at the root it means a hand-edited or called rule.
+            steps += StepResult("block.break", StepStatus.FAILURE, "跳出循环必须放在循环里", 0, emptyList())
         } catch (exceeded: BudgetExceeded) {
             budgetExceeded = exceeded
         } catch (cancelled: CancellationException) {

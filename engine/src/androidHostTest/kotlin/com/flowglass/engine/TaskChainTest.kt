@@ -368,6 +368,39 @@ class TaskChainTest {
         assertTrue(issues.any { it.message.contains("调用层级超过 5 层") }, issues.joinToString { it.message })
     }
 
+    @Test
+    fun breakAtTheRootFailsInsteadOfEscaping() {
+        val broken = RuleComponent("block.break", params = mapOf(
+            "success" to kotlinx.serialization.json.JsonPrimitive("true"),
+            "message" to kotlinx.serialization.json.JsonPrimitive("跳出"),
+        ))
+        val result = runSuspend { executor(emptyMap()).run(rule(broken), "测试") }
+        assertEquals(StepStatus.FAILURE, result.status)
+        assertTrue(result.steps.single().detail.contains("跳出循环必须放在循环里"))
+    }
+
+    @Test
+    fun waitStopsOnCancellationInsteadOfSleepingToTimeout() {
+        var polls = 0
+        val wait = RuleComponent("block.wait_until", params = mapOf(
+            "timeout" to kotlinx.serialization.json.JsonPrimitive(60_000),
+            "poll" to kotlinx.serialization.json.JsonPrimitive(1_000),
+        ), conditions = listOf(RuleComponent("condition.charging", mapOf(
+            "state" to kotlinx.serialization.json.JsonPrimitive("charging"),
+        ))))
+        val env = object : ConditionEnvironment {
+            override fun zoneOffsetMinutes(atEpochMs: Long) = 0
+            override fun batteryPercent() = 50
+            override fun isCharging() = false
+            override fun isScreenOn() = true
+        }
+        val executor = executor(emptyMap(), environment = env,
+            sleeper = { polls++; throw kotlin.coroutines.cancellation.CancellationException("手动停止") })
+        val error = runCatching { runSuspend { executor.run(rule(wait), "测试") } }.exceptionOrNull()
+        assertTrue(error is kotlin.coroutines.cancellation.CancellationException)
+        assertEquals(1, polls)
+    }
+
     private fun <T> runSuspend(block: suspend () -> T): T {
         var result: Result<T>? = null
         block.startCoroutine(Continuation(EmptyCoroutineContext) { result = it })

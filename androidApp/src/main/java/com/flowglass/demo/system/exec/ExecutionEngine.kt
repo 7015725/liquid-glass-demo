@@ -49,6 +49,8 @@ internal fun Cmd.itemAtPath(path: List<Int>): CommandItem? {
     return node
 }
 
+private const val MAX_STORED_STEPS = 301
+
 class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, CommandItem) -> TaskOutcome)? = null) {
     private val context = context.applicationContext
     private val active = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
@@ -143,6 +145,9 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
             caller = caller,
             sink = sinkFor(rule),
             environment = environment,
+            // Cooperative: delay() lets a stop cancel the poll immediately instead of blocking a
+            // Dispatchers.Default thread for up to the 1 hour timeout.
+            sleeper = { kotlinx.coroutines.delay(it) },
         ).run(rule, reason, initial, document.globals, sharedBudget ?: RunBudget(), depth)
         val steps = log.steps.map { step ->
             val item = cmd.itemAtPath(step.path)
@@ -158,6 +163,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
                 durationMs = step.durationMs,
             )
         }
+        val capped = capSteps(cmd, steps)
         // A budget/stop failure has no failing step of its own: surface it so the log is not green.
         val failureStep = if (log.status == EngineStepStatus.FAILURE && steps.none { it.status == StepStatus.FAILURE }) {
             listOf(StepResult(cmd.id, "运行结果", StepStatus.FAILURE, log.detail.ifBlank { "运行失败" }, 0))
@@ -165,9 +171,26 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
         return RunResult(
             cmdId = cmd.id,
             reason = reason,
-            steps = steps + failureStep,
+            steps = capped + failureStep,
             durationMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos),
         )
+    }
+
+    /**
+     * Keep a run log bounded: first 250, last 50, one marker and any failure from the middle.
+     * The engine still counts every step; this only trims what the UI stores per run.
+     */
+    internal fun capSteps(cmd: Cmd, steps: List<StepResult>): List<StepResult> {
+        if (steps.size <= MAX_STORED_STEPS) return steps
+        val headCount = 250
+        val tailCount = 50
+        val middle = steps.subList(headCount, steps.size - tailCount)
+        val failures = middle.filter { it.status == StepStatus.FAILURE }
+        val budget = MAX_STORED_STEPS - 1 - tailCount - failures.size
+        val head = steps.take(headCount.coerceAtMost(budget.coerceAtLeast(0)))
+        val omitted = middle.size - failures.size
+        val marker = StepResult(cmd.id, "已省略 $omitted 个步骤", StepStatus.SKIPPED, "中间步骤仅保留失败项", 0)
+        return head + failures + marker + steps.takeLast(tailCount)
     }
 
     private fun sinkFor(rule: Rule): VariableSink = VariableSink { ruleWrites, globalWrites ->
