@@ -12,8 +12,8 @@ android {
         applicationId = "com.flowglass.demo"
         minSdk = 26
         targetSdk = 37
-        versionCode = 19
-        versionName = "0.7.0-alpha1"
+        versionCode = 20
+        versionName = "0.7.0-alpha1.1"
         androidResources.localeFilters += arrayOf("zh", "en")
     }
 
@@ -50,6 +50,9 @@ android {
     }
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // Compose tests use a process-wide recomposer; isolate test classes so a later
+        // Robolectric class cannot inherit a paused/finished Compose clock.
+        unitTests.all { it.forkEvery = 1 }
     }
 }
 
