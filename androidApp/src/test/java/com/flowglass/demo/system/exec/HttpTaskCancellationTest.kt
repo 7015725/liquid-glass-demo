@@ -3,6 +3,7 @@ package com.flowglass.demo.system.exec
 import android.os.Looper
 import com.flowglass.demo.ui.AppState
 import com.flowglass.demo.ui.Cmd
+import com.flowglass.demo.ui.computeRunStats
 import com.flowglass.demo.ui.CommandItem
 import com.flowglass.demo.ui.Ic
 import kotlinx.coroutines.CompletableDeferred
@@ -116,7 +117,7 @@ class HttpTaskCancellationTest {
             assertTrue("cancelled request must disconnect the active connection", connection.disconnectCalls.get() >= 1)
             assertTrue("cancelled request must not return an outcome", outcomes.isEmpty())
             assertTrue("cancelled instruction must not write execution logs", state.logs.isEmpty())
-            assertTrue("cancelled instruction must not increment run count", state.todayRuns == 0)
+            assertTrue("cancelled instruction must not increment run count", computeRunStats(state.logs, System.currentTimeMillis()).todayCount == 0)
         } finally {
             job.cancel()
             connection.unblock()
@@ -134,7 +135,7 @@ class HttpTaskCancellationTest {
                 Shadows.shadowOf(Looper.getMainLooper()).idle()
                 assertTrue("worker completion after cancellation must not return an outcome", outcomes.isEmpty())
                 assertTrue("worker completion after cancellation must not write logs", state.logs.isEmpty())
-                assertTrue("worker completion after cancellation must not increment run count", state.todayRuns == 0)
+                assertTrue("worker completion after cancellation must not increment run count", computeRunStats(state.logs, System.currentTimeMillis()).todayCount == 0)
             } finally {
                 scope.cancel()
             }

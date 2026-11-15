@@ -204,7 +204,9 @@ private fun immutableItem(item: CommandItem): CommandItem = item.copy(
 )
 
 internal fun AppState.snapshot() = PersistedAppState(
-    autoCmds, oneTaps, logs, running, mode, engineRules, engineUi, engineGlobals,
+    autoCmds, oneTaps, logs, running, mode, engineRules,
+    engineUi.copy(startedAt = engineStartedAt),
+    engineGlobals,
 )
 
 internal object AppStateJson {

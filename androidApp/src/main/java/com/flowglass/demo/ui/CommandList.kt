@@ -177,7 +177,7 @@ private fun ListHeader(text: String, action: String, modifier: Modifier, onActio
 private fun EnginePausedBanner(state: AppState, modifier: Modifier) {
     Row(
         modifier.fillMaxWidth().clip(RoundedRectangle(22.dp)).background(C.Tonal)
-            .pressable(0.98f) { state.running = true }.padding(14.dp),
+            .pressable(0.98f) { state.setEngineRunning(true) }.padding(14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         LineIcon(Ic.Info, C.OnSurfaceVar, 18.dp)

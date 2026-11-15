@@ -254,32 +254,7 @@ fun BigValue(value: String, unit: String, size: TextUnit = 40.sp, color: Color =
     }
 }
 
-// ---------------------------------------------------------------- live data
-
-class LiveSeries(val points: List<Float>, val shift: Float)
-
-/** Adds a new point every second and slides the curve left smoothly. */
-@Composable
-fun rememberLiveSeries(base: Float, amp: Float, seed: Int, count: Int = 22): LiveSeries {
-    val rnd = remember { Random(seed) }
-    val pts = remember {
-        mutableStateListOf<Float>().apply {
-            var v = base
-            repeat(count) { v = (v + rnd.nextFloat() * amp - amp / 2).coerceIn(base - amp * 2, base + amp * 2); add(v) }
-        }
-    }
-    val shift = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            shift.snapTo(0f)
-            shift.animateTo(1f, tween(1000, easing = LinearEasing))
-            val last = pts.last()
-            pts.add((last + rnd.nextFloat() * amp - amp / 2).coerceIn(base - amp * 2, base + amp * 2))
-            pts.removeAt(0)
-        }
-    }
-    return LiveSeries(pts, shift.value)
-}
+class LiveSeries(val points: List<Float>, val shift: Float = 0f)
 
 @Composable
 fun Sparkline(series: LiveSeries, color: Color, modifier: Modifier = Modifier) {

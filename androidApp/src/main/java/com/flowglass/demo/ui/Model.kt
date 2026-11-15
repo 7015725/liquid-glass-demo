@@ -3,6 +3,7 @@ package com.flowglass.demo.ui
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +51,7 @@ private fun Cmd.automaticDescription(): String {
 
 data class RunLog(val id: Long, val title: String, val reason: String, val time: String, val ok: Boolean, val ic: Ic,
     val detail: String = "", val steps: List<com.flowglass.demo.system.exec.StepResult> = emptyList(),
-    val skipped: Boolean = false)
+    val skipped: Boolean = false, val at: Long = 0, val durationMs: Long = 0)
 
 data class MenuReq(val cmdId: Long, val auto: Boolean, val anchor: Offset)
 data class UndoInfo(val cmd: Cmd, val index: Int)
@@ -73,6 +74,7 @@ private fun reserveIds(saved: PersistedAppState) {
 }
 
 private fun now(): String = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+private fun nowEpochMs(): Long = System.currentTimeMillis()
 
 /** 全部 / 已开启 plus every trigger category the component registry declares. */
 val AutoBaseFilters = listOf("全部", "已开启")
@@ -83,67 +85,6 @@ internal fun Cmd.categoryName(): String? =
     triggers.firstOrNull()?.typeId
         ?.let { CommandCatalog.meta(it)?.category }
         ?: CommandCatalog.legacyCategoryName(category)
-
-private fun seedItems(vararg names: String) = names.map { display ->
-    // Split only the explicit seed separator; keep times such as 23:00 intact.
-    val name = display.substringBefore('：')
-    val parameter = display.substringAfter('：', "")
-    val catalogIcon = CommandSection.entries.asSequence()
-        .flatMap { CommandCatalog.options(it).asSequence() }
-        .firstOrNull { it.name == name }?.ic
-    val icon = catalogIcon ?: when (name) {
-        "通知" -> Ic.Bell
-        "蓝牙已连接" -> Ic.Bluetooth
-        "媒体键" -> Ic.Play
-        "新文件" -> Ic.Camera
-        else -> Ic.Bolt
-    }
-    val typeId = CommandSection.entries.asSequence().flatMap { CommandCatalog.options(it).asSequence() }
-        .firstOrNull { it.name == name }?.typeId
-    val meta = typeId?.let { id -> com.flowglass.engine.BuiltInComponents.registry().find(id) }
-    val seedType = if (meta != null && runCatching {
-        com.flowglass.engine.ParameterCodec.parseComponent(meta, parameter)
-    }.isSuccess) typeId else "legacy.unknown"
-    CommandItem(newId(), name, parameter, icon, seedType)
-}
-
-private fun seedAuto() = listOf(
-    Cmd(1, true, Ic.Location, "到公司自动连 WiFi", "工作日到达公司附近时，打开 WiFi 并切换到振动模式",
-        seedItems("进入地点：公司"), seedItems("工作日 08:00–10:00"), seedItems("开关 WiFi：开启", "振动模式"), 4, pinned = true),
-    Cmd(2, true, Ic.Bell, "验证码自动复制", "收到含「验证码」的短信或通知时，提取数字并复制到剪贴板",
-        seedItems("通知：包含「验证码」"), emptyList(), seedItems("正则提取数字", "写入剪贴板", "弹出提示"), 3),
-    Cmd(3, true, Ic.Moon, "夜间自动静音", "手动测试会开启勿扰并将亮度调至 10%；自动触发与恢复尚未接入",
-        seedItems("时间：23:00"), seedItems("非节假日"), seedItems("开关勿扰：开启", "调节亮度：10%"), 2),
-    Cmd(4, true, Ic.Battery, "低电量省电", "电量低于 20% 且未充电时，关闭 5G、蓝牙并降低刷新率",
-        seedItems("电量 < 20%"), seedItems("未在充电"), seedItems("关闭 5G", "开关蓝牙：关闭", "刷新率 60Hz"), 5),
-    Cmd(5, true, Ic.Bluetooth, "耳机连上放音乐", "连接蓝牙耳机后自动打开音乐 App 继续播放",
-        seedItems("蓝牙已连接：耳机"), emptyList(), seedItems("打开音乐", "媒体键：播放"), 5, enabled = false),
-    Cmd(6, true, Ic.Wifi, "断网自动重连", "WiFi 断开超过 30 秒时自动重新连接，失败则切换移动数据",
-        seedItems("WiFi 断开"), seedItems("持续 30 秒"), seedItems("重连 WiFi", "打开移动数据"), 6),
-    Cmd(7, true, Ic.Camera, "截图自动归档", "新截图按日期移动到「截图归档」相册",
-        seedItems("新文件：Screenshots"), emptyList(), seedItems("移动文件", "通知结果"), 5, enabled = false),
-    Cmd(8, true, Ic.Clock, "整点报时", "白天每个整点语音播报时间",
-        seedItems("时间：每小时 00 分"), seedItems("08:00–22:00"), seedItems("语音播报时间"), 2),
-    Cmd(9, true, Ic.Shield, "陌生来电拦截", "未在通讯录中的号码在夜间来电时自动挂断并记录",
-        seedItems("来电"), seedItems("号码不在通讯录", "22:00–07:00"), seedItems("挂断", "写入日志"), 3),
-)
-
-private fun seedOneTap() = listOf(
-    Cmd(101, false, Ic.Leaf, "一键省电", "关闭 5G、降低亮度、限制后台活动",
-        actions = seedItems("关闭 5G", "调节亮度：30%", "限制后台"), pinned = true),
-    Cmd(102, false, Ic.Moon, "一键勿扰", "开启勿扰；定时恢复任务暂不支持，执行时会跳过",
-        actions = seedItems("开关勿扰：开启", "2 小时后恢复"), pinned = true),
-    Cmd(103, false, Ic.Rocket, "清理后台", "结束除白名单外的后台应用",
-        actions = seedItems("强制停止后台应用", "释放内存")),
-    Cmd(104, false, Ic.Wifi, "开启热点", "打开热点并通过二维码分享密码",
-        actions = seedItems("打开热点", "显示二维码")),
-    Cmd(105, false, Ic.Location, "发送定位", "把当前位置以短信发给家人",
-        actions = seedItems("获取定位", "生成地图链接", "发送短信")),
-    Cmd(106, false, Ic.Camera, "扫码付款", "直接打开支付 App 的付款码页面",
-        actions = seedItems("打开付款码"), pinned = true),
-    Cmd(107, false, Ic.Terminal, "执行脚本", "以 Root 身份运行示例命令 echo 流光，可在编辑页修改",
-        actions = seedItems("执行 Shell(Root)：echo 流光")),
-)
 
 @Stable
 class AppState internal constructor(saved: PersistedAppState?) {
@@ -381,16 +322,26 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     // engine
     var running by mutableStateOf(saved?.running ?: true)
+        private set
+    /** Epoch millis the engine last started; persisted so 运行时长 survives recreation. */
+    var engineStartedAt by mutableLongStateOf(saved?.engineUi?.startedAt ?: 0)
+        private set
+
+    init { if (running && engineStartedAt == 0L) engineStartedAt = nowEpochMs() }
+
+    fun setEngineRunning(on: Boolean) {
+        if (running == on) return
+        running = on
+        if (on) engineStartedAt = nowEpochMs()
+    }
     /** Bumped when a permission prompt returns; the trigger host re-evaluates blocked rules. */
     var permissionsEpoch by mutableIntStateOf(0)
-    var uptime by mutableIntStateOf(0)
-    var todayRuns by mutableIntStateOf(0)
     var mode by mutableIntStateOf(saved?.mode ?: 1)
     var accessibility by mutableStateOf(true)
 
     // lists
-    val autoCmds = mutableStateListOf<Cmd>().apply { addAll(saved?.autoCmds ?: seedAuto()) }
-    val oneTaps = mutableStateListOf<Cmd>().apply { addAll(saved?.oneTaps ?: seedOneTap()) }
+    val autoCmds = mutableStateListOf<Cmd>().apply { addAll(saved?.autoCmds.orEmpty()) }
+    val oneTaps = mutableStateListOf<Cmd>().apply { addAll(saved?.oneTaps.orEmpty()) }
     var autoFilter by mutableIntStateOf(0)
     private val executionTokens = mutableMapOf<Long, Any>()
     private val executionJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
@@ -419,7 +370,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         executionJobs.remove(cmdId)?.cancel()
         executing[cmdId] = 0
         executionMessages[cmdId] = "已手动停止"
-        logs.add(0, RunLog(newId(), cmd.title, "手动停止", now(), false, cmd.ic, "已手动停止", emptyList(), skipped = true))
+        logs.add(0, RunLog(newId(), cmd.title, "手动停止", now(), false, cmd.ic, "已手动停止", emptyList(), skipped = true, at = nowEpochMs()))
         if (logs.size > 50) logs.removeAt(logs.lastIndex)
     }
 
@@ -514,10 +465,10 @@ class AppState internal constructor(saved: PersistedAppState?) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
                     executionMessages[cmd.id] = result.detail
                     executing[cmd.id] = if (result.ok) 2 else 3
-                    todayRuns += 1
                     val t = now()
                     update(cmd.id) { it.copy(lastRun = t) }
-                    logs.add(0, RunLog(newId(), cmd.title, reason, t, result.ok, cmd.ic, result.detail, result.steps.toList()))
+                    logs.add(0, RunLog(newId(), cmd.title, reason, t, result.ok, cmd.ic, result.detail, result.steps.toList(),
+                        at = nowEpochMs(), durationMs = result.durationMs))
                     if (logs.size > 50) logs.removeAt(logs.lastIndex)
                 }
                 delay(if (result.ok) 1600 else 2000)
@@ -549,7 +500,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun recordSkippedRun(cmdId: Long, reason: String, detail: String) {
         val cmd = find(cmdId) ?: return
         val time = now()
-        logs.add(0, RunLog(newId(), cmd.title, reason, time, false, cmd.ic, detail, emptyList(), skipped = true))
+        logs.add(0, RunLog(newId(), cmd.title, reason, time, false, cmd.ic, detail,
+            emptyList(), skipped = true, at = nowEpochMs()))
         if (logs.size > 50) logs.removeAt(logs.lastIndex)
     }
 
@@ -558,7 +510,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         val cmd = find(cmdId) ?: return
         val time = now()
         update(cmdId) { it.copy(lastRun = time) }
-        logs.add(0, RunLog(newId(), cmd.title, reason, time, false, cmd.ic, detail))
+        logs.add(0, RunLog(newId(), cmd.title, reason, time, false, cmd.ic, detail, at = nowEpochMs()))
         if (logs.size > 50) logs.removeAt(logs.lastIndex)
     }
 
@@ -576,12 +528,12 @@ class AppState internal constructor(saved: PersistedAppState?) {
         val detail = internalErrorDetail(failure)
         executionMessages[cmd.id] = detail
         executing[cmd.id] = 3
-        todayRuns += 1
         val time = now()
         update(cmd.id) { it.copy(lastRun = time) }
         logs.add(0, RunLog(newId(), cmd.title, reason, time, false, cmd.ic, detail,
             listOf(com.flowglass.demo.system.exec.StepResult(
-                cmd.id, "执行", com.flowglass.demo.system.exec.StepStatus.FAILURE, detail, 0))))
+                cmd.id, "执行", com.flowglass.demo.system.exec.StepStatus.FAILURE, detail, 0)),
+            at = nowEpochMs()))
         if (logs.size > 50) logs.removeAt(logs.lastIndex)
     }
 }

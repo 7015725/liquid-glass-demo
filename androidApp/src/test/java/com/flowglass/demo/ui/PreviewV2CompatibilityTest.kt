@@ -133,7 +133,10 @@ class PreviewV2CompatibilityTest {
 
     @Test fun canonicalV2WithAStraySidecarKeyStillFailsClosed() {
         // Guard the discriminator: only the documented preview shape is migrated.
-        val canonical = JSONObject(AppStateJson.encode(AppState().snapshot()))
+        val seeded = AppState().also { state ->
+            state.autoCmds.add(Cmd(900_001, true, Ic.Bolt, "测试指令", "", actions = emptyList()))
+        }
+        val canonical = JSONObject(AppStateJson.encode(seeded.snapshot()))
         val presentation = canonical.getJSONObject("ui").getJSONObject("presentation")
         val ruleId = presentation.keys().asSequence().first()
         presentation.getJSONObject(ruleId).put("stray", 1)
