@@ -71,7 +71,7 @@ private fun DrawScope.drawIcon(ic: Ic, color: Color, filled: Boolean, strokeUnit
         Ic.List -> {
             if (filled) drawRoundRect(color, Offset(3f, 3f), Size(18f, 18f), CornerRadius(5f))
             else drawRoundRect(color, Offset(3f, 3f), Size(18f, 18f), CornerRadius(5f), style = st)
-            val c = if (filled) Color.White else color
+            val c = if (filled) C.IconCutout else color
             drawLine(c, Offset(8f, 9f), Offset(16f, 9f), sw, StrokeCap.Round)
             drawLine(c, Offset(8f, 12f), Offset(16f, 12f), sw, StrokeCap.Round)
             drawLine(c, Offset(8f, 15f), Offset(13f, 15f), sw, StrokeCap.Round)

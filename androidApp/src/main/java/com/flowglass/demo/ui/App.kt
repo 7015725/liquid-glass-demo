@@ -26,10 +26,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -46,12 +49,15 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import com.flowglass.demo.liquid.LiquidBottomTab
 import com.flowglass.demo.liquid.LiquidBottomTabs
 import com.flowglass.demo.liquid.LiquidButton
@@ -59,7 +65,6 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.vibrancy
 import com.kyant.shapes.Capsule
 
 private data class Dest(val title: String, val label: String, val ic: Ic)
@@ -73,6 +78,25 @@ private val Dests = listOf(
 
 @Composable
 fun FlowGlassApp() {
+    val localContext = LocalContext.current
+    val appContext = localContext.applicationContext
+    var themeMode by remember { mutableStateOf(AppearanceSettings.read(appContext)) }
+    val systemDark = isSystemInDarkTheme()
+    val dark = when (themeMode) {
+        ThemeMode.SYSTEM -> systemDark
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
+    val view = LocalView.current
+    SideEffect {
+        C.dark = dark
+        val window = (localContext as? Activity)?.window ?: return@SideEffect
+        WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
+    }
+
     val state = rememberStoredAppState()
     if (state == null) {
         LoadingScreen()
@@ -82,7 +106,6 @@ fun FlowGlassApp() {
     // Root tier gates the editor's action catalog, so seed it once at startup instead of
     // waiting for the user to open settings: the persisted grant makes this prompt-free.
     LaunchedEffect(Unit) { if (state.root == null) state.root = com.flowglass.demo.system.Root.check(request = false) }
-    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     LaunchedEffect(state.running, state.autoCmds.count { it.enabled }) {
         if (state.running && state.autoCmds.any { it.enabled }) {
             com.flowglass.demo.system.trigger.TriggerService.ensureStarted(appContext, allowLocationUpgrade = true)
@@ -157,7 +180,15 @@ fun FlowGlassApp() {
                         page == 0 -> HomeScreen(state) { tab = it }
                         page == 1 -> AutoCommandsScreen(state)
                         page == 2 -> OneTapCommandsScreen(state)
-                        else -> SettingsHost(state, page - 30)
+                        else -> SettingsHost(
+                            state,
+                            page - 30,
+                            themeMode = themeMode,
+                            onThemeModeChange = { mode ->
+                                themeMode = mode
+                                AppearanceSettings.write(appContext, mode)
+                            },
+                        )
                     }
                 }
             }
@@ -173,8 +204,8 @@ fun FlowGlassApp() {
                     backdrop = backdrop,
                     shape = { RectangleShape },
                     effects = {
-                        vibrancy()
-                        blur(18.dp.toPx())
+                        themedVibrancy()
+                        blur(themedBlur(18.dp.toPx()))
                     },
                     highlight = null,
                     shadow = null,
@@ -193,7 +224,7 @@ fun FlowGlassApp() {
                 onClick = {},
                 backdrop = backdrop,
                 modifier = Modifier.align(Alignment.TopEnd).padding(top = statusTop + 8.dp, end = 16.dp),
-                surfaceColor = Color.White.copy(alpha = 0.5f)
+                surfaceColor = C.Glass
             ) {
                 Box(
                     Modifier.size(40.dp).clip(Capsule()).pressable {

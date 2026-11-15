@@ -19,6 +19,7 @@ import com.kyant.backdrop.asComposeShader
 import com.kyant.backdrop.isRuntimeShaderSupported
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import com.flowglass.demo.ui.C
 
 class InteractiveHighlight(
     val animationScope: CoroutineScope,
@@ -64,13 +65,13 @@ half4 main(float2 coord) {
             if (progress > 0f) {
                 if (shader != null) {
                     drawRect(
-                        Color.White.copy(0.08f * progress),
+                        C.Highlight.copy(0.08f * progress),
                         blendMode = BlendMode.Plus
                     )
                     shader.apply {
                         val position = position(size, positionAnimation.value)
                         setFloatUniform("size", size.width, size.height)
-                        setColorUniform("color", Color.White.copy(0.15f * progress))
+                        setColorUniform("color", C.Highlight.copy(0.15f * progress))
                         setFloatUniform("radius", size.minDimension * 1.5f)
                         setFloatUniform(
                             "position",
@@ -84,7 +85,7 @@ half4 main(float2 coord) {
                     )
                 } else {
                     drawRect(
-                        Color.White.copy(0.25f * progress),
+                        C.Highlight.copy(0.25f * progress),
                         blendMode = BlendMode.Plus
                     )
                 }

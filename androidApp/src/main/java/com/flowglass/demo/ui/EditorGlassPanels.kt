@@ -26,7 +26,6 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 
@@ -39,7 +38,7 @@ internal fun EditorGlassPanel(backdrop: Backdrop, title: String, bottom: Boolean
     val scale by animateFloatAsState(if (entered) 1f else 0.96f, spatial(), label = "panelScale")
     val alpha by animateFloatAsState(if (entered) 1f else 0f, effect(), label = "panelAlpha")
     BoxWithConstraints(Modifier.fillMaxSize().testTag("editor-panel").imePadding()) {
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.30f * alpha))
+        Box(Modifier.fillMaxSize().background(C.Scrim.copy(alpha = C.Scrim.alpha * alpha))
             .testTag("editor-scrim").semantics {
                 role = Role.Button
                 contentDescription = "关闭面板"
@@ -50,8 +49,8 @@ internal fun EditorGlassPanel(backdrop: Backdrop, title: String, bottom: Boolean
             .heightIn(max = maxHeight * 0.78f)
             .graphicsLayer { scaleX = scale; scaleY = scale; this.alpha = alpha }
             .drawBackdrop(backdrop, shape = { RoundedRectangle(28.dp) }, effects = {
-                vibrancy(); blur(20.dp.toPx()); lens(18.dp.toPx(), 28.dp.toPx())
-            }, onDrawSurface = { drawRect(Color.White.copy(alpha = 0.88f)) })
+                themedVibrancy(); blur(themedBlur(20.dp.toPx())); lens(themedLensX(18.dp.toPx()), themedLensY(28.dp.toPx()))
+            }, onDrawSurface = { drawRect(C.GlassStrong) })
             .pointerInput(Unit) { detectTapGestures { } }.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 T(title, 21.sp, FontWeight.Bold, modifier = Modifier.weight(1f))

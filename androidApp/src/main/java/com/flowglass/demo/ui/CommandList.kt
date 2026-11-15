@@ -82,7 +82,6 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.delay
@@ -331,9 +330,9 @@ internal fun ExecButton(exec: Int, modifier: Modifier = Modifier, large: Boolean
             Row(verticalAlignment = Alignment.CenterVertically) {
                 when (s) {
                     1 -> {
-                        Spinner(Color.White, if (large) 20.dp else 14.dp)
+                        Spinner(C.OnPrimary, if (large) 20.dp else 14.dp)
                         Spacer(Modifier.width(6.dp))
-                        T("执行中", if (large) 16.sp else 12.sp, FontWeight.SemiBold, Color.White)
+                        T("执行中", if (large) 16.sp else 12.sp, FontWeight.SemiBold, C.OnPrimary)
                     }
                     2 -> {
                         CheckBadge(true, if (large) 22.dp else 16.dp)
@@ -341,15 +340,15 @@ internal fun ExecButton(exec: Int, modifier: Modifier = Modifier, large: Boolean
                         T("已完成", if (large) 16.sp else 12.sp, FontWeight.SemiBold, C.GoodText)
                     }
                     3 -> {
-                        LineIcon(Ic.Info, Color.White, if (large) 20.dp else 14.dp)
+                        LineIcon(Ic.Info, C.OnBad, if (large) 20.dp else 14.dp)
                         Spacer(Modifier.width(6.dp))
-                        T(failureLabel, if (large) 16.sp else 12.sp, FontWeight.SemiBold, Color.White)
+                        T(failureLabel, if (large) 16.sp else 12.sp, FontWeight.SemiBold, C.OnBad)
                     }
                     else -> {
-                        LineIcon(Ic.Play, Color.White, if (large) 20.dp else 14.dp,
+                        LineIcon(Ic.Play, C.OnPrimary, if (large) 20.dp else 14.dp,
                             modifier = if (large) Modifier.testTag("editor-execute-play") else Modifier)
                         Spacer(Modifier.width(4.dp))
-                        T(idleLabel, if (large) 16.sp else 12.sp, FontWeight.SemiBold, Color.White)
+                        T(idleLabel, if (large) 16.sp else 12.sp, FontWeight.SemiBold, C.OnPrimary)
                     }
                 }
             }
@@ -424,7 +423,7 @@ fun CommandMenuOverlay(state: AppState, backdrop: Backdrop) {
         Box(
             Modifier.fillMaxSize()
                 .graphicsLayer { alpha = progress.value.coerceIn(0f, 1f) }
-                .background(Color.Black.copy(alpha = 0.10f))
+                .background(C.ScrimSubtle)
                 .pointerInput(Unit) { detectTapGestures { state.menu = null } }
         )
         Column(
@@ -442,11 +441,11 @@ fun CommandMenuOverlay(state: AppState, backdrop: Backdrop) {
                     backdrop = backdrop,
                     shape = { RoundedRectangle(26.dp) },
                     effects = {
-                        vibrancy()
-                        blur(10.dp.toPx())
-                        lens(16.dp.toPx(), 28.dp.toPx())
+                        themedVibrancy()
+                        blur(themedBlur(10.dp.toPx()))
+                        lens(themedLensX(16.dp.toPx()), themedLensY(28.dp.toPx()))
                     },
-                    onDrawSurface = { drawRect(Color.White.copy(alpha = 0.55f)) }
+                    onDrawSurface = { drawRect(C.Glass) }
                 )
                 .padding(vertical = 8.dp)
         ) {
@@ -526,7 +525,7 @@ fun RenameOverlay(state: AppState, backdrop: Backdrop) {
     Box(Modifier.fillMaxSize()) {
         Box(
             Modifier.fillMaxSize().graphicsLayer { alpha = progress.coerceIn(0f, 1f) }
-                .background(Color.Black.copy(alpha = 0.18f))
+                .background(C.Scrim)
                 .pointerInput(Unit) { detectTapGestures { state.renaming = null } }
         )
         Column(
@@ -544,11 +543,11 @@ fun RenameOverlay(state: AppState, backdrop: Backdrop) {
                     backdrop = backdrop,
                     shape = { RoundedRectangle(30.dp) },
                     effects = {
-                        vibrancy()
-                        blur(14.dp.toPx())
-                        lens(18.dp.toPx(), 32.dp.toPx())
+                        themedVibrancy()
+                        blur(themedBlur(14.dp.toPx()))
+                        lens(themedLensX(18.dp.toPx()), themedLensY(32.dp.toPx()))
                     },
-                    onDrawSurface = { drawRect(Color.White.copy(alpha = 0.6f)) }
+                    onDrawSurface = { drawRect(C.GlassStrong) }
                 )
                 .padding(22.dp)
         ) {
@@ -557,7 +556,7 @@ fun RenameOverlay(state: AppState, backdrop: Backdrop) {
             T(if (cmd.auto) "自动指令" else "一键指令", 13.sp, color = C.Muted)
             Spacer(Modifier.height(16.dp))
             Box(
-                Modifier.fillMaxWidth().clip(RoundedRectangle(18.dp)).background(Color.White.copy(alpha = 0.8f))
+                Modifier.fillMaxWidth().clip(RoundedRectangle(18.dp)).background(C.Field)
                     .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
                 BasicTextField(
@@ -582,7 +581,7 @@ fun RenameOverlay(state: AppState, backdrop: Backdrop) {
                     Modifier.weight(1f).height(46.dp).clip(Capsule()).background(C.Primary)
                         .pressable { confirm() },
                     contentAlignment = Alignment.Center
-                ) { T("确定", 15.sp, FontWeight.SemiBold, Color.White) }
+                ) { T("确定", 15.sp, FontWeight.SemiBold, C.OnPrimary) }
             }
         }
     }
@@ -612,21 +611,21 @@ fun UndoBar(state: AppState, backdrop: Backdrop, modifier: Modifier) {
                     backdrop = backdrop,
                     shape = { Capsule() },
                     effects = {
-                        vibrancy()
-                        blur(10.dp.toPx())
-                        lens(14.dp.toPx(), 24.dp.toPx())
+                        themedVibrancy()
+                        blur(themedBlur(10.dp.toPx()))
+                        lens(themedLensX(14.dp.toPx()), themedLensY(24.dp.toPx()))
                     },
-                    onDrawSurface = { drawRect(C.OnSurface.copy(alpha = 0.72f)) }
+                    onDrawSurface = { drawRect(C.InverseSurface) }
                 )
                 .padding(start = 20.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            T("已删除「$lastTitle」", 14.sp, FontWeight.Medium, Color.White, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+            T("已删除「$lastTitle」", 14.sp, FontWeight.Medium, C.InverseOnSurface, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
             Spacer(Modifier.width(12.dp))
             Box(
-                Modifier.clip(Capsule()).background(Color.White.copy(alpha = 0.16f))
+                Modifier.clip(Capsule()).background(C.InverseOnSurface.copy(alpha = 0.16f))
                     .pressable { state.undoDelete() }.padding(horizontal = 16.dp, vertical = 9.dp)
-            ) { T("撤销", 14.sp, FontWeight.Bold, Color(0xFF8CC2FF)) }
+            ) { T("撤销", 14.sp, FontWeight.Bold, C.InversePrimary) }
         }
     }
 }
@@ -655,11 +654,11 @@ fun SearchBarOverlay(state: AppState, backdrop: Backdrop, modifier: Modifier) {
                 backdrop = backdrop,
                 shape = { Capsule() },
                 effects = {
-                    vibrancy()
-                    blur(8.dp.toPx())
-                    lens(14.dp.toPx(), 24.dp.toPx())
+                    themedVibrancy()
+                    blur(themedBlur(8.dp.toPx()))
+                    lens(themedLensX(14.dp.toPx()), themedLensY(24.dp.toPx()))
                 },
-                onDrawSurface = { drawRect(Color.White.copy(alpha = 0.6f)) }
+                onDrawSurface = { drawRect(C.Glass) }
             )
             .padding(start = 18.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically

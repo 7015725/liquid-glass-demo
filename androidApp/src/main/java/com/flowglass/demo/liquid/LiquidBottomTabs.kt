@@ -47,10 +47,14 @@ import com.flowglass.demo.liquid.InteractiveHighlight
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
+import com.flowglass.demo.ui.C
+import com.flowglass.demo.ui.themedBlur
+import com.flowglass.demo.ui.themedLensX
+import com.flowglass.demo.ui.themedLensY
+import com.flowglass.demo.ui.themedVibrancy
 import com.kyant.shapes.Capsule
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
@@ -67,13 +71,8 @@ fun LiquidBottomTabs(
     modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit
 ) {
-    val isLightTheme = true // demo is light-only
-    val accentColor =
-        if (isLightTheme) Color(0xFF1A84FF)
-        else Color(0xFF0091FF)
-    val containerColor =
-        if (isLightTheme) Color(0xFFFAFAFA).copy(0.4f)
-        else Color(0xFF121212).copy(0.4f)
+    val accentColor = C.NavAccent
+    val containerColor = C.NavSurface
 
     val tabsBackdrop = rememberLayerBackdrop()
     val currentSelectedTabIndex by rememberUpdatedState(selectedTabIndex)
@@ -173,9 +172,9 @@ fun LiquidBottomTabs(
                     backdrop = backdrop,
                     shape = { Capsule() },
                     effects = {
-                        vibrancy()
-                        blur(8f.dp.toPx())
-                        lens(24f.dp.toPx(), 24f.dp.toPx())
+                        themedVibrancy()
+                        blur(themedBlur(8.dp.toPx()))
+                        lens(themedLensX(24.dp.toPx()), themedLensY(24.dp.toPx()))
                     },
                     layerBlock = {
                         val progress = dampedDragAnimation.pressProgress
@@ -211,11 +210,11 @@ fun LiquidBottomTabs(
                         shape = { Capsule() },
                         effects = {
                             val progress = dampedDragAnimation.pressProgress
-                            vibrancy()
-                            blur(8f.dp.toPx())
+                            themedVibrancy()
+                            blur(themedBlur(8.dp.toPx()))
                             lens(
-                                24f.dp.toPx() * progress,
-                                24f.dp.toPx() * progress
+                                themedLensX(24.dp.toPx() * progress),
+                                themedLensY(24.dp.toPx() * progress)
                             )
                         },
                         highlight = {
@@ -250,8 +249,8 @@ fun LiquidBottomTabs(
                     effects = {
                         val progress = dampedDragAnimation.pressProgress
                         lens(
-                            10f.dp.toPx() * progress,
-                            14f.dp.toPx() * progress,
+                            themedLensX(10.dp.toPx() * progress),
+                            themedLensY(14.dp.toPx() * progress),
                             chromaticAberration = true
                         )
                     },
@@ -280,11 +279,10 @@ fun LiquidBottomTabs(
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
                         drawRect(
-                            if (isLightTheme) Color.Black.copy(0.1f)
-                            else Color.White.copy(0.1f),
+                            C.NavSelection,
                             alpha = 1f - progress
                         )
-                        drawRect(Color.Black.copy(alpha = 0.03f * progress))
+                        drawRect(C.NavPress.copy(alpha = 0.3f * progress))
                     }
                 )
                 .height(56f.dp)

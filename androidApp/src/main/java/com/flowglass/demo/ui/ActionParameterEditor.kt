@@ -147,7 +147,7 @@ private fun MultiParameterEditor(
             Box(
                 Modifier.clip(Capsule()).background(C.Primary).pressable { onAuthorization(SettingsPage.Permissions) }
                     .padding(horizontal = 12.dp, vertical = 7.dp),
-            ) { T("去授权", 12.sp, FontWeight.SemiBold, androidx.compose.ui.graphics.Color.White) }
+            ) { T("去授权", 12.sp, FontWeight.SemiBold, C.OnPrimary) }
         }
     }
     error?.let { T("参数无效：$it", 12.sp, color = C.Bad) }
@@ -203,7 +203,7 @@ private fun WeekdayPicker(spec: ParamSpec, value: String, onValue: (String) -> U
                 contentAlignment = androidx.compose.ui.Alignment.Center,
             ) {
                 T(label.takeLast(1), 13.sp, FontWeight.SemiBold,
-                    if (on) androidx.compose.ui.graphics.Color.White else C.OnSurfaceVar)
+                    if (on) C.OnPrimary else C.OnSurfaceVar)
             }
         }
     }

@@ -25,8 +25,11 @@ import com.flowglass.demo.liquid.InteractiveHighlight
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
 import com.kyant.shapes.Capsule
+import com.flowglass.demo.ui.themedBlur
+import com.flowglass.demo.ui.themedLensX
+import com.flowglass.demo.ui.themedLensY
+import com.flowglass.demo.ui.themedVibrancy
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -57,9 +60,9 @@ fun LiquidButton(
                 backdrop = backdrop,
                 shape = { Capsule() },
                 effects = {
-                    vibrancy()
-                    blur(2f.dp.toPx())
-                    lens(12f.dp.toPx(), 24f.dp.toPx())
+                    themedVibrancy()
+                    blur(themedBlur(2.dp.toPx()))
+                    lens(themedLensX(12.dp.toPx()), themedLensY(24.dp.toPx()))
                 },
                 layerBlock = if (isInteractive) {
                     {

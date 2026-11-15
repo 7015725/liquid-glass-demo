@@ -181,7 +181,7 @@ private fun QuickOneTaps(state: AppState, onOpenTab: (Int) -> Unit, modifier: Mo
                             .padding(12.dp)
                     ) {
                         Box(
-                            Modifier.size(34.dp).clip(PolygonShape(M3EShapes.Clover4)).background(Color.White),
+                            Modifier.size(34.dp).clip(PolygonShape(M3EShapes.Clover4)).background(C.Card),
                             contentAlignment = Alignment.Center
                         ) {
                             when (exec) {
@@ -192,10 +192,10 @@ private fun QuickOneTaps(state: AppState, onOpenTab: (Int) -> Unit, modifier: Mo
                             }
                         }
                         Spacer(Modifier.weight(1f))
-                        T(cmd.title, 14.sp, FontWeight.Bold, if (exec == 3) Color.White else C.OnSurface, maxLines = 1)
+                        T(cmd.title, 14.sp, FontWeight.Bold, if (exec == 3) C.OnBad else C.OnSurface, maxLines = 1)
                         T(
                             when (exec) { 1 -> "执行中…"; 2 -> "已完成"; 3 -> "失败"; else -> "轻点执行" },
-                            12.sp, color = when (exec) { 2 -> C.GoodText; 3 -> Color.White; else -> C.Muted }
+                            12.sp, color = when (exec) { 2 -> C.GoodText; 3 -> C.OnBad; else -> C.Muted }
                         )
                     }
                 }
