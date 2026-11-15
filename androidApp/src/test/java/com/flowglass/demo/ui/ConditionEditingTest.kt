@@ -28,7 +28,8 @@ import java.time.Duration
 /**
  * Block conditions were visible but not editable/removable: the row had no click target and the
  * delete button searched only the rule's top-level condition list. These tests add three
- * conditions, edit one through the parameter page, delete one, and round-trip the stored JSON.
+ * conditions, open one in the parameter page, write the same value its chips write, delete one
+ * through the row button, and round-trip the stored JSON.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -67,7 +68,7 @@ class ConditionEditingTest {
             })
             assertTrue("参数面板应显示该条件", pageTexts(activity).any { it.contains("充电状态") })
 
-            // The panel writes through the same setItemParameter callback the enum chips use.
+            // The enum chips and this call both land in AppState.setItemParameter for nested conditions.
             val edited = requireNotNull(state.find(command.id)).actions.single().conditions.first()
             assertNotNull("条件必须在 actions 树内可递归找到",
                 requireNotNull(state.find(command.id)).actions.findItem(edited.id))
@@ -115,16 +116,6 @@ class ConditionEditingTest {
         }
         val target = requireNotNull(node) { "找不到可点击的「$label」" }
         assertTrue(requireNotNull(target.config.getOrNull(SemanticsActions.OnClick)?.action).invoke())
-        pump(activity, cycles = 24)
-    }
-
-    private fun clickText(activity: ComponentActivity, label: String) {
-        var node: SemanticsNode? = nodes(activity.window.decorView).first {
-            it.config.getOrNull(SemanticsProperties.Text)?.any { text -> text.text == label } == true
-        }
-        while (node != null && node.config.getOrNull(SemanticsActions.OnClick) == null) node = node.parent
-        val target = requireNotNull(node) { "找不到可点击的「$label」" }
-        assertTrue(requireNotNull(target.config[SemanticsActions.OnClick].action).invoke())
         pump(activity, cycles = 24)
     }
 
