@@ -635,7 +635,7 @@ fun UndoBar(state: AppState, backdrop: Backdrop, modifier: Modifier) {
         exit = fadeOut(effect()) + scaleOut(spatial(), 0.9f)
     ) {
         var lastTitle by remember { mutableStateOf("") }
-        if (u != null) lastTitle = u.cmd.title
+        if (u != null) lastTitle = u.label
         Row(
             Modifier
                 .drawBackdrop(

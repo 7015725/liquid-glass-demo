@@ -1,7 +1,11 @@
 package com.flowglass.demo.ui
 
+import android.content.Context
+import android.content.Intent
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -38,6 +42,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.sp
 import com.flowglass.demo.liquid.LiquidToggle
 import com.flowglass.demo.system.trigger.listenState
@@ -74,7 +80,10 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
     val tick = com.flowglass.demo.system.SysTick.tick
     val issues = state.validationIssues(cmd)
     var panel by remember { mutableStateOf<EditorPanel?>(null) }
+    var moreOpen by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val backdrop = rememberLayerBackdrop()
+    val exec = state.executing[cmd.id] ?: 0
     fun back() { if (panel != null) panel = null else state.closeEditor() }
     BackHandler(enabled = state.editing == cmd.id) { back() }
     Box(Modifier.fillMaxSize().background(C.Bg).testTag("command-editor")
@@ -86,50 +95,83 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             EditorIconButton(Ic.Back, "返回") { back() }
-            Spacer(Modifier.weight(1f))
-            if (cmd.auto) {
-                ListenStatePill(cmd.listenState(state.running, context))
-                Spacer(Modifier.width(8.dp))
-            }
-            EditorPill("变量", "编辑指令和全局变量") { panel = EditorPanel.Variables }
-            if (cmd.auto) {
-                val toggleBackdrop = rememberLayerBackdrop()
-                Box(Modifier.clip(Capsule()).heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
-                    Box(Modifier.matchParentSize().layerBackdrop(toggleBackdrop).background(C.Card))
-                    Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        T(if (cmd.enabled) "已开启" else "已关闭", 14.sp, color = C.OnSurfaceVar)
-                        Spacer(Modifier.width(12.dp))
-                        LiquidToggle({ cmd.enabled }, {
-                            if (!cmd.enabled && issues.isNotEmpty()) state.editorNotice = issues.first()
-                            else PermissionGate.request(state, cmd, context)
-                        }, toggleBackdrop,
-                            Modifier.testTag("editor-toggle").semantics {
-                                contentDescription = "启用指令"
-                                toggleableState = if (cmd.enabled) ToggleableState.On else ToggleableState.Off
-                                onClick { PermissionGate.request(state, cmd, context); true }
-                            })
+            Spacer(Modifier.width(8.dp))
+            BasicTextField(
+                cmd.title, { state.setTitle(cmd.id, it) },
+                Modifier.weight(1f).testTag("editor-name"),
+                textStyle = TextStyle(color = C.OnSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold),
+                singleLine = true,
+                cursorBrush = SolidColor(C.Primary),
+                decorationBox = { inner ->
+                    Box {
+                        if (cmd.title.isEmpty()) T("指令名称", 20.sp, color = C.Muted, maxLines = 1)
+                        inner()
+                    }
+                },
+            )
+            Spacer(Modifier.width(8.dp))
+            EditorRunButton(
+                exec,
+                Modifier.testTag("editor-execute"),
+                onClick = { state.execute(cmd, scope, if (cmd.auto) "手动测试" else "手动执行") },
+                onStop = if (exec == 1) ({ state.stopExecution(cmd.id) }) else null,
+            )
+            Spacer(Modifier.width(4.dp))
+            Box {
+                EditorIconButton(Ic.More, "更多") { moreOpen = true }
+                if (moreOpen) {
+                    Popup(onDismissRequest = { moreOpen = false }, offset = IntOffset(-210, 52)) {
+                        Column(
+                            Modifier.width(200.dp).clip(RoundedRectangle(18.dp)).background(C.Card).padding(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            MenuEntry("变量", enabled = true) {
+                                moreOpen = false
+                                panel = EditorPanel.Variables
+                            }
+                            MenuEntry("换图标", enabled = true) {
+                                moreOpen = false
+                                panel = EditorPanel.Icons
+                            }
+                            MenuEntry("创建副本", enabled = true) {
+                                moreOpen = false
+                                state.duplicate(cmd.id)?.let { copyId ->
+                                    state.openEditor(copyId)
+                                    state.editorNotice = "已创建副本"
+                                }
+                            }
+                            MenuEntry("分享", enabled = true) {
+                                moreOpen = false
+                                shareCommand(context, cmd)
+                            }
+                            MenuEntry("删除指令", enabled = true) {
+                                moreOpen = false
+                                confirmDelete = true
+                            }
+                        }
                     }
                 }
             }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(56.dp).clip(PolygonShape(M3EShapes.Clover4)).background(C.PrimarySoft)
-                .editorAction("选择图标") { panel = EditorPanel.Icons }, contentAlignment = Alignment.Center) {
-                LineIcon(cmd.ic, C.Primary, 28.dp)
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                BasicTextField(cmd.title, { state.setTitle(cmd.id, it) },
-                    Modifier.fillMaxWidth().testTag("editor-name"),
-                    textStyle = TextStyle(color = C.OnSurface, fontSize = 24.sp, fontWeight = FontWeight.Bold),
-                    cursorBrush = SolidColor(C.Primary),
-                    decorationBox = { inner -> Box { if (cmd.title.isEmpty()) T("指令名称", 24.sp, color = C.Muted); inner() } })
-                BasicTextField(cmd.desc, { state.setDescription(cmd.id, it) },
-                    Modifier.fillMaxWidth().testTag("editor-description"),
-                    textStyle = TextStyle(color = C.OnSurfaceVar, fontSize = 13.sp, lineHeight = 18.sp),
-                    maxLines = 2,
-                    cursorBrush = SolidColor(C.Primary),
-                    decorationBox = { inner -> Box { if (cmd.desc.isEmpty()) T("添加描述", 13.sp, color = C.Muted); inner() } })
+            BasicTextField(
+                cmd.desc, { state.setDescription(cmd.id, it) },
+                Modifier.weight(1f).testTag("editor-description"),
+                textStyle = TextStyle(color = C.OnSurfaceVar, fontSize = 13.sp, lineHeight = 18.sp),
+                maxLines = 2,
+                cursorBrush = SolidColor(C.Primary),
+                decorationBox = { inner ->
+                    Box {
+                        if (cmd.desc.isEmpty()) T("添加描述", 13.sp, color = C.Muted, maxLines = 2)
+                        inner()
+                    }
+                },
+            )
+            if (cmd.auto) {
+                Spacer(Modifier.width(8.dp))
+                ListenStatePill(cmd.listenState(state.running, context))
+                Spacer(Modifier.width(8.dp))
+                AutoEnableToggle(state, cmd, context, issues)
             }
         }
         StorageErrorNotice(state.storageError)
@@ -144,13 +186,6 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
             )
         }
         MissingPermissionNotice(cmd) { onAuthorization(SettingsPage.Permissions) }
-        val exec = state.executing[cmd.id] ?: 0
-        ExecButton(exec, Modifier.fillMaxWidth().testTag("editor-execute"), large = true,
-            idleLabel = if (cmd.auto) "立即运行" else "一键执行",
-            failureLabel = if (state.executionMessages[cmd.id] == "执行环境未就绪") "执行环境未就绪" else "失败",
-            onClick = { state.execute(cmd, scope, if (cmd.auto) "手动测试" else "手动执行") },
-            onStop = if (exec == 1) ({ state.stopExecution(cmd.id) }) else null)
-        if (cmd.auto) T("跳过触发器和条件，直接执行任务", 11.sp, color = C.Muted)
         val sections = if (cmd.auto) CommandSection.entries else listOf(CommandSection.ACTIONS)
         sections.forEachIndexed { i, section ->
             Column(Modifier.fillMaxWidth().testTag("section-${section.name}")
@@ -218,11 +253,17 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 }
             }
         }
-        Box(Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(Capsule()).background(C.Card)
-            .editorAction("删除指令") { state.delete(cmd.id) }.padding(16.dp), contentAlignment = Alignment.Center) {
-            T("删除指令", 15.sp, FontWeight.SemiBold, C.Bad)
-        }
         Spacer(Modifier.height(16.dp))
+    }
+    if (confirmDelete) {
+        DeleteCommandDialog(
+            title = cmd.title,
+            onCancel = { confirmDelete = false },
+            onConfirm = {
+                confirmDelete = false
+                state.delete(cmd.id)
+            },
+        )
     }
     panel?.let { active ->
         EditorGlassPanel(backdrop, when (active) { is EditorPanel.Add -> "添加${active.section.label}"; is EditorPanel.Parameter -> "编辑参数"; EditorPanel.Icons -> "选择图标"; EditorPanel.Variables -> "变量" },
@@ -297,7 +338,7 @@ private val CommandIcons = listOf(
 private val Ic.editorLabel: String
     get() = when (this) {
         Ic.Home -> "主页"; Ic.Grid -> "网格"; Ic.List -> "列表"; Ic.Settings -> "设置"
-        Ic.Bolt -> "闪电"; Ic.Copy -> "复制"; Ic.ChevronRight -> "向右"; Ic.UpDown -> "排序"
+        Ic.Bolt -> "闪电"; Ic.Copy -> "复制"; Ic.ChevronRight -> "向右"; Ic.UpDown -> "排序"; Ic.More -> "更多"
         Ic.ArrowUp -> "上箭头"; Ic.ArrowDown -> "下箭头"; Ic.Play -> "播放"; Ic.Stop -> "停止"
         Ic.Plus -> "添加"; Ic.Bell -> "通知"; Ic.Refresh -> "刷新"; Ic.Shield -> "盾牌"
         Ic.Wifi -> "无线网络"; Ic.Moon -> "月亮"; Ic.Battery -> "电池"; Ic.Timer -> "计时器"
@@ -372,6 +413,123 @@ private fun VariableRow(name: String, value: String, onName: (String) -> Unit, o
 
 /** The "..." menu on every step: order changes plus in/out of the enclosing block. */
 @Composable
+private fun EditorRunButton(
+    exec: Int,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    onStop: (() -> Unit)?,
+) {
+    val running = exec == 1 && onStop != null
+    val label = when {
+        running -> "停止"
+        exec == 2 -> "完成"
+        exec == 3 -> "失败"
+        else -> "运行"
+    }
+    val bg by animateColorAsState(
+        when {
+            running -> C.Bad
+            exec == 2 -> C.GoodSoft
+            exec == 3 -> C.Bad
+            else -> C.Primary
+        }, effect(), label = "headerRunBg",
+    )
+    val fg = if (exec == 2) C.GoodText else C.OnPrimary
+    Box(
+        modifier.height(40.dp).clip(Capsule()).background(bg)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                contentDescription = label
+                onClick(label = label) {
+                    if (running) onStop?.invoke() else onClick()
+                    true
+                }
+            }
+            .pressable(0.9f) { if (running) onStop?.invoke() else onClick() }
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            LineIcon(
+                if (running) Ic.Stop else if (exec == 3) Ic.Info else if (exec == 2) Ic.Refresh else Ic.Play,
+                fg, 16.dp,
+                modifier = if (!running && exec == 0) Modifier.testTag("editor-execute-play") else Modifier,
+            )
+            Spacer(Modifier.width(4.dp))
+            T(label, 13.sp, FontWeight.SemiBold, fg, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun AutoEnableToggle(state: AppState, cmd: Cmd, context: android.content.Context, issues: List<String>) {
+    val toggleBackdrop = rememberLayerBackdrop()
+    Box(Modifier.clip(Capsule()).heightIn(min = 40.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.matchParentSize().layerBackdrop(toggleBackdrop).background(C.Card))
+        Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            T(if (cmd.enabled) "已开启" else "已关闭", 12.sp, color = C.OnSurfaceVar)
+            Spacer(Modifier.width(6.dp))
+            LiquidToggle({ cmd.enabled }, {
+                if (!cmd.enabled && issues.isNotEmpty()) state.editorNotice = issues.first()
+                else PermissionGate.request(state, cmd, context)
+            }, toggleBackdrop,
+                Modifier.testTag("editor-toggle").semantics {
+                    contentDescription = "启用指令"
+                    toggleableState = if (cmd.enabled) ToggleableState.On else ToggleableState.Off
+                    onClick { PermissionGate.request(state, cmd, context); true }
+                })
+        }
+    }
+}
+
+@Composable
+private fun DeleteCommandDialog(title: String, onCancel: () -> Unit, onConfirm: () -> Unit) {
+    Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(
+            Modifier.fillMaxSize().background(C.ScrimSubtle)
+                .pointerInput(Unit) { detectTapGestures { onCancel() } },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier.width(320.dp).clip(RoundedRectangle(24.dp)).background(C.Card).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                T("删除指令？", 18.sp, FontWeight.Bold)
+                T("「$title」删除后可在提示条撤销。", 14.sp, color = C.OnSurfaceVar, lineHeight = 20.sp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(
+                        Modifier.weight(1f).heightIn(min = 44.dp).clip(Capsule()).background(C.Tonal)
+                            .editorAction("取消删除") { onCancel() }.padding(10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { T("取消", 14.sp, FontWeight.SemiBold) }
+                    Box(
+                        Modifier.weight(1f).heightIn(min = 44.dp).clip(Capsule()).background(C.Bad)
+                            .editorAction("确认删除") { onConfirm() }.padding(10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { T("删除", 14.sp, FontWeight.SemiBold, C.OnBad) }
+                }
+            }
+        }
+    }
+}
+
+private fun shareCommand(context: Context, cmd: Cmd) {
+    val text = buildString {
+        appendLine("【流光自动化】${cmd.title}")
+        appendLine(cmd.desc)
+        if (cmd.auto) {
+            appendLine("触发器：${cmd.triggers.joinToString("、")}")
+            if (cmd.conditions.isNotEmpty()) appendLine("条件：${cmd.conditions.joinToString("、")}")
+        }
+        append("任务：${cmd.actions.joinToString(" → ")}")
+    }
+    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+    runCatching {
+        context.startActivity(Intent.createChooser(send, "分享指令").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+}
+
+@Composable
 private fun ActionRowMenu(
     state: AppState,
     cmd: Cmd,
@@ -384,11 +542,11 @@ private fun ActionRowMenu(
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
-        EditorIconButton(Ic.UpDown, "更多操作${item.name}") { open = true }
+        EditorIconButton(Ic.More, "更多操作${item.name}") { open = true }
         if (open) {
-            Popup(onDismissRequest = { open = false }, offset = IntOffset(-220, 0)) {
+            Popup(onDismissRequest = { open = false }, offset = IntOffset(-360, 0)) {
                 Column(
-                    Modifier.clip(RoundedRectangle(18.dp)).background(C.Card).padding(6.dp),
+                    Modifier.width(200.dp).clip(RoundedRectangle(18.dp)).background(C.Card).padding(6.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     MenuEntry("上移", enabled = index > 0) {
@@ -407,6 +565,43 @@ private fun ActionRowMenu(
                         open = false
                         state.moveOutOfBlock(cmd.id, item.id)
                     }
+                    MenuEntry("删除", enabled = true) {
+                        open = false
+                        state.removeActionItemWithUndo(cmd.id, item.id)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConditionRowMenu(
+    state: AppState,
+    cmd: Cmd,
+    item: CommandItem,
+    branch: Int?,
+    conditionIndex: Int,
+    condition: CommandItem,
+    onPanel: (EditorPanel) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        EditorIconButton(Ic.More, "更多操作条件${conditionIndex + 1}") { open = true }
+        if (open) {
+            Popup(onDismissRequest = { open = false }, offset = IntOffset(-170, 0)) {
+                Column(
+                    Modifier.width(150.dp).clip(RoundedRectangle(18.dp)).background(C.Card).padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    MenuEntry("编辑", enabled = true) {
+                        open = false
+                        onPanel(EditorPanel.Parameter(CommandSection.CONDITIONS, condition.id))
+                    }
+                    MenuEntry("删除", enabled = true) {
+                        open = false
+                        state.removeConditionItem(cmd.id, item.id, branch, condition.id)
+                    }
                 }
             }
         }
@@ -418,6 +613,7 @@ private fun MenuEntry(label: String, enabled: Boolean, action: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedRectangle(12.dp))
             .clickable(enabled = enabled, onClick = action)
+            .semantics { contentDescription = label }
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -426,18 +622,15 @@ private fun MenuEntry(label: String, enabled: Boolean, action: () -> Unit) {
 }
 
 @Composable
-private fun CompactDelete(label: String, action: () -> Unit) {
-    Box(Modifier.size(40.dp).clip(Capsule()).background(C.Tonal)
-        .editorAction(label, action), contentAlignment = Alignment.Center) {
-        LineIcon(Ic.Trash, C.OnSurfaceVar, 18.dp)
-    }
-}
-
-@Composable
 internal fun EditorIconButton(ic: Ic, label: String, modifier: Modifier = Modifier, action: () -> Unit) {
     Box(modifier.size(48.dp).clip(Capsule()).background(C.Card).editorAction(label, action),
         contentAlignment = Alignment.Center) { LineIcon(ic, C.OnSurface, 22.dp) }
 }
+
+private const val MaxIndentLevels = 3
+private val IndentStep = 10.dp
+
+private fun childIndent(depth: Int) = if (depth < MaxIndentLevels) IndentStep else 0.dp
 
 /**
  * Siblings of one action list. Dragging only edits a local id order; AppState is touched once on
@@ -587,7 +780,6 @@ private fun ActionTreeRow(
     val open = !item.collapsed
     val timesLoop = block == com.flowglass.engine.BlockKind.LOOP &&
         item.parameter.substringBefore('|') in listOf("按次数", "times")
-    val indent = (depth * 18).dp
     // pointerInput keeps its first lambda; read the latest callbacks so a recomposed sibling
     // order is visible during a long drag.
     val dragStart = rememberUpdatedState(onDragStart)
@@ -595,7 +787,7 @@ private fun ActionTreeRow(
     val dragEnd = rememberUpdatedState(onDragEnd)
     val dragCancel = rememberUpdatedState(onDragCancel)
     val hint = state.validationIssues(cmd).firstOrNull { it.contains("「${item.name}」") }
-    Column(Modifier.fillMaxWidth().padding(start = indent), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             Modifier.fillMaxWidth().onGloballyPositioned { onMeasuredHeight(it.size.height) }
                 .clip(RoundedRectangle(24.dp)).background(C.Tonal).padding(12.dp)
@@ -637,18 +829,21 @@ private fun ActionTreeRow(
             }
             LineIcon(item.ic, C.Primary, 22.dp)
             Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                T(item.name, 15.sp, FontWeight.SemiBold)
+            Column(
+                Modifier.weight(1f).widthIn(min = 120.dp).testTag("action-text-${item.id}"),
+            ) {
+                if (depth >= MaxIndentLevels) T("第 ${depth + 1} 级", 10.sp, color = C.Muted, maxLines = 1)
+                T(item.name, 15.sp, FontWeight.SemiBold, maxLines = 1)
                 val summary = ActionSummary.summarize(item, nested, open)
-                T(summary, 13.sp, color = C.OnSurfaceVar)
-                hint?.let { T(it, 11.sp, color = C.Bad) }
+                T(summary, 13.sp, color = C.OnSurfaceVar, maxLines = 2)
+                hint?.let { T(it, 11.sp, color = C.Bad, maxLines = 1) }
             }
+            Spacer(Modifier.width(4.dp))
             ActionRowMenu(state, cmd, item, depth, index, lastIndex, parentId, branch)
-            EditorIconButton(Ic.Trash, "删除${item.name}") { state.removeItem(cmd.id, CommandSection.ACTIONS, item.id) }
         }
         if (open) {
             item.conditions.forEachIndexed { conditionIndex, condition ->
-                Row(Modifier.fillMaxWidth().padding(start = 16.dp).clip(RoundedRectangle(20.dp))
+                Row(Modifier.fillMaxWidth().padding(start = 10.dp).clip(RoundedRectangle(20.dp))
                     .background(C.Card)
                     .editorAction("编辑条件${condition.name}") {
                         onPanel(EditorPanel.Parameter(CommandSection.CONDITIONS, condition.id))
@@ -658,10 +853,8 @@ private fun ActionTreeRow(
                     T("条件", 11.sp, color = C.Muted)
                     Spacer(Modifier.width(8.dp))
                     T(ActionSummary.conditionRowText(condition),
-                        12.sp, color = C.OnSurfaceVar, modifier = Modifier.weight(1f))
-                    CompactDelete("删除条件${conditionIndex + 1}") {
-                        state.removeConditionItem(cmd.id, item.id, null, condition.id)
-                    }
+                        12.sp, color = C.OnSurfaceVar, maxLines = 1, modifier = Modifier.weight(1f))
+                    ConditionRowMenu(state, cmd, item, branch = null, conditionIndex, condition, onPanel)
                 }
             }
             if (timesLoop && item.conditions.isNotEmpty()) {
@@ -670,17 +863,21 @@ private fun ActionTreeRow(
             }
             if (item.children.isNotEmpty()) {
                 Column(
-                    Modifier.fillMaxWidth().padding(start = 18.dp).drawBehind {
-                        drawLine(C.Divider, androidx.compose.ui.geometry.Offset(1.dp.toPx(), 0f),
-                            androidx.compose.ui.geometry.Offset(1.dp.toPx(), size.height), 2.dp.toPx())
-                    }.padding(start = 6.dp),
+                    Modifier.fillMaxWidth().drawBehind {
+                        val rails = if (depth >= MaxIndentLevels) 3 else 1
+                        repeat(rails) { rail ->
+                            val x = (1 + rail * 3).dp.toPx()
+                            drawLine(C.Divider, androidx.compose.ui.geometry.Offset(x, 0f),
+                                androidx.compose.ui.geometry.Offset(x, size.height), 2.dp.toPx())
+                        }
+                    }.padding(start = childIndent(depth)),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     ActionList(state, cmd, item.children, depth + 1, item.id, null, onPanel)
                 }
             }
             item.branches.forEachIndexed { branchIndex, branch ->
-                Column(Modifier.fillMaxWidth().padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.fillMaxWidth().padding(start = childIndent(depth)), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         T(if (branch.conditions.isEmpty()) "否则" else "否则如果（${branch.conditions.size} 个条件）",
                             12.sp, color = C.Mid, modifier = Modifier.weight(1f))
@@ -692,13 +889,11 @@ private fun ActionTreeRow(
                         Row(Modifier.fillMaxWidth().clip(RoundedRectangle(16.dp)).background(C.Card)
                             .editorAction("编辑条件${condition.name}") {
                                 onPanel(EditorPanel.Parameter(CommandSection.CONDITIONS, condition.id))
-                            }.padding(horizontal = 10.dp, vertical = 6.dp),
+                            }.padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             T(ActionSummary.conditionRowText(condition), 12.sp, color = C.OnSurfaceVar,
-                                modifier = Modifier.weight(1f))
-                            EditorIconButton(Ic.Trash, "删除条件${conditionIndex + 1}") {
-                                state.removeConditionItem(cmd.id, item.id, branchIndex, condition.id)
-                            }
+                                maxLines = 1, modifier = Modifier.weight(1f))
+                            ConditionRowMenu(state, cmd, item, branchIndex, conditionIndex, condition, onPanel)
                         }
                     }
                     ActionList(state, cmd, branch.children, depth + 1, item.id, branchIndex, onPanel)

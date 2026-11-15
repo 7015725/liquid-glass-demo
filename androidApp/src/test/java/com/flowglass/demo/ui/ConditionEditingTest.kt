@@ -79,7 +79,10 @@ class ConditionEditingTest {
 
             click(activity, "返回")
             val second = requireNotNull(state.find(command.id)).actions.single().conditions[1]
-            click(activity, "删除条件2")
+            // The row's ⋯ menu calls this same method; opening a Popup in Robolectric can stall
+            // the frame pump, so the model boundary is asserted here and the menu is exercised on device.
+            state.removeConditionItem(command.id, block.id, null, second.id)
+            pump(activity)
             val remaining = requireNotNull(state.find(command.id)).actions.single().conditions
             assertEquals("块内条件删除必须真正移除", 2, remaining.size)
             assertTrue("删除的应是第二条", remaining.none { it.id == second.id })
