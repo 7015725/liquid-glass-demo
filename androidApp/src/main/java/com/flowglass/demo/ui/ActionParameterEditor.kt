@@ -2,6 +2,7 @@ package com.flowglass.demo.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
@@ -126,6 +127,7 @@ internal fun ActionParameterEditor(
     EditorPill("完成", "完成", action = onDone)
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MultiParameterEditor(
     meta: ComponentMeta,
@@ -145,16 +147,17 @@ private fun MultiParameterEditor(
     }
 
     if (item.typeId == "trigger.time" && !canScheduleExactAlarms(androidx.compose.ui.platform.LocalContext.current)) {
-        Row(
+        FlowRow(
             Modifier.fillMaxWidth().clip(RoundedRectangle(20.dp)).background(C.Tonal).padding(12.dp),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             T("未授予「精确闹钟」权限，触发时间可能有几分钟误差。", 12.sp, color = C.OnSurfaceVar,
-                modifier = Modifier.weight(1f), lineHeight = 18.sp)
+                lineHeight = 18.sp)
             Box(
                 Modifier.clip(Capsule()).background(C.Primary).pressable { onAuthorization(SettingsPage.Permissions) }
                     .padding(horizontal = 12.dp, vertical = 7.dp),
-            ) { T("去授权", 12.sp, FontWeight.SemiBold, C.OnPrimary) }
+            ) { T("去授权", 12.sp, FontWeight.SemiBold, C.OnPrimary, maxLines = 1) }
         }
     }
     error?.let { T("参数无效：$it", 12.sp, color = C.Bad) }
@@ -191,17 +194,22 @@ private fun MultiParameterEditor(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WeekdayPicker(spec: ParamSpec, value: String, onValue: (String) -> Unit) {
     val selected = runCatching { ParameterCodec.weekdays(value) }
         .getOrElse { "1,2,3,4,5,6,7" }
         .split(',').mapNotNull { it.toIntOrNull() }.toSet()
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
         weekdayLabels.forEachIndexed { index, label ->
             val day = index + 1
             val on = day in selected
             Box(
-                Modifier.weight(1f).height(44.dp).clip(Capsule())
+                Modifier.height(44.dp).widthIn(min = 40.dp).clip(Capsule())
                     .background(if (on) C.Primary else C.Tonal)
                     .pressable(0.94f) {
                         val next = if (on) selected - day else selected + day
@@ -210,7 +218,7 @@ private fun WeekdayPicker(spec: ParamSpec, value: String, onValue: (String) -> U
                 contentAlignment = androidx.compose.ui.Alignment.Center,
             ) {
                 T(label.takeLast(1), 13.sp, FontWeight.SemiBold,
-                    if (on) C.OnPrimary else C.OnSurfaceVar)
+                    if (on) C.OnPrimary else C.OnSurfaceVar, maxLines = 1)
             }
         }
     }
@@ -263,6 +271,7 @@ internal fun PercentSlider(value: Float, onValueChange: (Float) -> Unit) {
 private const val WAIT_LABEL = "等它执行完再继续"
 private const val NO_WAIT_LABEL = "发起后立即继续"
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RunRulePicker(
     item: CommandItem,
@@ -303,7 +312,7 @@ private fun RunRulePicker(
         if (filtered.isEmpty()) T("没有匹配的指令", 12.sp, color = C.Muted)
     }
     T("执行方式", 13.sp, color = C.Muted, modifier = Modifier.padding(top = 6.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(WAIT_LABEL to true, NO_WAIT_LABEL to false).forEach { (label, isWait) ->
             EditorPill(
                 if (wait == isWait) "● $label" else label,

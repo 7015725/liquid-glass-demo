@@ -31,7 +31,12 @@ import java.time.Duration
 @Config(sdk = [35], qualifiers = "w411dp-h891dp-440dpi")
 class DeepNestingLayoutTest {
     @Test
-    fun fiveLevelsKeepAtLeastTheMinimumTextWidth() {
+    fun fiveLevelsKeepAtLeastTheMinimumTextWidth() = verifyLayout(1f)
+
+    @Test
+    fun fiveLevelsAtLargeFontKeepTextAndSingleLineAddButtons() = verifyLayout(1.3f)
+
+    private fun verifyLayout(fontScale: Float) {
         val state = AppState()
         val cmd = state.create(auto = true)
         var parent: Long? = null
@@ -52,19 +57,41 @@ class DeepNestingLayoutTest {
         state.openEditor(cmd.id)
 
         withActivity(state) { activity ->
-            activity.setContent {
-                Box(Modifier.fillMaxSize()) { CommandEditorHost(state) }
-            }
-            pump(activity)
-            val minPx = 120f * activity.resources.displayMetrics.density
-            val found = nodes(activity.window.decorView)
-                .associateBy { it.config.getOrNull(SemanticsProperties.TestTag) }
-            blocks.forEach { block ->
-                val node = found["action-text-${block.id}"]
-                    ?: error("第 ${blocks.indexOf(block) + 1} 层缺少文字列语义节点")
-                assertTrue(
-                    "第 ${blocks.indexOf(block) + 1} 层文字列只有 ${node.boundsInRoot.width}px，应不小于 ${minPx}px",
-                    node.boundsInRoot.width >= minPx - 0.5f,
+            val oldFontScale = activity.resources.configuration.fontScale
+            activity.resources.configuration.fontScale = fontScale
+            activity.resources.updateConfiguration(
+                activity.resources.configuration,
+                activity.resources.displayMetrics,
+            )
+            try {
+                activity.setContent {
+                    Box(Modifier.fillMaxSize()) { CommandEditorHost(state) }
+                }
+                pump(activity)
+                val density = activity.resources.displayMetrics.density
+                val minPx = 120f * density
+                val maxButtonHeight = 48f * density + 1f
+                val found = nodes(activity.window.decorView)
+                    .associateBy { it.config.getOrNull(SemanticsProperties.TestTag) }
+                blocks.forEach { block ->
+                    val node = found["action-text-${block.id}"]
+                        ?: error("第 ${blocks.indexOf(block) + 1} 层缺少文字列语义节点")
+                    assertTrue(
+                        "第 ${blocks.indexOf(block) + 1} 层文字列只有 ${node.boundsInRoot.width}px，应不小于 ${minPx}px",
+                        node.boundsInRoot.width >= minPx - 0.5f,
+                    )
+                    val add = found["block-add-${block.id}"]
+                        ?: error("第 ${blocks.indexOf(block) + 1} 层缺少「＋ 添加」按钮")
+                    assertTrue(
+                        "第 ${blocks.indexOf(block) + 1} 层「＋ 添加」按钮应在单行内（高度 ${add.boundsInRoot.height}px）",
+                        add.boundsInRoot.height <= maxButtonHeight,
+                    )
+                }
+            } finally {
+                activity.resources.configuration.fontScale = oldFontScale
+                activity.resources.updateConfiguration(
+                    activity.resources.configuration,
+                    activity.resources.displayMetrics,
                 )
             }
         }

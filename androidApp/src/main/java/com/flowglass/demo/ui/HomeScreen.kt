@@ -9,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -58,6 +60,7 @@ fun HomeScreen(state: AppState, onOpenTab: (Int) -> Unit) {
     ModeCard(state, Modifier.staggerIn(i++))
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HeroCard(state: AppState, modifier: Modifier) {
     // Tick once a minute; elapsed time itself comes from the persisted start stamp, so closing
@@ -139,7 +142,7 @@ private fun HeroCard(state: AppState, modifier: Modifier) {
                         T("/ ${state.autoCmds.size} 条", 14.sp, color = C.Muted, modifier = Modifier.padding(bottom = 8.dp))
                     }
                     Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         TonalChip("今日 ${stats.todayCount} 次")
                         TonalChip(listOf("省电", "均衡", "极速")[state.mode])
                     }
@@ -151,7 +154,7 @@ private fun HeroCard(state: AppState, modifier: Modifier) {
                 Column(Modifier.weight(1f)) {
                     T("运行时长", 13.sp, color = C.Muted)
                     Spacer(Modifier.height(2.dp))
-                    RollingText(uptime, 17.sp, FontWeight.Bold)
+                    T(uptime, 17.sp, FontWeight.Bold, maxLines = 2, lineHeight = 22.sp)
                 }
                 Meta("一键指令", "${state.oneTaps.size} 条", Modifier.weight(1f))
             }
@@ -288,7 +291,7 @@ private fun Meta(label: String, value: String, modifier: Modifier) {
     Column(modifier) {
         T(label, 13.sp, color = C.Muted)
         Spacer(Modifier.height(2.dp))
-        RollingText(value, 17.sp, FontWeight.Bold)
+        T(value, 17.sp, FontWeight.Bold, maxLines = 1)
     }
 }
 

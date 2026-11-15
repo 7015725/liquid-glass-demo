@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -531,6 +533,7 @@ fun CommandMenuOverlay(state: AppState, backdrop: Backdrop) {
 }
 
 /** Glass rename dialog. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RenameOverlay(state: AppState, backdrop: Backdrop) {
     val target = state.renaming
@@ -602,17 +605,17 @@ fun RenameOverlay(state: AppState, backdrop: Backdrop) {
                 )
             }
             Spacer(Modifier.height(18.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
-                    Modifier.weight(1f).height(46.dp).clip(Capsule()).background(C.Tonal)
+                    Modifier.width(132.dp).height(46.dp).clip(Capsule()).background(C.Tonal)
                         .pressable { state.renaming = null },
                     contentAlignment = Alignment.Center
-                ) { T("取消", 15.sp, FontWeight.SemiBold, C.OnSurfaceVar) }
+                ) { T("取消", 15.sp, FontWeight.SemiBold, C.OnSurfaceVar, maxLines = 1) }
                 Box(
-                    Modifier.weight(1f).height(46.dp).clip(Capsule()).background(C.Primary)
+                    Modifier.width(132.dp).height(46.dp).clip(Capsule()).background(C.Primary)
                         .pressable { confirm() },
                     contentAlignment = Alignment.Center
-                ) { T("确定", 15.sp, FontWeight.SemiBold, C.OnPrimary) }
+                ) { T("确定", 15.sp, FontWeight.SemiBold, C.OnPrimary, maxLines = 1) }
             }
         }
     }

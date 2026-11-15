@@ -17,12 +17,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
@@ -34,11 +36,14 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
@@ -82,6 +87,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
     var panel by remember { mutableStateOf<EditorPanel?>(null) }
     var moreOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var titleFocused by remember { mutableStateOf(false) }
     val backdrop = rememberLayerBackdrop()
     val exec = state.executing[cmd.id] ?: 0
     fun back() { if (panel != null) panel = null else state.closeEditor() }
@@ -96,19 +102,27 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             EditorIconButton(Ic.Back, "返回") { back() }
             Spacer(Modifier.width(8.dp))
-            BasicTextField(
-                cmd.title, { state.setTitle(cmd.id, it) },
-                Modifier.weight(1f).testTag("editor-name"),
-                textStyle = TextStyle(color = C.OnSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold),
-                singleLine = true,
-                cursorBrush = SolidColor(C.Primary),
-                decorationBox = { inner ->
-                    Box {
-                        if (cmd.title.isEmpty()) T("指令名称", 20.sp, color = C.Muted, maxLines = 1)
-                        inner()
-                    }
-                },
-            )
+            Box(Modifier.weight(1f).heightIn(min = 48.dp)) {
+                // BasicTextField cannot ellipsize when unfocused; show a one-line preview and
+                // swap in the editable field only while it has focus.
+                if (!titleFocused) {
+                    T(
+                        cmd.title.ifEmpty { "指令名称" }, 20.sp, FontWeight.Bold,
+                        if (cmd.title.isEmpty()) C.Muted else C.OnSurface,
+                        modifier = Modifier.fillMaxWidth(), maxLines = 1,
+                    )
+                }
+                BasicTextField(
+                    cmd.title, { state.setTitle(cmd.id, it) },
+                    Modifier.fillMaxWidth().testTag("editor-name")
+                        .onFocusChanged { titleFocused = it.isFocused }
+                        .alpha(if (titleFocused) 1f else 0f),
+                    textStyle = TextStyle(color = C.OnSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold),
+                    singleLine = true,
+                    cursorBrush = SolidColor(C.Primary),
+                    decorationBox = { inner -> Box { if (cmd.title.isEmpty() && titleFocused) T("指令名称", 20.sp, color = C.Muted, maxLines = 1); inner() } },
+                )
+            }
             Spacer(Modifier.width(8.dp))
             EditorRunButton(
                 exec,
@@ -226,12 +240,15 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                                 if (section != CommandSection.ACTIONS && itemMeta?.comingSoon == true) {
                                     T("即将支持，暂不会自动运行", 11.sp, color = C.Mid)
                                 }
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                FlowRow(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
                                     TaskAuthorizationBadge(state, section, item) { destination ->
                                         panel = null
                                         onAuthorization(destination)
                                     }
-                                    Spacer(Modifier.weight(1f))
                                     if (index > 0) EditorIconButton(Ic.ArrowUp, "上移第${index + 1}项") {
                                         state.moveItem(cmd.id, section, item.id, -1)
                                     }
@@ -291,7 +308,17 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                                 state.addConditionItem(cmd.id, active.parentId, active.branch, option)
                             else -> state.addChildItem(cmd.id, active.parentId, active.branch, option)
                         }
-                        panel = null
+                        // A newly added condition is only half configured; jump straight to its
+                        // parameter page instead of making the user find the new row again.
+                        val addedCondition = if (active.section == CommandSection.CONDITIONS) {
+                            when {
+                                active.parentId == null -> state.find(cmd.id)?.conditions?.lastOrNull()
+                                active.branch == null -> state.itemById(cmd.id, active.parentId)?.conditions?.lastOrNull()
+                                else -> state.itemById(cmd.id, active.parentId)?.branches
+                                    ?.getOrNull(active.branch)?.conditions?.lastOrNull()
+                            }
+                        } else null
+                        panel = addedCondition?.let { EditorPanel.Parameter(CommandSection.CONDITIONS, it.id) }
                     }
                 }
                 is EditorPanel.Parameter -> state.itemById(cmd.id, active.itemId)?.let { item ->
@@ -482,6 +509,7 @@ private fun AutoEnableToggle(state: AppState, cmd: Cmd, context: android.content
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DeleteCommandDialog(title: String, onCancel: () -> Unit, onConfirm: () -> Unit) {
     Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -496,17 +524,17 @@ private fun DeleteCommandDialog(title: String, onCancel: () -> Unit, onConfirm: 
             ) {
                 T("删除指令？", 18.sp, FontWeight.Bold)
                 T("「$title」删除后可在提示条撤销。", 14.sp, color = C.OnSurfaceVar, lineHeight = 20.sp)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(
-                        Modifier.weight(1f).heightIn(min = 44.dp).clip(Capsule()).background(C.Tonal)
+                        Modifier.width(132.dp).heightIn(min = 44.dp).clip(Capsule()).background(C.Tonal)
                             .editorAction("取消删除") { onCancel() }.padding(10.dp),
                         contentAlignment = Alignment.Center,
-                    ) { T("取消", 14.sp, FontWeight.SemiBold) }
+                    ) { T("取消", 14.sp, FontWeight.SemiBold, maxLines = 1) }
                     Box(
-                        Modifier.weight(1f).heightIn(min = 44.dp).clip(Capsule()).background(C.Bad)
+                        Modifier.width(132.dp).heightIn(min = 44.dp).clip(Capsule()).background(C.Bad)
                             .editorAction("确认删除") { onConfirm() }.padding(10.dp),
                         contentAlignment = Alignment.Center,
-                    ) { T("删除", 14.sp, FontWeight.SemiBold, C.OnBad) }
+                    ) { T("删除", 14.sp, FontWeight.SemiBold, C.OnBad, maxLines = 1) }
                 }
             }
         }
@@ -539,10 +567,11 @@ private fun ActionRowMenu(
     lastIndex: Int,
     parentId: Long?,
     branch: Int?,
+    compact: Boolean = false,
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
-        EditorIconButton(Ic.More, "更多操作${item.name}") { open = true }
+        EditorIconButton(Ic.More, "更多操作${item.name}", size = if (compact) 40.dp else 48.dp) { open = true }
         if (open) {
             Popup(onDismissRequest = { open = false }, offset = IntOffset(-360, 0)) {
                 Column(
@@ -608,6 +637,59 @@ private fun ConditionRowMenu(
     }
 }
 
+
+
+/** Pure menu model; tested without opening a Popup window. */
+internal fun blockAddMenuLabels(
+    block: com.flowglass.engine.BlockKind?,
+    timesLoop: Boolean,
+    branches: List<CommandBranch>,
+): List<String> {
+    if (block == com.flowglass.engine.BlockKind.WAIT) return listOf("条件")
+    return buildList {
+        add("步骤")
+        if (!timesLoop) add("条件")
+        if (block == com.flowglass.engine.BlockKind.IF) {
+            add("否则如果")
+            if (branches.none { it.conditions.isEmpty() }) add("否则")
+        }
+    }
+}
+
+internal fun branchAddMenuLabels(hasConditions: Boolean): List<String> =
+    buildList { add("步骤"); if (hasConditions) add("条件") }
+
+/** One compact add button at the end of a block or branch. The menu is the only place where
+ * a block's allowed additions are listed, so narrow screens never have to fit four pills. */
+@Composable
+private fun BlockAddButton(
+    label: String,
+    tag: String,
+    entries: List<Pair<String, () -> Unit>>,
+    modifier: Modifier = Modifier,
+) {
+    var open by remember { mutableStateOf(false) }
+    val lift = with(LocalDensity.current) { (entries.size * 44 + 60).dp.toPx().toInt() }
+    Box(modifier) {
+        EditorPill("＋ 添加", label, Modifier.testTag(tag)) { open = true }
+        if (open) {
+            Popup(onDismissRequest = { open = false }, offset = IntOffset(0, -lift)) {
+                Column(
+                    Modifier.width(200.dp).clip(RoundedRectangle(18.dp)).background(C.Card).padding(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    entries.forEach { (text, action) ->
+                        MenuEntry(text, enabled = true) {
+                            open = false
+                            action()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun MenuEntry(label: String, enabled: Boolean, action: () -> Unit) {
     Row(
@@ -622,9 +704,17 @@ private fun MenuEntry(label: String, enabled: Boolean, action: () -> Unit) {
 }
 
 @Composable
-internal fun EditorIconButton(ic: Ic, label: String, modifier: Modifier = Modifier, action: () -> Unit) {
-    Box(modifier.size(48.dp).clip(Capsule()).background(C.Card).editorAction(label, action),
-        contentAlignment = Alignment.Center) { LineIcon(ic, C.OnSurface, 22.dp) }
+internal fun EditorIconButton(
+    ic: Ic,
+    label: String,
+    modifier: Modifier = Modifier,
+    size: Dp = 48.dp,
+    action: () -> Unit,
+) {
+    Box(modifier.size(size).clip(Capsule()).background(C.Card).editorAction(label, action),
+        contentAlignment = Alignment.Center) {
+        LineIcon(ic, C.OnSurface, if (size < 48.dp) 20.dp else 22.dp)
+    }
 }
 
 private const val MaxIndentLevels = 3
@@ -787,10 +877,12 @@ private fun ActionTreeRow(
     val dragEnd = rememberUpdatedState(onDragEnd)
     val dragCancel = rememberUpdatedState(onDragCancel)
     val hint = state.validationIssues(cmd).firstOrNull { it.contains("「${item.name}」") }
+    val compact = LocalConfiguration.current.screenWidthDp < 300
+    val rowPadding = if (compact) 8.dp else 12.dp
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             Modifier.fillMaxWidth().onGloballyPositioned { onMeasuredHeight(it.size.height) }
-                .clip(RoundedRectangle(24.dp)).background(C.Tonal).padding(12.dp)
+                .clip(RoundedRectangle(24.dp)).background(C.Tonal).padding(rowPadding)
                 // Tap opens the parameter page; the drag detector only starts after a 300 ms
                 // hold, and a scroll gesture cancels the tap because the list consumes it.
                 .pointerInput(item.id) {
@@ -818,19 +910,20 @@ private fun ActionTreeRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (container && nested > 0) {
-                Box(Modifier.size(40.dp).clip(Capsule()).background(C.Card)
+                Box(Modifier.size(if (compact) 32.dp else 40.dp).clip(Capsule()).background(C.Card)
                     .editorAction(if (open) "折叠${item.name}" else "展开${item.name}") {
                         state.toggleCollapsed(cmd.id, item.id)
                     }, contentAlignment = Alignment.Center) {
-                    LineIcon(Ic.ChevronRight, C.OnSurface, 20.dp,
+                    LineIcon(Ic.ChevronRight, C.OnSurface, if (compact) 18.dp else 20.dp,
                         modifier = Modifier.rotate(if (open) 90f else 0f))
                 }
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(if (compact) 4.dp else 6.dp))
             }
-            LineIcon(item.ic, C.Primary, 22.dp)
-            Spacer(Modifier.width(10.dp))
+            LineIcon(item.ic, C.Primary, if (compact) 18.dp else 22.dp)
+            Spacer(Modifier.width(if (compact) 6.dp else 10.dp))
             Column(
-                Modifier.weight(1f).widthIn(min = 120.dp).testTag("action-text-${item.id}"),
+                Modifier.weight(1f).then(if (compact) Modifier else Modifier.widthIn(min = 120.dp))
+                    .testTag("action-text-${item.id}"),
             ) {
                 if (depth >= MaxIndentLevels) T("第 ${depth + 1} 级", 10.sp, color = C.Muted, maxLines = 1)
                 T(item.name, 15.sp, FontWeight.SemiBold, maxLines = 1)
@@ -838,8 +931,8 @@ private fun ActionTreeRow(
                 T(summary, 13.sp, color = C.OnSurfaceVar, maxLines = 2)
                 hint?.let { T(it, 11.sp, color = C.Bad, maxLines = 1) }
             }
-            Spacer(Modifier.width(4.dp))
-            ActionRowMenu(state, cmd, item, depth, index, lastIndex, parentId, branch)
+            Spacer(Modifier.width(if (compact) 2.dp else 4.dp))
+            ActionRowMenu(state, cmd, item, depth, index, lastIndex, parentId, branch, compact)
         }
         if (open) {
             item.conditions.forEachIndexed { conditionIndex, condition ->
@@ -897,30 +990,40 @@ private fun ActionTreeRow(
                         }
                     }
                     ActionList(state, cmd, branch.children, depth + 1, item.id, branchIndex, onPanel)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        EditorPill("＋步骤", "向该分支添加步骤") {
-                            onPanel(EditorPanel.Add(CommandSection.ACTIONS, item.id, branchIndex))
-                        }
-                        if (branch.conditions.isNotEmpty()) EditorPill("＋条件", "向该分支添加条件") {
-                            onPanel(EditorPanel.Add(CommandSection.CONDITIONS, item.id, branchIndex))
-                        }
-                    }
+                    BlockAddButton(
+                        label = "向该分支添加内容",
+                        tag = "branch-add-${item.id}-$branchIndex",
+                        entries = buildList {
+                            add("步骤" to {
+                                onPanel(EditorPanel.Add(CommandSection.ACTIONS, item.id, branchIndex))
+                            })
+                            if (branch.conditions.isNotEmpty()) add("条件" to {
+                                onPanel(EditorPanel.Add(CommandSection.CONDITIONS, item.id, branchIndex))
+                            })
+                        },
+                    )
                 }
             }
             when (block) {
                 com.flowglass.engine.BlockKind.IF, com.flowglass.engine.BlockKind.LOOP, com.flowglass.engine.BlockKind.WAIT -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (block != com.flowglass.engine.BlockKind.WAIT) EditorPill("＋步骤", "向${item.name}添加步骤") {
-                            onPanel(EditorPanel.Add(CommandSection.ACTIONS, item.id))
-                        }
-                        if (!timesLoop) EditorPill("＋条件", "向${item.name}添加条件") {
-                            onPanel(EditorPanel.Add(CommandSection.CONDITIONS, item.id))
-                        }
-                        if (block == com.flowglass.engine.BlockKind.IF) {
-                            EditorPill("＋否则如果", "添加否则如果") { state.addBranch(cmd.id, item.id, withCondition = true) }
-                            EditorPill("＋否则", "添加否则") { state.addBranch(cmd.id, item.id, withCondition = false) }
-                        }
-                    }
+                    BlockAddButton(
+                        label = "向${item.name}添加内容",
+                        tag = "block-add-${item.id}",
+                        entries = buildList {
+                            if (block != com.flowglass.engine.BlockKind.WAIT) add("步骤" to {
+                                onPanel(EditorPanel.Add(CommandSection.ACTIONS, item.id))
+                            })
+                            if (!timesLoop) add("条件" to {
+                                onPanel(EditorPanel.Add(CommandSection.CONDITIONS, item.id))
+                            })
+                            if (block == com.flowglass.engine.BlockKind.IF) {
+                                add("否则如果" to { state.addBranch(cmd.id, item.id, withCondition = true) })
+                                if (item.branches.none { it.conditions.isEmpty() }) {
+                                    add("否则" to { state.addBranch(cmd.id, item.id, withCondition = false) })
+                                }
+                            }
+                        },
+                    )
                 }
                 else -> Unit
             }
