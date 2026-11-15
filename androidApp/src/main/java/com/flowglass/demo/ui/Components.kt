@@ -77,6 +77,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -417,7 +419,9 @@ fun SegmentedSelector(options: List<Pair<Ic, String>>, selected: Int, onSelect: 
                 val on = i == selected
                 val fg by animateColorAsState(if (on) C.OnPrimary else C.OnSurfaceVar, effect(), label = "segFg")
                 Column(
-                    Modifier.width(itemW).height(80.dp).pressable(0.95f) { onSelect(i) },
+                    Modifier.width(itemW).height(80.dp)
+                        .pressable(0.95f) { onSelect(i) }
+                        .semantics { contentDescription = label },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {

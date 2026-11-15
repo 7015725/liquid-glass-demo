@@ -103,6 +103,15 @@ fun List<CommandItem>.moveItem(id: Long, delta: Int): List<CommandItem> {
     }
 }
 
+/** Moves among siblings only; used when a drag preview is committed once. */
+fun List<CommandItem>.moveItemTo(id: Long, newIndex: Int): List<CommandItem> {
+    val from = indexOfFirst { it.id == id }
+    if (from < 0 || isEmpty()) return this
+    val to = newIndex.coerceIn(0, lastIndex)
+    if (to == from) return this
+    return toMutableList().apply { add(to, removeAt(from)) }
+}
+
 /**
  * The notification parameter stores `title|content` for compatibility. User-facing rows must
  * never show that separator: an empty title shows only the content; a non-empty title uses the
