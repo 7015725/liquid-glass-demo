@@ -1,11 +1,13 @@
 package com.flowglass.demo.system.trigger
 
+import android.app.ActivityManager
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.Process
 import android.util.Log
 import com.flowglass.demo.system.RunningNotification
 import com.flowglass.demo.system.exec.ExecutionRuntime
@@ -16,13 +18,14 @@ import com.flowglass.engine.trigger.TriggerKinds
 import com.flowglass.engine.trigger.TriggerSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * A dedicated `specialUse` foreground service instead of reusing KeepAliveService.
+ * A dedicated `specialUse|location` foreground service instead of reusing KeepAliveService.
  *
  * KeepAlive's lifetime follows the user's keep-alive switches; trigger listening follows the
  * engine switch and the enabled-rule set. Keeping them separate means pausing the engine can
@@ -34,6 +37,7 @@ class TriggerService : Service() {
     @Volatile private var host: TriggerHost? = null
     private var starting = false
     private var lastStartId = 0
+    private var locationUpgradeJob: Job? = null
     private val pending = mutableListOf<TriggerEvent>()
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -41,7 +45,9 @@ class TriggerService : Service() {
     override fun onCreate() {
         super.onCreate()
         current = this
-        RunningNotification.start(this, RunningNotification.OWNER_TRIGGER)
+        // Start with the safe type. Location is only requested after the rule set is known and
+        // the app is actually visible; background starts must never downgrade an existing type.
+        RunningNotification.start(this, RunningNotification.OWNER_TRIGGER, includeLocation = false)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -51,8 +57,10 @@ class TriggerService : Service() {
             stopSelf(startId)
             return START_NOT_STICKY
         }
+        val allowLocationUpgrade = intent?.getBooleanExtra(EXTRA_ALLOW_LOCATION_UPGRADE, false) == true
         intent?.toTriggerEvent()?.let(::deliver)
         ensureHost()
+        if (allowLocationUpgrade) requestLocationUpgradeIfEligible()
         return START_STICKY
     }
 
@@ -114,11 +122,38 @@ class TriggerService : Service() {
         RunningNotification.onTriggerStatus(this, count)
     }
 
+    /**
+     * Called only for a start intent that came from a visible screen. Background starts
+     * (boot, alarms, JobScheduler) leave an already-location service untouched.
+     */
+    private fun requestLocationUpgradeIfEligible() {
+        if (!isAppForeground()) return
+        if (locationUpgradeJob?.isActive == true) return
+        locationUpgradeJob = scope.launch {
+            val state = withContext(Dispatchers.IO) { AppRuntime.of(this@TriggerService).load() }
+            if (!state.hasEligibleLocationTrigger(this@TriggerService)) return@launch
+            RunningNotification.promote(
+                this@TriggerService,
+                RunningNotification.OWNER_TRIGGER,
+                includeLocation = true,
+            )
+        }
+    }
+
+    private fun isAppForeground(): Boolean {
+        val manager = getSystemService(ActivityManager::class.java) ?: return false
+        val pid = Process.myPid()
+        return manager.runningAppProcesses
+            ?.firstOrNull { it.pid == pid }
+            ?.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+    }
+
     companion object {
         const val ACTION_START = "com.flowglass.demo.trigger.START"
         const val ACTION_EVENT = "com.flowglass.demo.trigger.EVENT"
         const val ACTION_BOOT = "com.flowglass.demo.trigger.BOOT"
         const val ACTION_STOP = "com.flowglass.demo.trigger.STOP"
+        private const val EXTRA_ALLOW_LOCATION_UPGRADE = "allow_location_upgrade"
         private const val EXTRA_RULE_ID = "rule_id"
         private const val EXTRA_CMD_ID = "cmd_id"
         private const val EXTRA_TRIGGER_INDEX = "trigger_index"
@@ -140,8 +175,14 @@ class TriggerService : Service() {
         }
 
         /** Returns false when the background service start was rejected by the system. */
-        fun start(context: Context, action: String = ACTION_START, configure: Intent.() -> Unit = { }): Boolean {
+        fun start(
+            context: Context,
+            action: String = ACTION_START,
+            allowLocationUpgrade: Boolean = false,
+            configure: Intent.() -> Unit = { },
+        ): Boolean {
             val intent = Intent(context, TriggerService::class.java).setAction(action)
+            intent.putExtra(EXTRA_ALLOW_LOCATION_UPGRADE, allowLocationUpgrade)
             intent.configure()
             return try {
                 if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
@@ -153,10 +194,12 @@ class TriggerService : Service() {
         }
 
         /** Used by screens / jobs after the engine is switched back on. */
-        fun ensureStarted(context: Context) {
+        fun ensureStarted(context: Context, allowLocationUpgrade: Boolean = false) {
             ExecutionRuntime.scope.launch {
                 val state = withContext(Dispatchers.IO) { AppRuntime.of(context).load() }
-                if (state.running && state.autoCmds.any { it.enabled }) start(context)
+                if (state.running && state.autoCmds.any { it.enabled }) {
+                    start(context, allowLocationUpgrade = allowLocationUpgrade)
+                }
             }
         }
 

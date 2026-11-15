@@ -32,22 +32,30 @@ internal object NativeTasks {
             TaskOutcome(StepStatus.SUCCESS, "媒体音量已设为 $percent%")
         }
         "action.post_notification" -> {
+            val spec = TaskParameters.notification(task.parameter)
             val missing = android.os.Build.VERSION.SDK_INT >= 33 &&
                 context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
             val manager = checkNotNull(context.getSystemService(android.app.NotificationManager::class.java)) { "通知服务不可用" }
-            if (missing || !manager.areNotificationsEnabled()) TaskOutcome(StepStatus.FAILURE, "缺少通知权限")
-            else {
-                val channel = "command_notifications"
-                manager.createNotificationChannel(android.app.NotificationChannel(channel, "指令通知", android.app.NotificationManager.IMPORTANCE_DEFAULT))
-                val split = task.parameter.indexOf('|')
-                val title = if (split < 0) cmd.title else task.parameter.substring(0, split).ifBlank { cmd.title }
-                val body = if (split < 0) task.parameter else task.parameter.substring(split + 1)
-                val notification = android.app.Notification.Builder(context, channel)
-                    .setSmallIcon(android.R.drawable.ic_dialog_info)
-                    .setContentTitle(title).setContentText(body).setAutoCancel(true).build()
-                manager.notify("command:${cmd.id}:${task.id}", 0, notification)
-                TaskOutcome(StepStatus.SUCCESS, "已发送通知")
+            val canNotify = !missing && manager.areNotificationsEnabled()
+            val toast = if (spec.mode == "toast" || spec.mode == "both") {
+                SystemActions.showToast(context, spec.toastText, spec.toastDuration)
+            } else null
+            if (spec.mode == "toast") return toast!!
+            if (!canNotify) {
+                val suffix = if (toast != null && toast.status == StepStatus.SUCCESS) "，已显示 Toast" else ""
+                return TaskOutcome(StepStatus.FAILURE, "缺少通知权限$suffix")
             }
+            val channel = "command_notifications"
+            manager.createNotificationChannel(android.app.NotificationChannel(channel, "指令通知", android.app.NotificationManager.IMPORTANCE_DEFAULT))
+            val title = spec.title.ifBlank { cmd.title }
+            val notification = android.app.Notification.Builder(context, channel)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(title).setContentText(spec.content).setAutoCancel(true).build()
+            manager.notify("command:${cmd.id}:${task.id}", 0, notification)
+            if (spec.mode == "both") {
+                if (toast?.status == StepStatus.SUCCESS) TaskOutcome(StepStatus.SUCCESS, "已发送通知，并显示 Toast")
+                else TaskOutcome(StepStatus.FAILURE, "已发送通知，但显示 Toast 失败")
+            } else TaskOutcome(StepStatus.SUCCESS, "已发送通知")
         }
         "action.dnd_switch" -> {
             val mode = TaskParameters.mode(task.parameter)

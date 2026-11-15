@@ -246,6 +246,7 @@ object LegacyCommandMigration {
         "打开网页" to "action.open_url",
         "文字朗读" to "action.speak",
         "屏幕提示" to "action.toast",
+        "Toast 提示" to "action.toast",
         "屏幕超时" to "action.screen_timeout",
         "自动旋转" to "action.auto_rotate",
         "系统导航" to "action.global_action",

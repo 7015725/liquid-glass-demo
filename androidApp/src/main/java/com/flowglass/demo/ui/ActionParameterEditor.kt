@@ -54,6 +54,11 @@ internal fun ActionParameterEditor(
     val parameter = meta?.params?.firstOrNull()
     T(item.name, 16.sp, FontWeight.SemiBold)
 
+    if (meta != null && (item.typeId == "trigger.location_enter" || item.typeId == "trigger.location_exit")) {
+        LocationParameterEditor(meta, item, onParameter, onDone)
+        return
+    }
+
     if (meta != null && meta.params.size > 1 && item.typeId != "action.post_notification") {
         MultiParameterEditor(meta, item, onParameter, onAuthorization)
         EditorPill("完成", "完成", action = onDone)

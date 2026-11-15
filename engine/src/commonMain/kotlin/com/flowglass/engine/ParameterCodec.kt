@@ -156,10 +156,13 @@ object ParameterCodec {
     }
 
     fun parseComponent(meta: ComponentMeta, text: String): Map<String, JsonElement> {
-        if (meta.typeId == "action.post_notification") {
-            val split = text.indexOf('|')
-            return mapOf("title" to JsonPrimitive(if (split < 0) "" else text.substring(0, split)),
-                "content" to JsonPrimitive(if (split < 0) text else text.substring(split + 1)))
+        if (meta.typeId == "action.post_notification") return parseNotification(meta, text)
+        if (meta.typeId == "action.toast") return parseToast(meta, text)
+        // v0.5 location rules stored a free-form label such as "公司"; keep them editable rather
+        // than turning the whole component into an unknown item. They cannot trigger until the
+        // user replaces the label with coordinates.
+        if (meta.typeId.startsWith("trigger.location_") && text.isNotBlank() && '|' !in text) {
+            return mapOf("location" to JsonPrimitive(text), "radius" to JsonPrimitive(500))
         }
         if (meta.params.isEmpty()) { require(text.isEmpty()) { "无参数组件包含未识别文字" }; return emptyMap() }
         if (meta.params.size > 1) {
@@ -171,12 +174,80 @@ object ParameterCodec {
         return mapOf(spec.key to parse(spec, text))
     }
 
+    private fun parseNotification(meta: ComponentMeta, text: String): Map<String, JsonElement> {
+        val structured = jsonObjectOrNull(text)?.takeIf { it.containsKey("content") }
+        if (structured != null) {
+            val title = stringField(meta, "title", structured["title"]?.jsonPrimitive?.contentOrNull ?: "")
+            val content = stringField(meta, "content", structured["content"]?.jsonPrimitive?.contentOrNull ?: "")
+            val mode = enumField(meta, "mode", structured["mode"]?.jsonPrimitive?.contentOrNull, "system")
+            val duration = enumField(meta, "toastDuration", structured["toastDuration"]?.jsonPrimitive?.contentOrNull, "short")
+            return mapOf("title" to title, "content" to content, "mode" to mode, "toastDuration" to duration)
+        }
+        val split = text.indexOf('|')
+        val title = if (split < 0) "" else text.substring(0, split)
+        val content = if (split < 0) text else text.substring(split + 1)
+        return mapOf(
+            "title" to JsonPrimitive(title),
+            "content" to JsonPrimitive(content),
+            "mode" to JsonPrimitive("system"),
+            "toastDuration" to JsonPrimitive("short"),
+        )
+    }
+
+    private fun parseToast(meta: ComponentMeta, text: String): Map<String, JsonElement> {
+        val structured = jsonObjectOrNull(text)?.takeIf { it.containsKey("text") }
+        if (structured != null) {
+            val body = stringField(meta, "text", structured["text"]?.jsonPrimitive?.contentOrNull ?: "")
+            val duration = enumField(meta, "duration", structured["duration"]?.jsonPrimitive?.contentOrNull, "short")
+            return mapOf("text" to body, "duration" to duration)
+        }
+        return mapOf("text" to JsonPrimitive(text), "duration" to JsonPrimitive("short"))
+    }
+
+    private fun jsonObjectOrNull(text: String): JsonObject? {
+        if (!text.trimStart().startsWith("{")) return null
+        return runCatching { RuleJson.format.parseToJsonElement(text) as? JsonObject }.getOrNull()
+    }
+
+    private fun stringField(meta: ComponentMeta, key: String, raw: String): JsonElement =
+        parse(meta.params.single { it.key == key }, raw)
+
+    private fun enumField(meta: ComponentMeta, key: String, raw: String?, fallback: String): JsonElement =
+        parse(meta.params.single { it.key == key }, raw ?: fallback)
+
     fun formatComponent(meta: ComponentMeta, params: Map<String, JsonElement>): String {
         if (meta.typeId == "action.post_notification") {
             fun field(key: String) = format(meta.params.single { it.key == key }, params[key])
             val title = field("title")
             require('|' !in title) { "通知标题不能包含 |" }
-            return "$title|${field("content")}"
+            val mode = params["mode"]?.jsonPrimitive?.content ?: "system"
+            val duration = params["toastDuration"]?.jsonPrimitive?.content ?: "short"
+            if (mode == "system" && duration == "short") return "$title|${field("content")}"
+            return buildJsonObject {
+                put("title", JsonPrimitive(title))
+                put("content", JsonPrimitive(field("content")))
+                put("mode", JsonPrimitive(mode))
+                put("toastDuration", JsonPrimitive(duration))
+            }.toString()
+        }
+        if (meta.typeId == "action.toast") {
+            val body = format(meta.params.single { it.key == "text" }, params["text"])
+            val duration = params["duration"]?.jsonPrimitive?.content ?: "short"
+            if (duration == "short") return body
+            return buildJsonObject {
+                put("text", JsonPrimitive(body))
+                put("duration", JsonPrimitive(duration))
+            }.toString()
+        }
+        if (meta.typeId.startsWith("trigger.location_")) {
+            val location = format(meta.params.single { it.key == "location" }, params["location"])
+            // Preview builds stored only the label; keep those rules readable until the user
+            // supplies coordinates and a radius.
+            val radius = params["radius"] ?: return location
+            require('|' !in location) { "地点不能包含 |" }
+            if (radius.jsonPrimitive.content == "500" && location.isNotBlank() &&
+                ',' !in location && '，' !in location) return location
+            return "$location|${format(meta.params.single { it.key == "radius" }, radius)}"
         }
         if (meta.params.size > 1) {
             val values = meta.params.map { format(it, params[it.key]) }

@@ -6,11 +6,15 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 /** Read-only state queried at the moment a trigger fires; nothing here is cached by the rule. */
+enum class NetworkType { WIFI, MOBILE, NONE }
+
 interface TriggerEnvironment {
     fun zoneOffsetMinutes(atEpochMs: Long): Int
     fun batteryPercent(): Int?
     fun isCharging(): Boolean
     fun isScreenOn(): Boolean
+    fun isDndOn(): Boolean? = null
+    fun networkType(): NetworkType = NetworkType.NONE
 }
 
 interface TriggerExecutor {
@@ -99,6 +103,20 @@ object TriggerConditions {
         "condition.screen_state" -> when (condition.params["state"]?.stringValue()) {
             "on" -> environment.isScreenOn()
             "off" -> !environment.isScreenOn()
+            else -> false
+        }
+        "condition.dnd_state" -> {
+            val dnd = environment.isDndOn() ?: return false
+            when (condition.params["state"]?.stringValue()) {
+                "on" -> dnd
+                "off" -> !dnd
+                else -> false
+            }
+        }
+        "condition.network_type" -> when (condition.params["network"]?.stringValue()) {
+            "wifi" -> environment.networkType() == NetworkType.WIFI
+            "mobile" -> environment.networkType() == NetworkType.MOBILE
+            "none" -> environment.networkType() == NetworkType.NONE
             else -> false
         }
         else -> false

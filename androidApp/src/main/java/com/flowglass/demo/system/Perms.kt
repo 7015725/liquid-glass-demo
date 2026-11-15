@@ -49,7 +49,7 @@ object Perms {
         ))
         add(PermItem(
             "dnd", Ic.Moon, "勿扰权限",
-            "开启、关闭或切换勿扰模式", false,
+            "读取勿扰状态，或开启、关闭、切换勿扰模式", false,
             { c -> c.getSystemService(android.app.NotificationManager::class.java)?.isNotificationPolicyAccessGranted == true },
             Grant.Page { Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS) }
         ))
@@ -106,8 +106,9 @@ object Perms {
         ))
         add(PermItem(
             "location", Ic.Location, "位置信息",
-            "到达 / 离开某地时触发指令", false,
-            { c -> c.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED },
+            "到达 / 离开某地时触发指令；前台服务内使用，不需要后台定位权限", false,
+            { c -> c.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                c.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED },
             Grant.Runtime(Manifest.permission.ACCESS_FINE_LOCATION)
         ))
     }

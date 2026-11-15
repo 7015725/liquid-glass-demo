@@ -1,11 +1,14 @@
 package com.flowglass.demo.system.trigger
 
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
@@ -22,6 +25,7 @@ import com.flowglass.engine.trigger.TriggerEnvironment
 import com.flowglass.engine.trigger.TriggerEvent
 import com.flowglass.engine.trigger.TriggerExecutor
 import com.flowglass.engine.trigger.TriggerKinds
+import com.flowglass.engine.trigger.NetworkType
 import com.flowglass.engine.trigger.TriggerPlan
 import com.flowglass.engine.trigger.TriggerRule
 import com.flowglass.engine.trigger.TriggerSchedule
@@ -64,6 +68,24 @@ internal class AndroidTriggerEnvironment(private val context: Context) : Trigger
 
     override fun isScreenOn(): Boolean =
         context.getSystemService(PowerManager::class.java)?.isInteractive == true
+
+    override fun isDndOn(): Boolean? {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return null
+        val filter = manager.currentInterruptionFilter
+        if (filter == NotificationManager.INTERRUPTION_FILTER_UNKNOWN) return null
+        return filter != NotificationManager.INTERRUPTION_FILTER_ALL
+    }
+
+    override fun networkType(): NetworkType {
+        val connectivity = context.getSystemService(ConnectivityManager::class.java) ?: return NetworkType.NONE
+        val network = connectivity.activeNetwork ?: return NetworkType.NONE
+        val capabilities = connectivity.getNetworkCapabilities(network) ?: return NetworkType.NONE
+        return when {
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> NetworkType.WIFI
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> NetworkType.MOBILE
+            else -> NetworkType.NONE
+        }
+    }
 }
 
 internal fun canScheduleExactAlarms(context: Context): Boolean =
@@ -122,6 +144,7 @@ internal class TriggerHost(
     private val wifiWatcher = WifiWatcher(context, scope, ::emitEvent)
     private val bluetoothWatcher = BluetoothWatcher(context, ::emitEvent)
     private val headsetWatcher = HeadsetWatcher(context, ::emitEvent)
+    private val locationWatcher = LocationWatcher(context, ::emitEvent)
     private val appWatcher = AppForegroundWatcher(context, scope, ::emitEvent)
     private val notificationListener: (String, String, String) -> Unit = { app, title, text ->
         emitEvent(TriggerKinds.NOTIFICATION, TriggerSource.NOTIFICATION, mapOf(
@@ -239,6 +262,11 @@ internal class TriggerHost(
         TriggerStatus.listeningRules = listening.size
         TriggerStatus.registeredSources = sourceRegistry.registered.size
         TriggerStatus.listeningRuleIds = listening.map { it.cmdId }.toSet()
+        TriggerStatus.locationRulesActive = eligible.any { rule ->
+            rule.triggers.any {
+                it.typeId == TriggerTypes.LOCATION_ENTER || it.typeId == TriggerTypes.LOCATION_EXIT
+            }
+        }
         onStatus(listening.size, sourceRegistry.registered.size)
     }
 
@@ -277,6 +305,7 @@ internal class TriggerHost(
             TriggerSource.NOTIFICATION -> NotificationEvents.add(notificationListener)
             TriggerSource.APP -> appWatcher.start()
             TriggerSource.HEADSET -> headsetWatcher.start()
+            TriggerSource.LOCATION -> locationWatcher.start()
             // TIME is an AlarmManager schedule, BOOT is a manifest receiver; neither has a
             // dynamic receiver to install.
             TriggerSource.TIME, TriggerSource.BOOT -> Unit
@@ -293,6 +322,7 @@ internal class TriggerHost(
             TriggerSource.NOTIFICATION -> NotificationEvents.remove(notificationListener)
             TriggerSource.APP -> appWatcher.stop()
             TriggerSource.HEADSET -> headsetWatcher.stop()
+            TriggerSource.LOCATION -> locationWatcher.stop()
             TriggerSource.TIME, TriggerSource.BOOT -> Unit
         }
     }

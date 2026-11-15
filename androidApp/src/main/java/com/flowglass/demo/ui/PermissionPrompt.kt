@@ -58,7 +58,7 @@ internal object PermissionGate {
         if (missing.isEmpty()) {
             state.setEnabled(cmd.id, true)
             state.permissionsEpoch += 1
-            com.flowglass.demo.system.trigger.TriggerService.ensureStarted(context)
+            com.flowglass.demo.system.trigger.TriggerService.ensureStarted(context, allowLocationUpgrade = true)
         } else {
             pending = Pending(cmd.id)
         }
@@ -77,7 +77,7 @@ internal fun PermissionResumeEffect(state: AppState) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && state.running) {
                 state.permissionsEpoch += 1
-                com.flowglass.demo.system.trigger.TriggerService.ensureStarted(context)
+                com.flowglass.demo.system.trigger.TriggerService.ensureStarted(context, allowLocationUpgrade = true)
             }
         }
         owner.lifecycle.addObserver(observer)
@@ -115,7 +115,7 @@ internal fun PermissionPromptHost(state: AppState) {
         if (missing.isEmpty()) {
             state.setEnabled(cmd.id, true)
             state.permissionsEpoch += 1
-            com.flowglass.demo.system.trigger.TriggerService.ensureStarted(context)
+            com.flowglass.demo.system.trigger.TriggerService.ensureStarted(context, allowLocationUpgrade = true)
             PermissionGate.dismiss()
         }
     }

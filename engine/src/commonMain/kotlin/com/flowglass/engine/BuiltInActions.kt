@@ -33,7 +33,13 @@ object BuiltInActions {
             listOf(parameter("package", "应用", ParamType.APPLICATION, "应用包名"))),
         ComponentMeta("action.post_notification", "发送通知", "通知", ComponentKind.ACTION,
             listOf(parameter("content", "内容", default = "任务已完成", required = false),
-                parameter("title", "通知标题", default = "", required = false)), permissions = listOf("notify")),
+                parameter("title", "通知标题", default = "", required = false),
+                ParamSpec("mode", "通知方式", ParamType.ENUM, false, JsonPrimitive("system"), listOf(
+                    ParamOption("system", "系统通知"), ParamOption("toast", "Toast"),
+                    ParamOption("both", "两者都发"))),
+                ParamSpec("toastDuration", "Toast 时长", ParamType.ENUM, false, JsonPrimitive("short"), listOf(
+                    ParamOption("short", "短"), ParamOption("long", "长")))),
+            permissions = listOf("notify")),
         ComponentMeta("action.copy_clipboard", "复制到剪贴板", "文本", ComponentKind.ACTION,
             listOf(parameter("text", "文本", ParamType.MULTILINE_TEXT, "待复制文本", false,
                 hint = "格式：纯文本，支持换行；按原文复制，不解析命令。"))),
@@ -70,8 +76,10 @@ object BuiltInActions {
         ComponentMeta("action.speak", "文字朗读", "设备", ComponentKind.ACTION,
             listOf(parameter("text", "内容", ParamType.MULTILINE_TEXT, "你好，流光", false,
                 hint = "使用系统 TTS 朗读；朗读完成或 30 秒超时后进入下一步。"))),
-        ComponentMeta("action.toast", "屏幕提示", "通知", ComponentKind.ACTION,
-            listOf(parameter("text", "内容", ParamType.TEXT, "任务已完成", false))),
+        ComponentMeta("action.toast", "Toast 提示", "通知", ComponentKind.ACTION,
+            listOf(parameter("text", "内容", ParamType.TEXT, "任务已完成", false),
+                ParamSpec("duration", "显示时长", ParamType.ENUM, false, JsonPrimitive("short"), listOf(
+                    ParamOption("short", "短"), ParamOption("long", "长"))))),
         ComponentMeta("action.screen_timeout", "屏幕超时", "设备", ComponentKind.ACTION,
             listOf(parameter("duration", "时长", ParamType.DURATION, "30 秒", false,
                 hint = "范围 5 秒–30 分钟；需要修改系统设置权限。", durationMs = 30_000)),

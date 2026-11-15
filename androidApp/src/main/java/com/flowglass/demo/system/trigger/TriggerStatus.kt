@@ -28,12 +28,16 @@ object TriggerStatus {
     var registeredSources by mutableIntStateOf(0)
     var listeningRuleIds by mutableStateOf<Set<Long>>(emptySet())
     var exactAlarmAllowed by mutableStateOf(true)
+    var locationRulesActive by mutableStateOf(false)
+    var locationNeedsForeground by mutableStateOf(false)
 
     fun reset() {
         serviceActive = false
         listeningRules = 0
         registeredSources = 0
         listeningRuleIds = emptySet()
+        locationRulesActive = false
+        locationNeedsForeground = false
     }
 }
 

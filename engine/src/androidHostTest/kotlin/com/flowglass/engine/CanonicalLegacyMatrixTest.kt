@@ -56,7 +56,11 @@ class CanonicalLegacyMatrixTest {
             for (version in listOf(1, 2)) {
                 val component = migrate(meta, text, version)
                 assertEquals(meta.typeId, component.type, meta.name)
-                assertEquals(meta.params.associate { it.key to it.defaultValue }, component.params, meta.name)
+                val expectedParams = if (meta.typeId.startsWith("trigger.location_")) {
+                    // v0.5 labels are preserved as an editable location without coordinates.
+                    mapOf("location" to JsonPrimitive(text), "radius" to JsonPrimitive(500))
+                } else meta.params.associate { it.key to it.defaultValue }
+                assertEquals(expectedParams, component.params, meta.name)
                 val formatted = ParameterCodec.formatComponent(meta, component.params)
                 assertEquals(if (meta.typeId == "action.post_notification") "|$text" else text, formatted, meta.name)
             }
@@ -64,7 +68,10 @@ class CanonicalLegacyMatrixTest {
     }
 
     @Test fun everyConstrainedBuiltinPreservesUnparseableTextAsWholeUnknownItem() {
-        val constrained = BuiltInComponents.all.filter { meta -> meta.params.any { it.type !in setOf(ParamType.TEXT, ParamType.MULTILINE_TEXT, ParamType.APPLICATION) } }
+        val constrained = BuiltInComponents.all.filter { meta ->
+            meta.params.any { it.type !in setOf(ParamType.TEXT, ParamType.MULTILINE_TEXT, ParamType.APPLICATION) } &&
+                meta.typeId != "action.post_notification" && meta.typeId != "action.toast"
+        }
         assertTrue(constrained.isNotEmpty())
         for (meta in constrained) for (invalid in listOf("", "\t\n", "错误 | 保留\n原文")) {
             val component = migrate(meta, invalid)
@@ -106,8 +113,15 @@ class CanonicalLegacyMatrixTest {
 
     @Test fun notificationKeepsBothFieldsAndAllBodySeparators() {
         val meta = BuiltInComponents.all.single { it.typeId == "action.post_notification" }
-        assertEquals(mapOf("title" to JsonPrimitive("标题"), "content" to JsonPrimitive("内容|第二段\n末行")),
-            migrate(meta, "标题|内容|第二段\n末行").params)
+        assertEquals(
+            mapOf(
+                "title" to JsonPrimitive("标题"),
+                "content" to JsonPrimitive("内容|第二段\n末行"),
+                "mode" to JsonPrimitive("system"),
+                "toastDuration" to JsonPrimitive("short"),
+            ),
+            migrate(meta, "标题|内容|第二段\n末行").params,
+        )
     }
 
     @Test fun noParameterComponentCannotSilentlyDiscardUnexpectedText() {

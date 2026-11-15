@@ -20,11 +20,15 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.flowglass.engine.BuiltInActions
+import com.flowglass.engine.ParameterCodec
 import com.kyant.shapes.RoundedRectangle
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * 标题与内容分开编辑，存储格式仍是「标题|内容」。
- * 本地草稿允许标题暂时非法而不写回；只有标题合法时才提交完整草稿。
+ * 标题与内容分开编辑；通知方式与 Toast 时长是同一组件的附加参数。
+ * 旧的 `标题|内容` 文本仍按系统通知解析；只有非默认方式才写成 JSON 扩展格式。
  */
 @Composable
 internal fun NotificationParameterEditor(
@@ -33,24 +37,68 @@ internal fun NotificationParameterEditor(
     onParameter: (String) -> Unit,
     onDone: () -> Unit,
 ) {
-    // Like NativeTasks, split once on the first separator. Merely opening must not re-encode legacy text.
-    val split = remember(item.id) { item.parameter.indexOf('|') }
-    var title by remember(item.id) { mutableStateOf(if (split < 0) "" else item.parameter.substring(0, split)) }
-    var body by remember(item.id) { mutableStateOf(if (split < 0) item.parameter else item.parameter.substring(split + 1)) }
+    val meta = remember { BuiltInActions.metadata.single { it.typeId == "action.post_notification" } }
+    val initial = remember(item.id) {
+        runCatching { ParameterCodec.parseComponent(meta, item.parameter) }.getOrNull().orEmpty()
+    }
+    var title by remember(item.id) { mutableStateOf(initial["title"]?.jsonPrimitive?.content.orEmpty()) }
+    var body by remember(item.id) { mutableStateOf(initial["content"]?.jsonPrimitive?.content.orEmpty()) }
+    var mode by remember(item.id) { mutableStateOf(initial["mode"]?.jsonPrimitive?.content ?: "system") }
+    var duration by remember(item.id) { mutableStateOf(initial["toastDuration"]?.jsonPrimitive?.content ?: "short") }
     val invalidTitle = '|' in title
+
+    fun emit() {
+        if (invalidTitle) return
+        onParameter(ParameterCodec.formatComponent(meta, mapOf(
+            "title" to JsonPrimitive(title),
+            "content" to JsonPrimitive(body),
+            "mode" to JsonPrimitive(mode),
+            "toastDuration" to JsonPrimitive(duration),
+        )))
+    }
 
     T("通知标题", 14.sp, FontWeight.Medium)
     NotificationField(title, "notification-title", "通知标题", 56.dp) { value ->
         title = value
-        if ('|' !in value) onParameter("$value|$body")
+        emit()
     }
     T("留空使用指令标题：$commandTitle", 12.sp, color = C.Muted)
     T("通知内容", 14.sp, FontWeight.Medium)
     NotificationField(body, "notification-body", "通知正文", 100.dp) { value ->
         body = value
-        if (!invalidTitle) onParameter("$title|$value")
+        emit()
     }
     T("标题不能含 |。内容支持换行和 |。", 12.sp, color = C.OnSurfaceVar)
+
+    val modes = meta.params.single { it.key == "mode" }.options
+    T("通知方式", 14.sp, FontWeight.Medium)
+    SegmentedSelector(
+        modes.map { modeOption ->
+            (when (modeOption.value) {
+                "toast" -> Ic.Message
+                "both" -> Ic.Play
+                else -> Ic.Bell
+            }) to modeOption.label
+        },
+        modes.indexOfFirst { it.value == mode }.coerceAtLeast(0),
+    ) { index ->
+        mode = modes[index].value
+        emit()
+    }
+
+    if (mode != "system") {
+        val durations = meta.params.single { it.key == "toastDuration" }.options
+        T("Toast 显示时长", 14.sp, FontWeight.Medium)
+        SegmentedSelector(
+            durations.map { Ic.Timer to it.label },
+            durations.indexOfFirst { it.value == duration }.coerceAtLeast(0),
+        ) { index ->
+            duration = durations[index].value
+            emit()
+        }
+        T("Toast 内容为「标题 · 内容」；标题为空时只显示内容。", 12.sp, color = C.Muted)
+    }
+
     if (invalidTitle) {
         T("通知标题不能包含 |；已保留上一合法参数", 13.sp, color = C.Bad)
     }

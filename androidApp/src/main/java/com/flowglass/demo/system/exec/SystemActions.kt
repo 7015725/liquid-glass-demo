@@ -183,15 +183,25 @@ internal object SystemActions {
     }
 
     suspend fun toast(context: Context, parameter: String): TaskOutcome {
-        val text = parameter.trim()
-        if (text.isEmpty()) return TaskOutcome(StepStatus.FAILURE, "提示内容为空")
+        val spec = TaskParameters.toast(parameter)
+        return showToast(context, spec.text, spec.duration)
+    }
+
+    suspend fun showToast(context: Context, text: String, duration: String = "short"): TaskOutcome {
+        val body = text.trim()
+        if (body.isEmpty()) return TaskOutcome(StepStatus.FAILURE, "提示内容为空")
         return try {
             withContext(Dispatchers.Main.immediate) {
-                Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+                // Plain text only: Android 11+ blocks custom Toast views from the background,
+                // while the system-rendered text Toast remains available to a foreground service.
+                Toast.makeText(
+                    context, body,
+                    if (duration == "long") Toast.LENGTH_LONG else Toast.LENGTH_SHORT,
+                ).show()
             }
-            TaskOutcome(StepStatus.SUCCESS, "已显示提示")
+            TaskOutcome(StepStatus.SUCCESS, "已显示 Toast")
         } catch (_: Throwable) {
-            TaskOutcome(StepStatus.FAILURE, "显示提示失败")
+            TaskOutcome(StepStatus.FAILURE, "显示 Toast 失败")
         }
     }
 
