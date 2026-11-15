@@ -265,6 +265,11 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
                         T("  ·  上次 ${cmd.lastRun}", 11.sp, color = C.Muted)
                     }
                 }
+                val blocked = if (cmd.auto) state.validationIssues(cmd) else emptyList()
+                if (blocked.isNotEmpty() && !cmd.enabled) {
+                    Spacer(Modifier.height(4.dp))
+                    T("未通过校验：" + blocked.first(), 11.sp, color = C.Bad, maxLines = 2)
+                }
                 if (cmd.auto) {
                     Spacer(Modifier.height(6.dp))
                     ListenStatePill(listen)
@@ -272,7 +277,12 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
             }
             Spacer(Modifier.width(10.dp))
             if (cmd.auto) {
-                LiquidToggle({ cmd.enabled }, { PermissionGate.request(state, cmd, context) }, cardBackdrop,
+                val blocked = state.validationIssues(cmd)
+                Box(Modifier.graphicsLayer { alpha = if (blocked.isNotEmpty() && !cmd.enabled) 0.4f else 1f }) {
+                LiquidToggle({ cmd.enabled }, {
+                    if (!cmd.enabled && blocked.isNotEmpty()) state.editorNotice = blocked.first()
+                    else PermissionGate.request(state, cmd, context)
+                }, cardBackdrop,
                     Modifier.testTag("command-toggle-${cmd.id}")
                         // The liquid thumb observes gestures without consuming them. Consume on
                         // the parent's Main pass, after the thumb but before the card recognizer.
@@ -290,6 +300,7 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
                         toggleableState = if (cmd.enabled) ToggleableState.On else ToggleableState.Off
                         onClick { PermissionGate.request(state, cmd, context); true }
                     })
+                }
             } else {
                 ExecButton(exec, Modifier.testTag("command-execute-${cmd.id}"),
                     failureLabel = if (state.executionMessages[cmd.id] == "执行环境未就绪") "执行环境未就绪" else "失败",

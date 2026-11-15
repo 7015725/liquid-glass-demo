@@ -92,6 +92,8 @@ internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Bool
                     // v3: one id -> icon entry per node, no positional lists.
                     items = (command.triggers + command.conditions + command.actions).allItems()
                         .associate { it.id to ComponentPresentation(it.id, it.ic.name) },
+                    collapsed = (command.triggers + command.conditions + command.actions).allItems()
+                        .filter { it.collapsed }.map { it.id },
                     triggers = emptyList(),
                     conditions = emptyList(),
                     actions = emptyList(),
@@ -174,6 +176,7 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
         normalizedPresentation[rule.id] = sidecar.copy(
             legacyId = commandId,
             items = all.associate { it.id to ComponentPresentation(it.id, it.ic.name) },
+            collapsed = all.filter { it.collapsed }.map { it.id },
             triggers = emptyList(),
             conditions = emptyList(),
             actions = emptyList(),
@@ -339,6 +342,7 @@ private fun RuleComponent.toCommandItem(
             )
         },
         conditions = conditions.map { it.toCommandItem(null, sidecar, allocateId) },
+        collapsed = id in sidecar.collapsed,
     )
 }
 

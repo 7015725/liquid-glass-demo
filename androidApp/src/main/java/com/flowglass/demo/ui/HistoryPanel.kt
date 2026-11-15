@@ -59,6 +59,22 @@ internal fun HistoryPanel(state: AppState, onClose: () -> Unit) {
                 Spacer(Modifier.weight(1f))
                 T("成功 $okCount · 失败 $failed · 跳过 $skipped", 12.sp, color = C.Muted)
             }
+            val runningNow = state.executing.filterValues { it == 1 }.keys.toList()
+            if (runningNow.isNotEmpty()) {
+                T("正在运行", 13.sp, FontWeight.SemiBold, C.OnSurfaceVar)
+                runningNow.forEach { id ->
+                    state.find(id)?.let { command ->
+                        Row(Modifier.fillMaxWidth().clip(RoundedRectangle(18.dp)).background(C.Card)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            T(command.title, 14.sp, FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1)
+                            BadgePill("运行中", C.Primary, C.PrimarySoft)
+                            Spacer(Modifier.width(8.dp))
+                            EditorPill("停止", "停止${command.title}") { state.stopExecution(id) }
+                        }
+                    }
+                }
+            }
             FilterChips(HistoryFilters, filter, { filter = it }, Modifier.testTag("history-filters"))
             if (list.isEmpty()) {
                 EmptyState(
