@@ -7,6 +7,7 @@ import com.flowglass.engine.trigger.TriggerEnvironment
 import com.flowglass.engine.trigger.TriggerEvent
 import com.flowglass.engine.trigger.TriggerExecutor
 import com.flowglass.engine.trigger.TriggerKinds
+import com.flowglass.engine.trigger.NetworkType
 import com.flowglass.engine.trigger.TriggerPlan
 import com.flowglass.engine.trigger.TriggerRule
 import com.flowglass.engine.trigger.TriggerSchedule
@@ -31,11 +32,15 @@ class TriggerEngineTest {
         var charging: Boolean = false,
         var screenOn: Boolean = true,
         var offsetMinutes: Int = 0,
+        var dnd: Boolean? = false,
+        var network: NetworkType = NetworkType.NONE,
     ) : TriggerEnvironment {
         override fun zoneOffsetMinutes(atEpochMs: Long): Int = offsetMinutes
         override fun batteryPercent(): Int? = battery
         override fun isCharging(): Boolean = charging
         override fun isScreenOn(): Boolean = screenOn
+        override fun isDndOn(): Boolean? = dnd
+        override fun networkType(): NetworkType = network
     }
 
     private class RecordingExecutor : TriggerExecutor {
@@ -516,18 +521,74 @@ class TriggerEngineTest {
             rule("notification", listOf(trigger("trigger.notification", "text" to "验证码"))),
             rule("app", listOf(trigger("trigger.app_foreground", "state" to "foreground", "package" to "com.x"))),
             rule("headset", listOf(trigger("trigger.headset", "state" to "plugged"))),
+            rule("location", listOf(trigger("trigger.location_enter", "location" to "31.0,121.0", "radius" to "500"))),
         )
         assertEquals(
             setOf(
                 TriggerSource.WIFI, TriggerSource.BLUETOOTH, TriggerSource.NOTIFICATION,
-                TriggerSource.APP, TriggerSource.HEADSET,
+                TriggerSource.APP, TriggerSource.HEADSET, TriggerSource.LOCATION,
             ),
             TriggerPlan.requiredSources(rules),
         )
         // Disabling a rule drops its family; a shared family stays registered.
         assertEquals(
-            setOf(TriggerSource.WIFI, TriggerSource.BLUETOOTH, TriggerSource.NOTIFICATION, TriggerSource.HEADSET),
+            setOf(TriggerSource.WIFI, TriggerSource.BLUETOOTH, TriggerSource.NOTIFICATION, TriggerSource.HEADSET, TriggerSource.LOCATION),
             TriggerPlan.requiredSources(rules.map { if (it.id == "app") it.copy(enabled = false) else it }),
         )
+    }
+
+    @Test
+    fun locationEnterAndExitUseBaselineAndRadius() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        fun locationRule(id: String, type: String) = rule(id, listOf(TriggerComponent(
+            type, type.substringAfter('.'), mapOf(
+                "location" to JsonPrimitive("31.0000,121.0000"),
+                "radius" to JsonPrimitive(500),
+            ),
+        )))
+        val enter = locationRule("enter", "trigger.location_enter")
+        val exit = locationRule("exit", "trigger.location_exit")
+        fun event(lat: Double, lng: Double) = TriggerEvent(
+            TriggerKinds.LOCATION, TriggerSource.LOCATION, clock.now,
+            mapOf("lat" to lat.toString(), "lng" to lng.toString()),
+        )
+
+        // First sample only establishes the baseline.
+        assertEquals(0, d.dispatch(event(31.0200, 121.0000), listOf(enter, exit)).executions.size)
+        clock.now = 3_000
+        assertEquals(listOf("enter"), d.dispatch(event(31.0030, 121.0000), listOf(enter, exit)).executions.map { it.rule.id })
+        clock.now = 6_000
+        assertEquals(listOf("exit"), d.dispatch(event(31.0200, 121.0000), listOf(enter, exit)).executions.map { it.rule.id })
+        clock.now = 9_000
+        assertEquals(listOf("enter"), d.dispatch(event(31.0030, 121.0000), listOf(enter, exit)).executions.map { it.rule.id })
+        // Outside the configured 500 m radius is a leave, even though it is still near the point.
+        clock.now = 12_000
+        assertEquals(listOf("exit"), d.dispatch(event(31.0200, 121.0000), listOf(enter, exit)).executions.map { it.rule.id })
+    }
+
+    @Test
+    fun dndAndNetworkConditionsReadLiveEnvironment() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val env = FakeEnvironment(dnd = true, network = NetworkType.WIFI)
+        val d = dispatcher(clock, env, executor)
+        val r = rule(
+            "guarded",
+            listOf(trigger("trigger.screen_on")),
+            conditions = listOf(
+                TriggerComponent("condition.dnd_state", "勿扰状态", mapOf("state" to JsonPrimitive("on"))),
+                TriggerComponent("condition.network_type", "网络类型", mapOf("network" to JsonPrimitive("wifi"))),
+            ),
+        )
+        assertEquals(1, d.dispatch(screenEvent(), listOf(r)).executions.size)
+
+        env.dnd = false
+        env.network = NetworkType.MOBILE
+        clock.now = 3_000
+        val skipped = d.dispatch(screenEvent(at = 3_000), listOf(r))
+        assertEquals(0, skipped.executions.size)
+        assertEquals("条件不满足：勿扰状态、网络类型", skipped.skips.single().detail)
     }
 }

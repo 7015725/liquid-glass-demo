@@ -236,10 +236,22 @@ private fun CommandItem.unknownComponent() = RuleComponent(
 private fun CommandItem.toPresentation() = ComponentPresentation(id, ic.name)
 
 private fun notificationFields(parameter: String): Map<String, String> {
+    val meta = componentRegistry.find("action.post_notification")
+    val parsed = meta?.let { runCatching { ParameterCodec.parseComponent(it, parameter) }.getOrNull() }
+    if (parsed != null) {
+        return mapOf(
+            "content" to (parsed["content"]?.displayText().orEmpty()),
+            "title" to (parsed["title"]?.displayText().orEmpty()),
+            "mode" to (parsed["mode"]?.displayText() ?: "system"),
+            "toastDuration" to (parsed["toastDuration"]?.displayText() ?: "short"),
+        )
+    }
     val split = parameter.indexOf('|')
     return mapOf(
         "content" to if (split < 0) parameter else parameter.substring(split + 1),
         "title" to if (split < 0) "" else parameter.substring(0, split),
+        "mode" to "system",
+        "toastDuration" to "short",
     )
 }
 

@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * A dedicated `specialUse` foreground service instead of reusing KeepAliveService.
+ * A dedicated `specialUse|location` foreground service instead of reusing KeepAliveService.
  *
  * KeepAlive's lifetime follows the user's keep-alive switches; trigger listening follows the
  * engine switch and the enabled-rule set. Keeping them separate means pausing the engine can
@@ -41,7 +41,7 @@ class TriggerService : Service() {
     override fun onCreate() {
         super.onCreate()
         current = this
-        RunningNotification.start(this, RunningNotification.OWNER_TRIGGER)
+        RunningNotification.start(this, RunningNotification.OWNER_TRIGGER, includeLocation = true)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -52,6 +52,10 @@ class TriggerService : Service() {
             return START_NOT_STICKY
         }
         intent?.toTriggerEvent()?.let(::deliver)
+        // A boot-started service may have had to fall back to specialUse (location FGS is
+        // restricted from the background). Retry the location type whenever the app starts it
+        // again, which happens when the user opens the app from the foreground.
+        RunningNotification.promote(this, RunningNotification.OWNER_TRIGGER, includeLocation = true)
         ensureHost()
         return START_STICKY
     }

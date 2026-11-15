@@ -38,19 +38,47 @@ object RunningNotification {
         )
     }
 
+    /** Removes channels left by pre-0.6.1 builds; upgrades keep them until explicitly deleted. */
+    fun cleanupLegacyChannels(ctx: Context) {
+        val manager = ctx.getSystemService(NotificationManager::class.java) ?: return
+        listOf("keepalive", "triggers").forEach { id ->
+            runCatching { manager.deleteNotificationChannel(id) }
+        }
+        ensureChannel(ctx)
+    }
+
     /** Called by the trigger host whenever the listening rule count changes. */
     fun onTriggerStatus(ctx: Context, count: Int) {
         triggerCount = count
         refresh(ctx)
     }
 
-    fun start(service: Service, owner: String) {
+    fun start(service: Service, owner: String, includeLocation: Boolean = false) {
         ensureChannel(service)
         owners.add(owner)
         try {
             val notification = build(service)
             if (Build.VERSION.SDK_INT >= 34) {
-                service.startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                if (includeLocation) {
+                    // Android 14+ only grants while-in-use location access to a foreground
+                    // service that declares the matching type; specialUse alone is treated as
+                    // background and stops receiving updates.
+                    types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                }
+                try {
+                    service.startForeground(ID, notification, types)
+                } catch (failure: Throwable) {
+                    // A boot-started service cannot claim the location type without
+                    // ACCESS_BACKGROUND_LOCATION on some releases. Keep the trigger service
+                    // alive as specialUse; it can be upgraded after the app is opened.
+                    android.util.Log.w("RunningNotification", "location foreground type rejected", failure)
+                    if (includeLocation) {
+                        service.startForeground(ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                    } else {
+                        throw failure
+                    }
+                }
             } else {
                 service.startForeground(ID, notification)
             }
@@ -58,6 +86,11 @@ object RunningNotification {
             owners.remove(owner)
             service.stopSelf()
         }
+    }
+
+    fun promote(service: Service, owner: String, includeLocation: Boolean = false) {
+        if (!owners.contains(owner)) return
+        start(service, owner, includeLocation)
     }
 
     fun stop(service: Service, owner: String) {

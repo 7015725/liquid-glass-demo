@@ -1,5 +1,6 @@
 package com.flowglass.demo.system.exec
 
+import com.flowglass.engine.BuiltInActions
 import com.flowglass.engine.ComponentMeta
 import com.flowglass.engine.ParameterCodec
 import kotlinx.serialization.json.jsonPrimitive
@@ -7,6 +8,19 @@ import kotlinx.serialization.json.jsonPrimitive
 internal enum class SwitchMode { ON, OFF, TOGGLE }
 
 internal data class HttpRequestSpec(val method: String, val url: java.net.URL, val body: String?)
+internal data class NotificationSpec(
+    val title: String,
+    val content: String,
+    val mode: String,
+    val toastDuration: String,
+) {
+    val toastText: String get() = when {
+        title.isBlank() -> content
+        content.isBlank() -> title
+        else -> "$title · $content"
+    }
+}
+internal data class ToastSpec(val text: String, val duration: String)
 
 internal object TaskParameters {
     fun http(text: String): HttpRequestSpec {
@@ -61,6 +75,25 @@ internal object TaskParameters {
     fun token(meta: ComponentMeta, text: String, key: String): String =
         ParameterCodec.parseComponent(meta, text)[key]?.jsonPrimitive?.content
             ?: invalid("${meta.name} 的参数")
+
+    fun notification(text: String): NotificationSpec {
+        val meta = BuiltInActions.metadata.single { it.typeId == "action.post_notification" }
+        val params = ParameterCodec.parseComponent(meta, text)
+        fun field(key: String) = params[key]?.jsonPrimitive?.content.orEmpty()
+        val mode = field("mode").ifBlank { "system" }
+        if (mode !in setOf("system", "toast", "both")) invalid("通知方式")
+        val duration = field("toastDuration").ifBlank { "short" }
+        if (duration !in setOf("short", "long")) invalid("Toast 时长")
+        return NotificationSpec(field("title"), field("content"), mode, duration)
+    }
+
+    fun toast(text: String): ToastSpec {
+        val meta = BuiltInActions.metadata.single { it.typeId == "action.toast" }
+        val params = ParameterCodec.parseComponent(meta, text)
+        val duration = params["duration"]?.jsonPrimitive?.content ?: "short"
+        if (duration !in setOf("short", "long")) invalid("Toast 显示时长")
+        return ToastSpec(params["text"]?.jsonPrimitive?.content.orEmpty(), duration)
+    }
 
     fun percent(text: String): Double {
         val expected = "0–100% 的百分比"

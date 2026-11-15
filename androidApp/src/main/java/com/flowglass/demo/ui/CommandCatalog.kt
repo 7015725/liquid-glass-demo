@@ -3,6 +3,10 @@ package com.flowglass.demo.ui
 import com.flowglass.engine.ComponentKind
 import com.flowglass.engine.ComponentMeta
 import com.flowglass.engine.Tier
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonPrimitive
 
 enum class CommandSection { TRIGGERS, CONDITIONS, ACTIONS }
 data class CommandItem(
@@ -17,8 +21,11 @@ data class CommandItem(
     val display: String get() {
         val text = when (typeId) {
             "action.post_notification" -> notificationDisplayText(parameter)
+            "action.toast" -> toastDisplayText(parameter)
             "trigger.time" -> parameter.split('|').joinToString(" · ")
             "trigger.battery_level" -> parameter.split('|').joinToString(" ").trim()
+            "trigger.location_enter", "trigger.location_exit" ->
+                parameter.split('|').filter { it.isNotEmpty() }.joinToString(" · ")
             "trigger.wifi", "trigger.bluetooth", "trigger.notification",
             "trigger.app_foreground", "trigger.headset" ->
                 parameter.split('|').filter { it.isNotEmpty() }.joinToString(" · ")
@@ -35,6 +42,16 @@ data class CommandItem(
  * `标题 · 内容` form. A body may contain further separators and is kept intact.
  */
 internal fun notificationDisplayText(parameter: String): String {
+    val structured = structuredOrNull(parameter, "content")
+    if (structured != null) {
+        val title = structured["title"]?.jsonPrimitive?.content.orEmpty()
+        val content = structured["content"]?.jsonPrimitive?.content.orEmpty()
+        return when {
+            title.isEmpty() -> content
+            content.isEmpty() -> title
+            else -> "$title · $content"
+        }
+    }
     val split = parameter.indexOf('|')
     if (split < 0) return parameter
     val title = parameter.substring(0, split)
@@ -44,6 +61,15 @@ internal fun notificationDisplayText(parameter: String): String {
         content.isEmpty() -> title
         else -> "$title · $content"
     }
+}
+
+internal fun toastDisplayText(parameter: String): String =
+    structuredOrNull(parameter, "text")?.get("text")?.jsonPrimitive?.content ?: parameter
+
+private fun structuredOrNull(parameter: String, key: String): JsonObject? {
+    if (!parameter.trimStart().startsWith("{")) return null
+    return runCatching { Json.parseToJsonElement(parameter) as? JsonObject }
+        .getOrNull()?.takeIf { it[key] is JsonPrimitive }
 }
 data class CommandOption(
     val name: String,

@@ -10,6 +10,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
@@ -19,6 +22,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Looper
 import com.flowglass.demo.system.FlowAccessibilityService
 import com.flowglass.demo.system.Perms
 import com.flowglass.engine.trigger.TriggerKinds
@@ -32,6 +36,66 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 internal typealias TriggerEmit = (kind: String, source: TriggerSource, data: Map<String, String>) -> Unit
+
+/**
+ * Low-frequency location sampling for the enter/exit triggers. It only runs while a location
+ * rule is listening and asks the platform for a network fix every two minutes. No Play services
+ * and no continuous GPS tracking: a foreground service does not need ACCESS_BACKGROUND_LOCATION.
+ */
+internal class LocationWatcher(
+    private val context: Context,
+    private val emit: TriggerEmit,
+) {
+    private val manager = context.getSystemService(LocationManager::class.java)
+    private var listener: LocationListener? = null
+    private var started = false
+
+    fun start() {
+        if (started) return
+        val lm = manager ?: return
+        if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+        val provider = when {
+            lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+            lm.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+            else -> return
+        }
+        val callback = object : LocationListener {
+            override fun onLocationChanged(location: Location) = publish(location)
+            @Deprecated("Deprecated in API 29")
+            override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) { stop() }
+        }
+        listener = callback
+        try {
+            lm.getLastKnownLocation(provider)?.let(::publish)
+            lm.requestLocationUpdates(provider, INTERVAL_MS, 0f, callback, Looper.getMainLooper())
+            started = true
+        } catch (_: SecurityException) {
+            listener = null
+        }
+    }
+
+    fun stop() {
+        val callback = listener
+        listener = null
+        started = false
+        if (callback != null) runCatching { manager?.removeUpdates(callback) }
+    }
+
+    private fun publish(location: Location) {
+        emit(
+            TriggerKinds.LOCATION,
+            TriggerSource.LOCATION,
+            mapOf("lat" to location.latitude.toString(), "lng" to location.longitude.toString()),
+        )
+    }
+
+    private companion object {
+        const val INTERVAL_MS = 120_000L
+    }
+}
 
 /** Coalesces WiFi callbacks so a network switch does not look like disconnect + connect. */
 internal class WifiWatcher(

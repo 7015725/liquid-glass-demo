@@ -1,13 +1,18 @@
 package com.flowglass.engine.trigger
 
 import com.flowglass.engine.Clock
+import kotlin.math.asin
+import kotlin.math.cos
+import kotlin.math.pow
+import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 /** One installable listener family. Several trigger types can share a source. */
-enum class TriggerSource { TIME, SCREEN, POWER, BATTERY, BOOT, WIFI, BLUETOOTH, NOTIFICATION, APP, HEADSET }
+enum class TriggerSource { TIME, SCREEN, POWER, BATTERY, BOOT, WIFI, BLUETOOTH, NOTIFICATION, APP, HEADSET, LOCATION }
 
 object TriggerTypes {
     const val TIME = "trigger.time"
@@ -25,6 +30,8 @@ object TriggerTypes {
     const val NOTIFICATION = "trigger.notification"
     const val APP_FOREGROUND = "trigger.app_foreground"
     const val HEADSET = "trigger.headset"
+    const val LOCATION_ENTER = "trigger.location_enter"
+    const val LOCATION_EXIT = "trigger.location_exit"
 
     /** Old rules keep their type id; only these two are mapped onto the new listeners. */
     fun sourceOf(typeId: String): TriggerSource? = when (typeId) {
@@ -38,13 +45,12 @@ object TriggerTypes {
         NOTIFICATION -> TriggerSource.NOTIFICATION
         APP_FOREGROUND -> TriggerSource.APP
         HEADSET -> TriggerSource.HEADSET
+        LOCATION_ENTER, LOCATION_EXIT -> TriggerSource.LOCATION
         else -> null
     }
 
     /** Trigger types that still have no listener. */
-    val comingSoon: Set<String> = setOf(
-        "trigger.location_enter", "trigger.location_exit",
-    )
+    val comingSoon: Set<String> = emptySet()
 }
 
 data class TriggerComponent(
@@ -117,6 +123,7 @@ object TriggerKinds {
     const val NOTIFICATION = "notification"
     const val APP = "app_foreground"
     const val HEADSET = "headset"
+    const val LOCATION = "location"
 }
 
 /** Recomputes the listener set and reports the delta; the host installs/removes only changes. */
@@ -204,6 +211,7 @@ object TriggerMatcher {
             TriggerKinds.NOTIFICATION -> matchesNotification(binding, event)
             TriggerKinds.APP -> matchesApp(binding, event, states)
             TriggerKinds.HEADSET -> matchesHeadset(binding, event, states)
+            TriggerKinds.LOCATION -> matchesLocation(binding, event, states)
             else -> false
         }
     }
@@ -298,6 +306,43 @@ object TriggerMatcher {
             else -> return false
         }
         return changed && plugged == expected
+    }
+
+    private fun matchesLocation(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        states: TriggerStateStore,
+    ): Boolean {
+        val type = binding.component.typeId
+        if (type != TriggerTypes.LOCATION_ENTER && type != TriggerTypes.LOCATION_EXIT) return false
+        val latitude = event.data["lat"]?.toDoubleOrNull() ?: return false
+        val longitude = event.data["lng"]?.toDoubleOrNull() ?: return false
+        if (latitude !in -90.0..90.0 || longitude !in -180.0..180.0) return false
+        val target = parseLocation(binding.component.params["location"]?.stringValue().orEmpty())
+            ?: return false
+        val radius = binding.component.params["radius"]?.intValueOrNull() ?: 500
+        if (radius !in 100..5000) return false
+        val inside = distanceMeters(latitude, longitude, target.first, target.second) <= radius
+        if (!states.changed(binding.key, inside)) return false
+        return if (type == TriggerTypes.LOCATION_ENTER) inside else !inside
+    }
+
+    private fun parseLocation(raw: String): Pair<Double, Double>? {
+        val parts = raw.trim().split(Regex("[,，\\s]+")).filter { it.isNotEmpty() }
+        if (parts.size != 2) return null
+        val latitude = parts[0].toDoubleOrNull() ?: return null
+        val longitude = parts[1].toDoubleOrNull() ?: return null
+        if (latitude !in -90.0..90.0 || longitude !in -180.0..180.0) return null
+        return latitude to longitude
+    }
+
+    private fun distanceMeters(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val earthRadius = 6_371_000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = sin(dLat / 2).pow(2) +
+            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2).pow(2)
+        return 2 * earthRadius * asin(sqrt(a.coerceIn(0.0, 1.0)))
     }
 
     private fun matchesBattery(

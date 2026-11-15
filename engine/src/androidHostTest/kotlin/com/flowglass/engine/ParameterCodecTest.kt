@@ -69,6 +69,45 @@ class ParameterCodecTest {
         ParamSpec("network", "网络", ParamType.ENUM, options = listOf(ParamOption("wifi", "WiFi"), ParamOption("mobile", "移动网络"))),
         "移动网络", JsonPrimitive("mobile"), "移动网络", "卫星网络", JsonPrimitive("移动网络"))
 
+    @Test fun notificationLegacyTextStaysSystemAndRoundTripsUnchanged() {
+        val meta = BuiltInComponents.registry().find("action.post_notification")!!
+        val parsed = ParameterCodec.parseComponent(meta, "标题|正文")
+        assertEquals(JsonPrimitive("标题"), parsed["title"])
+        assertEquals(JsonPrimitive("正文"), parsed["content"])
+        assertEquals(JsonPrimitive("system"), parsed["mode"])
+        assertEquals(JsonPrimitive("short"), parsed["toastDuration"])
+        assertEquals("标题|正文", ParameterCodec.formatComponent(meta, parsed))
+    }
+
+    @Test fun notificationToastModeUsesStructuredStorageAndRoundTrips() {
+        val meta = BuiltInComponents.registry().find("action.post_notification")!!
+        val params = mapOf(
+            "title" to JsonPrimitive("标题"),
+            "content" to JsonPrimitive("正文 | 保留"),
+            "mode" to JsonPrimitive("toast"),
+            "toastDuration" to JsonPrimitive("long"),
+        )
+        val text = ParameterCodec.formatComponent(meta, params)
+        assertTrue(text.startsWith("{"))
+        assertEquals(params, ParameterCodec.parseComponent(meta, text))
+        assertFailsWith<IllegalArgumentException> {
+            ParameterCodec.validateDocument(RuleDocument(rules = listOf(Rule("id", actions = listOf(
+                RuleComponent("action.post_notification", params + ("mode" to JsonPrimitive("invalid"))),
+            )))))
+        }
+    }
+
+    @Test fun toastLegacyAndLongDurationRoundTrip() {
+        val meta = BuiltInComponents.registry().find("action.toast")!!
+        val legacy = ParameterCodec.parseComponent(meta, "原文 | 保留")
+        assertEquals(JsonPrimitive("short"), legacy["duration"])
+        assertEquals("原文 | 保留", ParameterCodec.formatComponent(meta, legacy))
+        val long = mapOf("text" to JsonPrimitive("长提示"), "duration" to JsonPrimitive("long"))
+        val text = ParameterCodec.formatComponent(meta, long)
+        assertTrue(text.startsWith("{"))
+        assertEquals(long, ParameterCodec.parseComponent(meta, text))
+    }
+
     @Test fun weekdaysRoundTripNormalisesLabelsAndRejectsEmptySelection() {
         val spec = ParamSpec("days", "重复", ParamType.WEEKDAYS)
         verify(spec, "工作日", JsonPrimitive("1,2,3,4,5"), "工作日", "周八", JsonPrimitive("1,8"))

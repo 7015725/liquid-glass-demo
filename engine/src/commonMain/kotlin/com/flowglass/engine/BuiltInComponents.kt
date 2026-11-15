@@ -90,9 +90,19 @@ object BuiltInComponents {
                     ParamOption("bluetooth", "蓝牙音频设备"))),
             )),
         ComponentMeta("trigger.location_enter", "进入地点", "位置", ComponentKind.TRIGGER,
-            listOf(param("location", "地点", "公司")), comingSoon = true),
+            listOf(
+                ParamSpec("location", "地点", ParamType.TEXT, defaultValue = JsonPrimitive(""),
+                    hint = "纬度,经度，例如 31.2304,121.4737"),
+                ParamSpec("radius", "半径", ParamType.INTEGER, defaultValue = JsonPrimitive(500),
+                    hint = "100–5000 米", minValue = 100, maxValue = 5000),
+            ), permissions = listOf("location")),
         ComponentMeta("trigger.location_exit", "离开地点", "位置", ComponentKind.TRIGGER,
-            listOf(param("location", "地点", "家")), comingSoon = true),
+            listOf(
+                ParamSpec("location", "地点", ParamType.TEXT, defaultValue = JsonPrimitive(""),
+                    hint = "纬度,经度，例如 31.2304,121.4737"),
+                ParamSpec("radius", "半径", ParamType.INTEGER, defaultValue = JsonPrimitive(500),
+                    hint = "100–5000 米", minValue = 100, maxValue = 5000),
+            ), permissions = listOf("location")),
     )
 
     val conditions = listOf(
@@ -114,10 +124,11 @@ object BuiltInComponents {
         ComponentMeta("condition.network_type", "网络类型", "网络", ComponentKind.CONDITION,
             listOf(param("network", "网络类型", "wifi", ParamType.ENUM, options = listOf(
                 ParamOption("wifi", "WiFi"), ParamOption("mobile", "移动网络"),
-                ParamOption("none", "无网络")))), comingSoon = true),
+                ParamOption("none", "无网络"))))),
         ComponentMeta("condition.dnd_state", "勿扰状态", "设备", ComponentKind.CONDITION,
             listOf(param("state", "勿扰状态", "off", ParamType.ENUM, options = listOf(
-                ParamOption("on", "已开启"), ParamOption("off", "已关闭")))), comingSoon = true),
+                ParamOption("on", "已开启"), ParamOption("off", "已关闭")))),
+            permissions = listOf("dnd")),
     )
 
     val all: List<ComponentMeta> = triggers + conditions + BuiltInActions.metadata
