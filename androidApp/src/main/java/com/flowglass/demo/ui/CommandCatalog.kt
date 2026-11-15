@@ -23,6 +23,8 @@ data class CommandItem(
     val branches: List<CommandBranch> = emptyList(),
     /** v3：如果的分支条件、while 循环条件、wait_until 条件。 */
     val conditions: List<CommandItem> = emptyList(),
+    /** C2：折叠状态，只影响编辑页显示。 */
+    val collapsed: Boolean = false,
 ) {
     val display: String get() {
         val text = when (typeId) {
@@ -270,5 +272,70 @@ object CommandCatalog {
             .filterNot { it.typeId in hiddenFromCatalog }
         CommandSection.CONDITIONS -> optionsByKind[ComponentKind.CONDITION].orEmpty()
         CommandSection.ACTIONS -> optionsByKind[ComponentKind.ACTION].orEmpty()
+    }
+}
+
+
+/** Moves [id] into the children of its previous sibling when that sibling can host steps. */
+fun List<CommandItem>.moveIntoPreviousBlock(id: Long, canHost: (CommandItem) -> Boolean): List<CommandItem> {
+    val i = indexOfFirst { it.id == id }
+    if (i >= 0) {
+        if (i == 0 || !canHost(this[i - 1])) return this
+        val item = this[i]
+        val host = this[i - 1]
+        return toMutableList().apply {
+            set(i - 1, host.copy(children = host.children + item))
+            removeAt(i)
+        }
+    }
+    return map { item ->
+        item.copy(
+            conditions = item.conditions.moveIntoPreviousBlock(id, canHost),
+            children = item.children.moveIntoPreviousBlock(id, canHost),
+            branches = item.branches.map { branch ->
+                branch.copy(
+                    conditions = branch.conditions.moveIntoPreviousBlock(id, canHost),
+                    children = branch.children.moveIntoPreviousBlock(id, canHost),
+                )
+            },
+        )
+    }
+}
+
+/** Moves [id] out of the block that owns it, placing it right after that block. */
+fun List<CommandItem>.moveOutOfBlock(id: Long): List<CommandItem> {
+    if (any { it.id == id }) return this
+    for (index in indices) {
+        val host = this[index]
+        if (host.children.any { it.id == id }) {
+            val child = host.children.first { it.id == id }
+            return toMutableList().apply {
+                set(index, host.copy(children = host.children.filterNot { it.id == id }))
+                add(index + 1, child)
+            }
+        }
+    }
+    return map { item ->
+        item.copy(
+            conditions = item.conditions.moveOutOfBlock(id),
+            children = item.children.moveOutOfBlock(id),
+            branches = item.branches.map { branch ->
+                branch.copy(
+                    conditions = branch.conditions.moveOutOfBlock(id),
+                    children = branch.children.moveOutOfBlock(id),
+                )
+            },
+        )
+    }
+}
+
+/** True when [id] has a previous sibling that accepts child steps. */
+fun List<CommandItem>.canMoveIntoPreviousBlock(id: Long, canHost: (CommandItem) -> Boolean): Boolean {
+    val i = indexOfFirst { it.id == id }
+    if (i >= 0) return i > 0 && canHost(this[i - 1])
+    return any { item ->
+        item.conditions.canMoveIntoPreviousBlock(id, canHost) ||
+            item.children.canMoveIntoPreviousBlock(id, canHost) ||
+            item.branches.any { it.conditions.canMoveIntoPreviousBlock(id, canHost) || it.children.canMoveIntoPreviousBlock(id, canHost) }
     }
 }

@@ -214,6 +214,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
     /** 参数页正在编辑的步骤 id。 */
     var actionEditing by mutableStateOf<Long?>(null)
     var storageError by mutableStateOf<String?>(null)
+    /** 编辑页内的即时提示（例如未通过校验时拒绝启用）。 */
+    var editorNotice by mutableStateOf<String?>(null)
     internal var engineRules by mutableStateOf(saved?.engineRules.orEmpty())
     internal var engineGlobals by mutableStateOf(saved?.engineGlobals.orEmpty())
     internal var engineUi by mutableStateOf(saved?.engineUi ?: com.flowglass.engine.RuleUiMetadata())
@@ -300,8 +302,64 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun setItemParameter(cmdId: Long, section: CommandSection, itemId: Long, text: String) =
         editItems(cmdId, section) { items -> items.updateItem(itemId) { it.copy(parameter = text) } }
 
+    fun toggleCollapsed(cmdId: Long, itemId: Long) =
+        editActions(cmdId) { items -> items.updateItem(itemId) { it.copy(collapsed = !it.collapsed) } }
+
+    private fun ruleIdFor(cmdId: Long): String? =
+        engineUi.presentation.entries.firstOrNull { it.value.legacyId == cmdId }?.key
+
+    fun localsOf(cmdId: Long): List<com.flowglass.engine.LocalVariable> =
+        engineRules.firstOrNull { it.id == ruleIdFor(cmdId) }?.locals.orEmpty()
+
+    fun setLocal(cmdId: Long, name: String, value: String, type: String = "text") {
+        val id = ruleIdFor(cmdId) ?: run {
+            editorNotice = "这条指令还没有存档，先返回列表再进来就能编辑变量"
+            return
+        }
+        engineRules = engineRules.map { rule ->
+            if (rule.id != id) rule else {
+                val index = rule.locals.indexOfFirst { it.name == name }
+                val variable = com.flowglass.engine.LocalVariable(
+                    name = name, type = type, initial = kotlinx.serialization.json.JsonPrimitive(value),
+                )
+                val locals = if (index >= 0) rule.locals.toMutableList().also { it[index] = variable }
+                else rule.locals + variable
+                rule.copy(locals = locals)
+            }
+        }
+    }
+
+    fun removeLocal(cmdId: Long, name: String) {
+        val id = ruleIdFor(cmdId) ?: return
+        engineRules = engineRules.map { rule ->
+            if (rule.id != id) rule else rule.copy(locals = rule.locals.filterNot { it.name == name })
+        }
+    }
+
+    fun setGlobal(name: String, value: String) {
+        engineGlobals = engineGlobals + (name to kotlinx.serialization.json.JsonPrimitive(value))
+    }
+
+    fun removeGlobal(name: String) {
+        engineGlobals = engineGlobals - name
+    }
+
     fun moveItem(cmdId: Long, section: CommandSection, itemId: Long, delta: Int) =
         editItems(cmdId, section) { items -> items.moveItem(itemId, delta) }
+
+    private fun canHost(item: CommandItem): Boolean {
+        val block = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it)?.block }
+        return block == com.flowglass.engine.BlockKind.IF || block == com.flowglass.engine.BlockKind.LOOP
+    }
+
+    fun moveIntoPreviousBlock(cmdId: Long, itemId: Long) =
+        editItems(cmdId, CommandSection.ACTIONS) { items -> items.moveIntoPreviousBlock(itemId, ::canHost) }
+
+    fun moveOutOfBlock(cmdId: Long, itemId: Long) =
+        editItems(cmdId, CommandSection.ACTIONS) { items -> items.moveOutOfBlock(itemId) }
+
+    fun canMoveIntoPreviousBlock(cmdId: Long, itemId: Long): Boolean =
+        find(cmdId)?.actions?.canMoveIntoPreviousBlock(itemId, ::canHost) == true
 
     fun removeItem(cmdId: Long, section: CommandSection, itemId: Long) =
         editItems(cmdId, section) { items -> items.removeItem(itemId) }

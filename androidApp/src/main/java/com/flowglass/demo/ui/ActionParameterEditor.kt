@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import kotlin.math.roundToInt
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
@@ -49,6 +50,7 @@ internal fun ActionParameterEditor(
     onDone: () -> Unit,
     commandTitle: String = "",
     onAuthorization: (Int) -> Unit = {},
+    targets: List<String> = emptyList(),
 ) {
     val meta = item.typeId?.let { id -> com.flowglass.engine.BuiltInComponents.registry().find(id) }
     val parameter = meta?.params?.firstOrNull()
@@ -56,6 +58,11 @@ internal fun ActionParameterEditor(
 
     if (meta != null && (item.typeId == "trigger.location_enter" || item.typeId == "trigger.location_exit")) {
         LocationParameterEditor(meta, item, onParameter, onDone)
+        return
+    }
+
+    if (item.typeId == "action.run_rule") {
+        RunRulePicker(item, targets, onParameter, onDone)
         return
     }
 
@@ -250,4 +257,64 @@ internal fun PercentSlider(value: Float, onValueChange: (Float) -> Unit) {
         drawLine(C.Primary, left, thumb, 8.dp.toPx(), StrokeCap.Round)
         drawCircle(C.Primary, radius, thumb)
     }
+}
+
+
+private const val WAIT_LABEL = "等它执行完再继续"
+private const val NO_WAIT_LABEL = "发起后立即继续"
+
+@Composable
+private fun RunRulePicker(
+    item: CommandItem,
+    targets: List<String>,
+    onParameter: (String) -> Unit,
+    onDone: () -> Unit,
+) {
+    val pieces = item.parameter.split('|')
+    val selected = pieces.getOrNull(0)?.trim().orEmpty()
+    val wait = pieces.getOrNull(1)?.contains("等它执行完") ?: true
+    var query by remember { mutableStateOf("") }
+    T("目标指令", 13.sp, color = C.Muted)
+    BasicTextField(query, { query = it },
+        Modifier.fillMaxWidth().clip(RoundedRectangle(20.dp)).background(C.Card).padding(12.dp),
+        textStyle = TextStyle(color = C.OnSurface, fontSize = 14.sp), singleLine = true,
+        cursorBrush = SolidColor(C.Primary),
+        decorationBox = { inner -> Box { if (query.isEmpty()) T("搜索指令名称", 14.sp, color = C.Muted); inner() } })
+    val filtered = targets.filter { it.contains(query.trim(), ignoreCase = true) }
+    if (selected.isNotEmpty() && targets.none { it == selected }) {
+        T("当前目标「$selected」已不存在，重新选一个", 12.sp, color = C.Bad)
+    }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        filtered.take(12).forEach { name ->
+            val isSelected = name == selected
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedRectangle(18.dp))
+                    .background(if (isSelected) C.PrimarySoft else C.Card)
+                    .editorAction("选择目标：$name") {
+                        onParameter("$name|${if (wait) WAIT_LABEL else NO_WAIT_LABEL}")
+                    }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                T(name, 14.sp, color = if (isSelected) C.Primary else C.OnSurface, modifier = Modifier.weight(1f))
+                if (isSelected) T("已选", 11.sp, color = C.Primary)
+            }
+        }
+        if (filtered.isEmpty()) T("没有匹配的指令", 12.sp, color = C.Muted)
+    }
+    T("执行方式", 13.sp, color = C.Muted, modifier = Modifier.padding(top = 6.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf(WAIT_LABEL to true, NO_WAIT_LABEL to false).forEach { (label, isWait) ->
+            EditorPill(
+                if (wait == isWait) "● $label" else label,
+                "设置执行方式：$label",
+            ) { if (selected.isNotEmpty()) onParameter("$selected|$label") }
+        }
+    }
+    T(
+        if (wait) "会等它跑完再继续，共用步数预算，父任务停止时一起取消。"
+        else "立即发起一次独立运行，有自己的记录和停止按钮，不随父任务结束。",
+        12.sp, color = C.Muted, lineHeight = 17.sp,
+    )
+    EditorPill("完成", "完成", action = onDone)
 }

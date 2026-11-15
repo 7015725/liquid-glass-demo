@@ -94,6 +94,9 @@ data class RulePresentation(
     val legacyId: Long? = null,
     /** v3: every component id (any depth) mapped to its icon; structure lives in the rule tree. */
     val items: Map<Long, ComponentPresentation> = emptyMap(),
+    /** C2: collapsed container ids; a UI hint only, never affects execution. */
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val collapsed: List<Long> = emptyList(),
     // v2 fields kept so old files still decode; v3 migrates them into [items] and writes them empty.
     val triggers: List<ComponentPresentation> = emptyList(),
     val conditions: List<ComponentPresentation> = emptyList(),
