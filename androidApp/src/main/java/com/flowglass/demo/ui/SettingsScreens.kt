@@ -61,23 +61,31 @@ object SettingsPage {
     const val Root = 2
     const val LSPosed = 3
     const val Permissions = 4
+    const val Appearance = 5
     fun title(p: Int) = when (p) {
         KeepAlive -> "App 保活"
         Root -> "Root 激活"
         LSPosed -> "LSPosed 激活"
         Permissions -> "权限声明管理"
+        Appearance -> "外观"
         else -> "设置"
     }
 }
 
 @Composable
-fun SettingsHost(state: AppState, page: Int) {
+fun SettingsHost(
+    state: AppState,
+    page: Int,
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    onThemeModeChange: (ThemeMode) -> Unit = {},
+) {
     when (page) {
         SettingsPage.KeepAlive -> KeepAlivePage()
         SettingsPage.Root -> RootPage(state)
         SettingsPage.LSPosed -> LSPosedPage()
         SettingsPage.Permissions -> PermissionsPage()
-        else -> SettingsMain(state)
+        SettingsPage.Appearance -> AppearancePage(themeMode, onThemeModeChange)
+        else -> SettingsMain(state, themeMode)
     }
 }
 
@@ -151,7 +159,7 @@ private fun ListRow(row: Row1, divider: Boolean, trailing: (@Composable () -> Un
 @Composable
 private fun StatusPillButton(text: String, primary: Boolean, onClick: () -> Unit) {
     val bg by animateColorAsState(if (primary) C.Primary else C.GoodSoft, effect(), label = "pbBg")
-    val fg by animateColorAsState(if (primary) Color.White else C.GoodText, effect(), label = "pbFg")
+    val fg by animateColorAsState(if (primary) C.OnPrimary else C.GoodText, effect(), label = "pbFg")
     Box(
         Modifier.clip(Capsule()).background(bg).pressable { onClick() }.padding(horizontal = 14.dp, vertical = 7.dp)
     ) { T(text, 13.sp, FontWeight.SemiBold, fg) }
@@ -165,9 +173,9 @@ private fun PrimaryButton(text: String, ic: Ic, onClick: () -> Unit, modifier: M
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
-        LineIcon(ic, Color.White, 18.dp)
+        LineIcon(ic, C.OnPrimary, 18.dp)
         Spacer(Modifier.width(8.dp))
-        T(text, 15.sp, FontWeight.SemiBold, Color.White)
+        T(text, 15.sp, FontWeight.SemiBold, C.OnPrimary)
     }
 }
 
@@ -243,7 +251,7 @@ private fun tick(): Int = SysTick.tick
 // ================================================================ main list
 
 @Composable
-private fun SettingsMain(state: AppState) {
+private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
     val ctx = LocalContext.current
     val t = tick()
     val keepReady = remember(t) { keepAliveReady(ctx) }
@@ -269,6 +277,7 @@ private fun SettingsMain(state: AppState) {
     }
     GroupTitle("通用", k++)
     GroupCard(k++) {
+        ListRow(Row1(Ic.Moon, "外观", themeMode.label, sub = themeMode.description) { state.settingsPage = SettingsPage.Appearance }, true)
         ListRow(Row1(Ic.Bell, "通知提醒") {}, true)
         ListRow(Row1(Ic.Gauge, "运行模式", modes[state.mode], upDown = true) { state.mode = (state.mode + 1) % 3 }, true)
         ListRow(Row1(Ic.Moon, "夜间静默", "23:00", upDown = true) {}, false)
@@ -278,6 +287,32 @@ private fun SettingsMain(state: AppState) {
         ListRow(Row1(Ic.Info, "版本", appVersionName(ctx)), true)
         ListRow(Row1(Ic.Puzzle, "开源组件", sub = "AndroidLiquidGlass · graphics-shapes") {}, false)
     }
+}
+
+@Composable
+private fun AppearancePage(mode: ThemeMode, onModeChange: (ThemeMode) -> Unit) {
+    var k = 0
+    GroupTitle("外观", k++)
+    GroupCard(k++) {
+        ThemeMode.entries.forEachIndexed { i, option ->
+            ListRow(
+                Row1(
+                    ic = when (option) {
+                        ThemeMode.SYSTEM -> Ic.Settings
+                        ThemeMode.LIGHT -> Ic.Info
+                        ThemeMode.DARK -> Ic.Moon
+                    },
+                    label = option.label,
+                    sub = option.description,
+                    onClick = { onModeChange(option) },
+                ),
+                divider = i < ThemeMode.entries.lastIndex,
+            ) {
+                if (option == mode) LineIcon(Ic.Bolt, C.Primary, 20.dp)
+            }
+        }
+    }
+    NoteCard(k, "跟随系统会随 Android 的深色模式即时切换；选择浅色或深色后，App 会记住你的选择。")
 }
 
 internal fun appVersionName(ctx: Context): String = runCatching {

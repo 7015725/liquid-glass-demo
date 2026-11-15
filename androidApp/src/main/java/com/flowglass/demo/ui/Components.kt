@@ -415,7 +415,7 @@ fun ScallopButton(running: Boolean, onToggle: () -> Unit, size: Dp = 120.dp) {
             }
         }
         Crossfade(running, animationSpec = effect(), label = "icon") { r ->
-            if (r) LineIcon(Ic.Stop, Color.White, 34.dp) else LineIcon(Ic.Play, C.OnSurfaceVar, 36.dp)
+            if (r) LineIcon(Ic.Stop, C.OnPrimary, 34.dp) else LineIcon(Ic.Play, C.OnSurfaceVar, 36.dp)
         }
     }
 }
@@ -440,7 +440,7 @@ fun SegmentedSelector(options: List<Pair<Ic, String>>, selected: Int, onSelect: 
         Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
             options.forEachIndexed { i, (ic, label) ->
                 val on = i == selected
-                val fg by animateColorAsState(if (on) Color.White else C.OnSurfaceVar, effect(), label = "segFg")
+                val fg by animateColorAsState(if (on) C.OnPrimary else C.OnSurfaceVar, effect(), label = "segFg")
                 Column(
                     Modifier.width(itemW).height(80.dp).pressable(0.95f) { onSelect(i) },
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -476,8 +476,8 @@ fun FilterChips(items: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items.forEachIndexed { i, label ->
                 val on = i == selected
-                val bg by animateColorAsState(if (on) Color.Transparent else Color.White, effect(), label = "chipBg")
-                val fg by animateColorAsState(if (on) Color.White else C.OnSurfaceVar, effect(), label = "chipFg")
+                val bg by animateColorAsState(if (on) Color.Transparent else C.Card, effect(), label = "chipBg")
+                val fg by animateColorAsState(if (on) C.OnPrimary else C.OnSurfaceVar, effect(), label = "chipFg")
                 Box(
                     Modifier
                         .onGloballyPositioned { c ->
@@ -533,7 +533,7 @@ fun CheckBadge(visible: Boolean, size: Dp = 24.dp, modifier: Modifier = Modifier
         pm.setPath(full, false)
         seg.reset()
         pm.getSegment(0f, pm.length * draw.value, seg, true)
-        drawPath(seg, Color.White, style = Stroke(w * 0.11f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawPath(seg, C.OnPrimary, style = Stroke(w * 0.11f, cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }
 
@@ -565,7 +565,7 @@ fun Modifier.shimmer(active: Boolean): Modifier = composed {
             val w = size.width
             drawRect(
                 Brush.linearGradient(
-                    listOf(Color.Transparent, Color.White.copy(alpha = 0.75f * a), Color.Transparent),
+                    listOf(Color.Transparent, C.Shimmer.copy(alpha = 0.75f * a), Color.Transparent),
                     start = Offset(w * x - w * 0.5f, 0f),
                     end = Offset(w * x + w * 0.5f, size.height)
                 )

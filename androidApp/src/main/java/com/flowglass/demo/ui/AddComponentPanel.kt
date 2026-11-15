@@ -106,7 +106,7 @@ private fun CommandSection.kindOf() = when (this) {
 private fun PickerSearch(query: String, onQuery: (String) -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 46.dp).clip(Capsule())
-            .background(Color.White.copy(alpha = 0.78f)).padding(horizontal = 14.dp),
+            .background(C.Field).padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         LineIcon(Ic.Search, C.Muted, 18.dp)

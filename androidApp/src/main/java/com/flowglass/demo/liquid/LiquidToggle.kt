@@ -44,6 +44,11 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
+import com.flowglass.demo.ui.C
+import com.flowglass.demo.ui.themedBlur
+import com.flowglass.demo.ui.themedLensX
+import com.flowglass.demo.ui.themedLensY
+import com.flowglass.demo.ui.themedVibrancy
 import kotlinx.coroutines.flow.collectLatest
 
 @Composable
@@ -53,13 +58,8 @@ fun LiquidToggle(
     backdrop: Backdrop,
     modifier: Modifier = Modifier
 ) {
-    val isLightTheme = true // demo is light-only
-    val accentColor =
-        if (isLightTheme) Color(0xFF1A84FF)
-        else Color(0xFF30D158)
-    val trackColor =
-        if (isLightTheme) Color(0xFF787878).copy(0.2f)
-        else Color(0xFF787880).copy(0.36f)
+    val accentColor = C.Primary
+    val trackColor = C.ToggleTrack
 
     val density = LocalDensity.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
@@ -163,10 +163,10 @@ fun LiquidToggle(
                     shape = { Capsule() },
                     effects = {
                         val progress = dampedDragAnimation.pressProgress
-                        blur(8f.dp.toPx() * (1f - progress))
+                        blur(themedBlur(8.dp.toPx() * (1f - progress)))
                         lens(
-                            5f.dp.toPx() * progress,
-                            10f.dp.toPx() * progress,
+                            themedLensX(5.dp.toPx() * progress),
+                            themedLensY(10.dp.toPx() * progress),
                             chromaticAberration = true
                         )
                     },
@@ -181,7 +181,7 @@ fun LiquidToggle(
                     shadow = {
                         Shadow(
                             radius = 4f.dp,
-                            color = Color.Black.copy(alpha = 0.05f)
+                            color = C.ToggleShadow
                         )
                     },
                     innerShadow = {
@@ -200,7 +200,7 @@ fun LiquidToggle(
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
-                        drawRect(Color.White.copy(alpha = 1f - progress))
+                        drawRect(C.ToggleThumb.copy(alpha = 1f - progress))
                     }
                 )
                 .size(40f.dp, 24f.dp)
