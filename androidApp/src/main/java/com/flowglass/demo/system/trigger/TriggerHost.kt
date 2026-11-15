@@ -262,6 +262,11 @@ internal class TriggerHost(
         TriggerStatus.listeningRules = listening.size
         TriggerStatus.registeredSources = sourceRegistry.registered.size
         TriggerStatus.listeningRuleIds = listening.map { it.cmdId }.toSet()
+        TriggerStatus.locationRulesActive = eligible.any { rule ->
+            rule.triggers.any {
+                it.typeId == TriggerTypes.LOCATION_ENTER || it.typeId == TriggerTypes.LOCATION_EXIT
+            }
+        }
         onStatus(listening.size, sourceRegistry.registered.size)
     }
 

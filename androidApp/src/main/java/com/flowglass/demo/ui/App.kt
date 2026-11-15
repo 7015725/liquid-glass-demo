@@ -85,7 +85,7 @@ fun FlowGlassApp() {
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
     LaunchedEffect(state.running, state.autoCmds.count { it.enabled }) {
         if (state.running && state.autoCmds.any { it.enabled }) {
-            com.flowglass.demo.system.trigger.TriggerService.ensureStarted(appContext)
+            com.flowglass.demo.system.trigger.TriggerService.ensureStarted(appContext, allowLocationUpgrade = true)
         }
     }
     val backdrop = rememberLayerBackdrop()

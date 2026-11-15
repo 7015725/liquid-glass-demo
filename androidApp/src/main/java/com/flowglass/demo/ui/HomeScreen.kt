@@ -111,6 +111,9 @@ private fun HeroCard(state: AppState, modifier: Modifier) {
                             )
                             if (state.running) {
                                 T("已注册 $sources 个监听源", 11.sp, color = C.Muted)
+                                if (com.flowglass.demo.system.trigger.TriggerStatus.locationNeedsForeground) {
+                                    T("地点触发需要打开 App 一次", 11.sp, color = C.WarnText)
+                                }
                             }
                         }
                     }

@@ -19,7 +19,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         KeepAlive.ensure(this)
-        TriggerService.ensureStarted(this)
+        TriggerService.ensureStarted(this, allowLocationUpgrade = true)
         SysTick.tick++
     }
 }

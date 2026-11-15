@@ -1,5 +1,6 @@
 package com.flowglass.demo.system.trigger
 
+import com.flowglass.demo.ui.AppState
 import com.flowglass.demo.ui.Cmd
 import com.flowglass.demo.ui.CommandItem
 import com.flowglass.engine.BuiltInComponents
@@ -7,6 +8,7 @@ import com.flowglass.engine.LegacyCommandMigration
 import com.flowglass.engine.ParameterCodec
 import com.flowglass.engine.trigger.TriggerComponent
 import com.flowglass.engine.trigger.TriggerRule
+import com.flowglass.engine.trigger.TriggerTypes
 
 private val componentRegistry = BuiltInComponents.registry()
 
@@ -41,3 +43,13 @@ internal fun Cmd.hasUnsupportedTrigger(): Boolean = triggers.any {
     val type = it.typeId.orEmpty()
     type.isNotEmpty() && com.flowglass.engine.trigger.TriggerTypes.sourceOf(type) == null
 }
+
+/** True only when a location trigger can actually listen: enabled and all permissions granted. */
+internal fun AppState.hasEligibleLocationTrigger(context: android.content.Context): Boolean =
+    running && autoCmds.any { cmd ->
+        cmd.enabled && cmd.toTriggerRule().let { rule ->
+            rule.permissionsGranted(context) && rule.triggers.any {
+                it.typeId == TriggerTypes.LOCATION_ENTER || it.typeId == TriggerTypes.LOCATION_EXIT
+            }
+        }
+    }
