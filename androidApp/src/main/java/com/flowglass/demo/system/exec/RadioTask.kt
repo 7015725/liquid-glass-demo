@@ -15,10 +15,11 @@ internal object RadioTask {
         val api = if (name == "开关 WiFi") "svc wifi" else if (sdk >= 33) "cmd bluetooth_manager" else "svc bluetooth"
         return "$api ${if (enabled) "enable" else "disable"}"
     }
-    suspend fun run(context: Context, name: String, parameter: String): TaskOutcome {
-        val mode = TaskParameters.mode(parameter)
-        val root = Root.check(request = true)
-        if (root.granted) return withContext(Dispatchers.IO) {
+
+    /** Root implementation; [root] was selected by the layer resolver and is never re-probed. */
+    suspend fun runRoot(context: Context, name: String, parameter: String, root: com.flowglass.demo.system.RootInfo): TaskOutcome =
+        withContext(Dispatchers.IO) {
+            val mode = TaskParameters.mode(parameter)
             val currentlyEnabled = if (mode != SwitchMode.TOGGLE) false else if (name == "开关 WiFi") {
                 checkNotNull(context.applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)) { "WiFi 服务不可用" }.isWifiEnabled
             } else {
@@ -34,6 +35,9 @@ internal object RadioTask {
                 else -> TaskOutcome(StepStatus.SUCCESS, "已执行：$command")
             }
         }
+
+    /** Normal implementation: open the system panel and require an explicit user confirmation. */
+    suspend fun openPanel(context: Context, name: String): TaskOutcome {
         val wifi = name == "开关 WiFi"
         val action = if (wifi) {
             if (Build.VERSION.SDK_INT >= 29) Settings.Panel.ACTION_WIFI else Settings.ACTION_WIFI_SETTINGS

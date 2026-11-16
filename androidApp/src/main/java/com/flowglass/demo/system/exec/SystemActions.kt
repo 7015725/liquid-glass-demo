@@ -317,9 +317,9 @@ private object FlashlightController {
 }
 
 internal object RootActions {
-    suspend fun airplaneMode(context: Context, parameter: String): TaskOutcome {
+    suspend fun airplaneMode(context: Context, parameter: String, root: com.flowglass.demo.system.RootInfo): TaskOutcome {
         val mode = TaskParameters.mode(parameter)
-        val current = if (mode == SwitchMode.TOGGLE) query("settings get global airplane_mode_on") == "1" else false
+        val current = if (mode == SwitchMode.TOGGLE) query("settings get global airplane_mode_on", root) == "1" else false
         val enabled = when (mode) {
             SwitchMode.ON -> true
             SwitchMode.OFF -> false
@@ -327,14 +327,14 @@ internal object RootActions {
         }
         val command = "settings put global airplane_mode_on ${if (enabled) 1 else 0}; " +
             "am broadcast -a android.intent.action.AIRPLANE_MODE --ez state $enabled"
-        return run(command, if (enabled) "飞行模式已开启" else "飞行模式已关闭")
+        return run(command, if (enabled) "飞行模式已开启" else "飞行模式已关闭", root)
     }
 
-    suspend fun mobileData(context: Context, parameter: String): TaskOutcome {
+    suspend fun mobileData(context: Context, parameter: String, root: com.flowglass.demo.system.RootInfo): TaskOutcome {
         val mode = TaskParameters.mode(parameter)
         var current = false
         if (mode == SwitchMode.TOGGLE) {
-            val raw = query("settings get global mobile_data")
+            val raw = query("settings get global mobile_data", root)
             if (raw != "0" && raw != "1") {
                 return TaskOutcome(StepStatus.FAILURE, "无法读取移动数据状态")
             }
@@ -348,19 +348,20 @@ internal object RootActions {
         return run(
             "svc data ${if (enabled) "enable" else "disable"}",
             if (enabled) "移动数据已开启" else "移动数据已关闭",
+            root,
         )
     }
 
-    private suspend fun query(command: String): String? {
-        val root = Root.check(request = true)
-        if (!root.granted) return null
+    private suspend fun query(command: String, root: com.flowglass.demo.system.RootInfo): String? {
         val result = Root.runProcess(listOf(root.suPath, "-c", command))
         return if (!result.timedOut && result.exitCode == 0) result.output.trim() else null
     }
 
-    private suspend fun run(command: String, success: String): TaskOutcome {
-        val root = Root.check(request = true)
-        if (!root.granted) return TaskOutcome(StepStatus.FAILURE, "缺少 Root 权限")
+    private suspend fun run(
+        command: String,
+        success: String,
+        root: com.flowglass.demo.system.RootInfo,
+    ): TaskOutcome {
         val result = Root.runProcess(listOf(root.suPath, "-c", command))
         return when {
             result.timedOut -> TaskOutcome(StepStatus.FAILURE, "Root Shell 执行超时（30 秒）")
