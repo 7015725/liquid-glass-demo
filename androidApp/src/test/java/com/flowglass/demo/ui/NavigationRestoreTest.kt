@@ -126,6 +126,7 @@ class NavigationRestoreTest {
         assertTrue("标签页应在重建后保留；实际 $texts", texts.contains("tab=1"))
         assertTrue("编辑页 id 应在重建后保留；实际 $texts", texts.contains("edit=41"))
         assertTrue("参数页 id 应在重建后保留；实际 $texts", texts.contains("action=42"))
+        assertTrue("块路径应在重建后保留；实际 $texts", texts.contains("block=41,42"))
         second.pause().stop().destroy()
     }
 
@@ -180,13 +181,14 @@ private fun NavProbeContent() {
         BasicText("tab=${nav.tab}", Modifier.testTag("nav-tab"))
         BasicText("edit=${nav.editing}", Modifier.testTag("nav-edit"))
         BasicText("action=${nav.action}", Modifier.testTag("nav-action"))
+        BasicText("block=${nav.blockPath.joinToString(",")}", Modifier.testTag("nav-block"))
         BasicText(
             "change",
             Modifier
                 .testTag("nav-change")
                 .semantics { contentDescription = "change-navigation" }
                 .clickable {
-                    nav = NavSnapshot(tab = 1, editing = 41, actionCmd = 41, action = 42)
+                    nav = NavSnapshot(tab = 1, editing = 41, actionCmd = 41, action = 42, blockPath = listOf(41, 42))
                 },
         )
     }

@@ -90,10 +90,21 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
     var titleFocused by remember { mutableStateOf(false) }
     val backdrop = rememberLayerBackdrop()
     val exec = state.executing[cmd.id] ?: 0
-    fun back() { if (panel != null) panel = null else state.closeEditor() }
+    val currentBlock = state.blockPath.lastOrNull()?.let { cmd.actions.findActionNode(it) }
+    LaunchedEffect(cmd.id, cmd.actions, state.blockPath) {
+        val valid = state.validBlockPath(state.blockPath)
+        if (valid != state.blockPath) state.blockPath = valid
+    }
+    LaunchedEffect(cmd.id, state.blockPath) { panel = null }
+    fun back() {
+        if (panel != null) panel = null
+        else if (state.blockPath.isNotEmpty()) state.backBlock()
+        else state.closeEditor()
+    }
     BackHandler(enabled = state.editing == cmd.id) { back() }
     Box(Modifier.fillMaxSize().background(C.Bg).testTag("command-editor")
         .pointerInput(Unit) { detectTapGestures { } }) {
+    if (currentBlock == null) {
     Column(Modifier.fillMaxSize().layerBackdrop(backdrop)
         .then(if (panel != null) Modifier.clearAndSetSemantics { } else Modifier)
         .statusBarsPadding().navigationBarsPadding().imePadding()
@@ -207,13 +218,17 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     T(section.label, 20.sp, FontWeight.Bold, modifier = Modifier.weight(1f))
-                    T("${if (section == CommandSection.ACTIONS) cmd.actions.allItems().size else cmd.items(section).size}", 13.sp, color = C.Muted)
+                    T("${if (section == CommandSection.ACTIONS) cmd.actions.size else cmd.items(section).size}", 13.sp, color = C.Muted)
                     Spacer(Modifier.width(10.dp))
                     EditorPill("添加", "添加${section.label}") { panel = EditorPanel.Add(section) }
                 }
                 if (cmd.items(section).isEmpty()) T("尚未添加${section.label}", 14.sp, color = C.Muted)
                 if (section == CommandSection.ACTIONS) {
-                    ActionList(state, cmd, cmd.actions, 0, null, null) { panel = it }
+                    ActionList(
+                        state = state, cmd = cmd, items = cmd.actions, depth = 0,
+                        parentId = null, branch = null, onPanel = { panel = it },
+                        cards = true, onOpenBlock = { state.openBlock(it) },
+                    )
                 } else {
                     cmd.items(section).forEachIndexed { index, item ->
                         key(item.id) {
@@ -271,6 +286,9 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
             }
         }
         Spacer(Modifier.height(16.dp))
+    }
+    } else {
+        BlockPage(state, cmd, currentBlock) { panel = it }
     }
     if (confirmDelete) {
         DeleteCommandDialog(
@@ -334,6 +352,198 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
             }
         }
     }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BlockPage(
+    state: AppState,
+    cmd: Cmd,
+    block: CommandItem,
+    onPanel: (EditorPanel) -> Unit,
+) {
+    val meta = block.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
+    val kind = meta?.block
+    val nested = block.conditions.size + block.children.size +
+        block.branches.sumOf { it.children.size + it.conditions.size }
+    val issues = state.blockValidationIssues(cmd, block.id)
+    val timesLoop = kind == com.flowglass.engine.BlockKind.LOOP &&
+        block.parameter.substringBefore('|') in listOf("按次数", "times")
+    val crumbs = buildList {
+        add(cmd.title)
+        state.blockPath.forEach { id -> cmd.actions.findActionNode(id)?.let { add(it.name) } }
+    }
+    Column(
+        Modifier.fillMaxSize().background(C.Bg).testTag("block-page")
+            .statusBarsPadding().navigationBarsPadding().imePadding()
+            .verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            EditorIconButton(Ic.Back, "返回上一级") { state.backBlock() }
+            Spacer(Modifier.width(8.dp))
+            T("块编辑", 20.sp, FontWeight.Bold, modifier = Modifier.weight(1f))
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            crumbs.forEachIndexed { index, label ->
+                Box(
+                    Modifier.clip(Capsule())
+                        .background(if (index == crumbs.lastIndex) C.PrimarySoft else C.Card)
+                        .pressable {
+                            if (index == 0) state.gotoBlock(-1) else state.gotoBlock(index - 1)
+                        }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                ) {
+                    T(label, 12.sp, FontWeight.SemiBold, if (index == crumbs.lastIndex) C.Primary else C.OnSurfaceVar, maxLines = 1)
+                }
+                if (index < crumbs.lastIndex) T("›", 14.sp, color = C.Muted)
+            }
+        }
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedRectangle(28.dp)).background(C.Card).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LineIcon(block.ic, C.Primary, 24.dp)
+                Spacer(Modifier.width(10.dp))
+                T(block.name, 20.sp, FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
+            }
+            T(ActionSummary.summarize(block, nested, true), 14.sp, color = C.OnSurfaceVar, maxLines = 3)
+            T(ActionSummary.blockPreview(block), 12.sp, color = C.Muted, maxLines = 2)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                EditorPill("编辑参数", "编辑${block.name}参数") {
+                    onPanel(EditorPanel.Parameter(CommandSection.ACTIONS, block.id))
+                }
+            }
+        }
+        if (issues.isNotEmpty()) {
+            NoticeCard(
+                "块内有 ${issues.size} 个问题：" + issues.take(3).joinToString("；") +
+                    if (issues.size > 3) "；等 ${issues.size} 项" else "",
+                C.Bad, C.BadSoft,
+            )
+        }
+        if (block.conditions.isNotEmpty()) {
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(C.Card).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                T("条件", 15.sp, FontWeight.SemiBold)
+                block.conditions.forEachIndexed { index, condition ->
+                    ConditionLine(
+                        state = state, cmd = cmd, item = block, branch = null,
+                        conditionIndex = index, condition = condition, onPanel = onPanel,
+                    )
+                }
+            }
+        }
+        if (kind == com.flowglass.engine.BlockKind.IF || kind == com.flowglass.engine.BlockKind.WAIT ||
+            (kind == com.flowglass.engine.BlockKind.LOOP && !timesLoop)
+        ) {
+            EditorPill("添加条件", "为${block.name}添加条件") {
+                onPanel(EditorPanel.Add(CommandSection.CONDITIONS, block.id))
+            }
+        }
+        if (kind != com.flowglass.engine.BlockKind.WAIT) {
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedRectangle(28.dp)).background(C.Card).padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    T("内部步骤", 18.sp, FontWeight.Bold, modifier = Modifier.weight(1f))
+                    T("${block.children.size}", 12.sp, color = C.Muted)
+                }
+                if (block.children.isEmpty()) T("还没有步骤", 13.sp, color = C.Muted)
+                ActionList(
+                    state = state, cmd = cmd, items = block.children, depth = 0,
+                    parentId = block.id, branch = null, onPanel = onPanel,
+                    cards = true, onOpenBlock = { state.openBlock(it) },
+                )
+                BlockAddButton(
+                    label = "向${block.name}添加内容",
+                    tag = "block-page-add-${block.id}",
+                    entries = blockAddEntries(state, cmd, block, kind, timesLoop, branch = null, onPanel = onPanel),
+                )
+            }
+        }
+        if (kind == com.flowglass.engine.BlockKind.IF) {
+            block.branches.forEachIndexed { branchIndex, branch ->
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(C.Card).padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        T(if (branch.conditions.isEmpty()) "否则" else "否则如果 ${branchIndex + 1}", 17.sp, FontWeight.Bold,
+                            modifier = Modifier.weight(1f))
+                        T("${branch.children.size} 步", 12.sp, color = C.Muted)
+                    }
+                    branch.conditions.forEachIndexed { conditionIndex, condition ->
+                        ConditionLine(
+                            state = state, cmd = cmd, item = block, branch = branchIndex,
+                            conditionIndex = conditionIndex, condition = condition, onPanel = onPanel,
+                        )
+                    }
+                    if (branch.children.isEmpty()) T("还没有步骤", 13.sp, color = C.Muted)
+                    ActionList(
+                        state = state, cmd = cmd, items = branch.children, depth = 0,
+                        parentId = block.id, branch = branchIndex, onPanel = onPanel,
+                        cards = true, onOpenBlock = { state.openBlock(it) },
+                    )
+                    BlockAddButton(
+                        label = "向该分支添加内容",
+                        tag = "block-page-branch-add-${block.id}-$branchIndex",
+                        entries = blockAddEntries(state, cmd, block, kind, timesLoop, branchIndex, onPanel),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun ConditionLine(
+    state: AppState,
+    cmd: Cmd,
+    item: CommandItem,
+    branch: Int?,
+    conditionIndex: Int,
+    condition: CommandItem,
+    onPanel: (EditorPanel) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedRectangle(16.dp)).background(C.Tonal)
+            .editorAction("编辑条件${condition.name}") {
+                onPanel(EditorPanel.Parameter(CommandSection.CONDITIONS, condition.id))
+            }
+            .padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        T(ActionSummary.conditionRowText(condition), 12.sp, color = C.OnSurfaceVar,
+            maxLines = 1, modifier = Modifier.weight(1f))
+        ConditionRowMenu(state, cmd, item, branch, conditionIndex, condition, onPanel)
+    }
+}
+
+private fun blockAddEntries(
+    state: AppState,
+    cmd: Cmd,
+    block: CommandItem,
+    kind: com.flowglass.engine.BlockKind?,
+    timesLoop: Boolean,
+    branch: Int?,
+    onPanel: (EditorPanel) -> Unit,
+): List<Pair<String, () -> Unit>> = buildList {
+    add("步骤" to { onPanel(EditorPanel.Add(CommandSection.ACTIONS, block.id, branch)) })
+    if (!timesLoop && (branch == null || block.branches.getOrNull(branch)?.conditions?.isNotEmpty() == true)) {
+        add("条件" to { onPanel(EditorPanel.Add(CommandSection.CONDITIONS, block.id, branch)) })
+    }
+    if (branch == null && kind == com.flowglass.engine.BlockKind.IF) {
+        add("否则如果" to { state.addBranch(cmd.id, block.id, withCondition = true) })
+        if (block.branches.none { it.conditions.isEmpty() }) {
+            add("否则" to { state.addBranch(cmd.id, block.id, withCondition = false) })
+        }
     }
 }
 
@@ -756,6 +966,8 @@ private fun ActionList(
     parentId: Long?,
     branch: Int?,
     onPanel: (EditorPanel) -> Unit,
+    cards: Boolean = false,
+    onOpenBlock: (Long) -> Unit = {},
 ) {
     var preview by remember(items) { mutableStateOf<List<Long>?>(null) }
     var draggingId by remember { mutableStateOf<Long?>(null) }
@@ -851,9 +1063,80 @@ private fun ActionList(
                             }
                         },
                         onPanel = onPanel,
+                        cards = cards,
+                        onOpenBlock = onOpenBlock,
                     )
                 }
             }
+        }
+    }
+}
+
+/** A block is a card on its parent page; its children live on a separate page. */
+@Composable
+private fun BlockCardRow(
+    state: AppState,
+    cmd: Cmd,
+    item: CommandItem,
+    index: Int,
+    lastIndex: Int,
+    parentId: Long?,
+    branch: Int?,
+    compact: Boolean,
+    onMeasuredHeight: (Int) -> Unit,
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
+    onPanel: (EditorPanel) -> Unit,
+    onOpenBlock: (Long) -> Unit,
+) {
+    val issueCount = state.blockValidationIssues(cmd, item.id).size
+    val summary = ActionSummary.summarize(item, item.conditions.size + item.children.size, true)
+    val preview = ActionSummary.blockPreview(item)
+    val dragStart = rememberUpdatedState(onDragStart)
+    val dragMove = rememberUpdatedState(onDrag)
+    val dragEnd = rememberUpdatedState(onDragEnd)
+    val dragCancel = rememberUpdatedState(onDragCancel)
+    val rowPadding = if (compact) 10.dp else 14.dp
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().onGloballyPositioned { onMeasuredHeight(it.size.height) }
+                .testTag("block-card-${item.id}")
+                .clip(RoundedRectangle(26.dp)).background(C.Tonal).padding(rowPadding)
+                .pointerInput(item.id) {
+                    detectTapGestures(onTap = { onOpenBlock(item.id) })
+                }
+                .pointerInput(item.id) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { dragStart.value() },
+                        onDragEnd = { dragEnd.value() },
+                        onDragCancel = { dragCancel.value() },
+                        onDrag = { change, amount -> change.consume(); dragMove.value(amount.y) },
+                    )
+                }
+                .semantics {
+                    contentDescription = "打开${item.name}块"
+                    onClick(label = "打开块") { onOpenBlock(item.id); true }
+                },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LineIcon(item.ic, C.Primary, if (compact) 20.dp else 24.dp)
+            Spacer(Modifier.width(if (compact) 8.dp else 12.dp))
+            Column(Modifier.weight(1f).testTag("action-text-${item.id}"), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    T(item.name, 16.sp, FontWeight.SemiBold, maxLines = 1)
+                    Spacer(Modifier.width(8.dp))
+                    T("块", 10.sp, FontWeight.SemiBold, C.Primary)
+                }
+                T(summary, 13.sp, color = C.OnSurfaceVar, maxLines = 2)
+                T(preview, 12.sp, color = C.Muted, maxLines = 1)
+                if (issueCount > 0) T("块内有 $issueCount 个问题", 11.sp, color = C.Bad, maxLines = 1)
+            }
+            Spacer(Modifier.width(4.dp))
+            LineIcon(Ic.ChevronRight, C.Muted, 18.dp)
+            Spacer(Modifier.width(2.dp))
+            ActionRowMenu(state, cmd, item, index, lastIndex, parentId, branch, compact, onPanel)
         }
     }
 }
@@ -880,6 +1163,8 @@ private fun ActionTreeRow(
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
     onPanel: (EditorPanel) -> Unit,
+    cards: Boolean = false,
+    onOpenBlock: (Long) -> Unit = {},
 ) {
     val meta = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
     val block = meta?.block
@@ -900,6 +1185,16 @@ private fun ActionTreeRow(
     val hint = state.validationIssues(cmd).firstOrNull { it.contains("「${item.name}」") }
     val compact = LocalConfiguration.current.screenWidthDp < 300
     val rowPadding = if (compact) 8.dp else 12.dp
+    if (cards && container) {
+        BlockCardRow(
+            state = state, cmd = cmd, item = item, index = index, lastIndex = lastIndex,
+            parentId = parentId, branch = branch, compact = compact,
+            onMeasuredHeight = onMeasuredHeight, onDragStart = onDragStart,
+            onDrag = onDrag, onDragEnd = onDragEnd, onDragCancel = onDragCancel,
+            onPanel = onPanel, onOpenBlock = onOpenBlock,
+        )
+        return
+    }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             Modifier.fillMaxWidth().onGloballyPositioned { onMeasuredHeight(it.size.height) }
@@ -987,7 +1282,7 @@ private fun ActionTreeRow(
                     }.padding(start = childIndent(depth)),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    ActionList(state, cmd, item.children, depth + 1, item.id, null, onPanel)
+                    ActionList(state, cmd, item.children, depth + 1, item.id, null, onPanel, cards, onOpenBlock)
                 }
             }
             item.branches.forEachIndexed { branchIndex, branch ->
@@ -1010,7 +1305,7 @@ private fun ActionTreeRow(
                             ConditionRowMenu(state, cmd, item, branchIndex, conditionIndex, condition, onPanel)
                         }
                     }
-                    ActionList(state, cmd, branch.children, depth + 1, item.id, branchIndex, onPanel)
+                    ActionList(state, cmd, branch.children, depth + 1, item.id, branchIndex, onPanel, cards, onOpenBlock)
                     BlockAddButton(
                         label = "向该分支添加内容",
                         tag = "branch-add-${item.id}-$branchIndex",
