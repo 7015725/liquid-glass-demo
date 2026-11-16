@@ -146,9 +146,13 @@ internal class TriggerHost(
     private val headsetWatcher = HeadsetWatcher(context, ::emitEvent)
     private val locationWatcher = LocationWatcher(context, ::emitEvent)
     private val appWatcher = AppForegroundWatcher(context, scope, ::emitEvent)
-    private val notificationListener: (String, String, String) -> Unit = { app, title, text ->
+    private val notificationListener: (String, String, String, Int) -> Unit = { app, title, text, userId ->
+        // A clone and the main app share a package; the persisted app identity includes the
+        // profile so a "收到通知" rule cannot fire for the wrong clone.
+        val identity = if (userId == 0) app else "$app@$userId"
         emitEvent(TriggerKinds.NOTIFICATION, TriggerSource.NOTIFICATION, mapOf(
-            "notification.app" to app,
+            "notification.app" to identity,
+            "notification.user" to userId.toString(),
             "notification.title" to title,
             "notification.text" to text,
         ))

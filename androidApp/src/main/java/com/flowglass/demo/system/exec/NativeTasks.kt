@@ -88,21 +88,8 @@ internal object NativeTasks {
         "action.launch_app" -> {
             val requested = task.parameter.trim()
             require(requested.isNotEmpty()) { "参数格式不正确：期望 应用包名或应用名称" }
-            val intent = withContext(Dispatchers.IO) {
-                context.packageManager.getLaunchIntentForPackage(requested) ?: run {
-                    val apps = LaunchableApps.load(context)
-                    val app = apps.firstOrNull { it.label.equals(requested, ignoreCase = true) }
-                        ?: apps.firstOrNull { it.label.contains(requested, ignoreCase = true) }
-                    app?.let { context.packageManager.getLaunchIntentForPackage(it.packageName) }
-                }
-            }
-            if (intent == null) TaskOutcome(StepStatus.FAILURE, "未找到可启动应用：$requested")
-            else {
-                withContext(Dispatchers.Main.immediate) {
-                    context.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-                }
-                TaskOutcome(StepStatus.SUCCESS, "已启动应用：$requested")
-            }
+            val detail = LaunchableApps.launch(context, requested)
+            TaskOutcome(StepStatus.SUCCESS, detail)
         }
         "action.http_request" -> HttpTask.run(TaskParameters.http(task.parameter))
         "action.root_shell" -> {

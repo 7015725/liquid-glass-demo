@@ -32,6 +32,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flowglass.engine.ParamEditor
+import com.flowglass.engine.ParamSource
 import com.flowglass.engine.ParamSpec
 import com.flowglass.engine.ParameterCodec
 import com.flowglass.engine.resolvedEditor
@@ -54,26 +55,30 @@ internal fun ParamField(
     targets: List<String> = emptyList(),
     variables: List<String> = emptyList(),
 ) {
-    when (spec.resolvedEditor()) {
-        ParamEditor.SEGMENTED -> SegmentedField(spec, current, onValue)
-        ParamEditor.SLIDER -> PercentageField(current, onValue)
-        ParamEditor.WEEKDAYS -> WeekdayField(current, onValue)
-        ParamEditor.APPLICATION -> ApplicationParameterPicker(
-            current = current,
-            stateKey = tag,
-            searchTag = "$tag-search",
-            onParameter = onValue,
-        )
-        ParamEditor.RULE -> RuleField(targets, current, tag, onValue)
-        ParamEditor.LOCATION -> LocationField(current, tag, onValue)
-        ParamEditor.MULTILINE -> VariableTextField(current, tag, variables, multiline = true, onValue)
-        ParamEditor.TEXT -> VariableTextField(current, tag, variables, multiline = false, onValue)
-        ParamEditor.STEPPER -> StepperField(spec, current, tag, onValue)
-        ParamEditor.TIME -> TimeField(current, tag, onValue)
-        ParamEditor.TIME_RANGE -> TimeRangeField(current, onValue)
-        ParamEditor.INT_RANGE -> IntegerRangeField(spec, current, tag, onValue)
-        ParamEditor.DURATION -> DurationField(current, tag, onValue)
-        ParamEditor.AUTO -> ParameterTextField(current, tag, onValue)
+    when (spec.source) {
+        ParamSource.PAIRED_BLUETOOTH -> BluetoothNameField(current, tag, onValue)
+        ParamSource.WIFI_NETWORKS -> WifiNameField(current, tag, onValue)
+        else -> when (spec.resolvedEditor()) {
+            ParamEditor.SEGMENTED -> SegmentedField(spec, current, onValue)
+            ParamEditor.SLIDER -> PercentageField(current, onValue)
+            ParamEditor.WEEKDAYS -> WeekdayField(current, onValue)
+            ParamEditor.APPLICATION -> ApplicationParameterPicker(
+                current = current,
+                stateKey = tag,
+                searchTag = "$tag-search",
+                onParameter = onValue,
+            )
+            ParamEditor.RULE -> RuleField(targets, current, tag, onValue)
+            ParamEditor.LOCATION -> LocationField(current, tag, onValue)
+            ParamEditor.MULTILINE -> VariableTextField(current, tag, variables, multiline = true, onValue)
+            ParamEditor.TEXT -> VariableTextField(current, tag, variables, multiline = false, onValue)
+            ParamEditor.STEPPER -> StepperField(spec, current, tag, onValue)
+            ParamEditor.TIME -> TimeField(current, tag, onValue)
+            ParamEditor.TIME_RANGE -> TimeRangeField(current, onValue)
+            ParamEditor.INT_RANGE -> IntegerRangeField(spec, current, tag, onValue)
+            ParamEditor.DURATION -> DurationField(current, tag, onValue)
+            ParamEditor.AUTO -> ParameterTextField(current, tag, onValue)
+        }
     }
 }
 

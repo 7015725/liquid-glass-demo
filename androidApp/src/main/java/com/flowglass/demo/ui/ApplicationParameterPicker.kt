@@ -44,28 +44,34 @@ internal fun ApplicationParameterPicker(
     }
     T("搜索应用名称或包名", 14.sp, FontWeight.Medium)
     ParameterTextField(query, searchTag) { query = it }
-    T("点选应用后保存包名；返回不会清空原选择。", 12.sp, color = C.OnSurfaceVar)
-    T("当前包名：${current.ifEmpty { "未选择" }}", 13.sp, color = C.OnSurfaceVar)
-    val filtered = apps?.filter { it.label.contains(query.trim(), true) || it.packageName.contains(query.trim(), true) }
+    T("点选应用后保存包名；分身应用保存为 package@userId，返回不会清空原选择。", 12.sp, color = C.OnSurfaceVar)
+    T("当前应用：${current.ifEmpty { "未选择" }}", 13.sp, color = C.OnSurfaceVar)
+    val filtered = apps?.filter {
+        it.label.contains(query.trim(), true) ||
+            it.packageName.contains(query.trim(), true) ||
+            it.id.contains(query.trim(), true) ||
+            it.profileLabel.contains(query.trim(), true)
+    }
     when {
         failed -> T("读取应用列表失败，请重新打开后重试。", 13.sp, color = C.Bad)
         filtered == null -> T("正在读取应用…", 13.sp, color = C.Muted)
         filtered.isEmpty() -> T("未找到匹配应用", 13.sp, color = C.Muted)
         else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 224.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            itemsIndexed(filtered, key = { _, app -> app.packageName }) { index, app ->
+            itemsIndexed(filtered, key = { _, app -> app.id }) { index, app ->
+                val selectedApp = current == app.id || (app.userId == 0 && current == app.packageName)
                 Row(Modifier.fillMaxWidth().staggerIn(index.coerceAtMost(8)).clip(RoundedRectangle(24.dp))
-                    .background(if (current == app.packageName) C.PrimarySoft else C.Card)
-                    .semantics { selected = current == app.packageName }
-                    .editorAction("选择应用：${app.label}") { onParameter(app.packageName) }
+                    .background(if (selectedApp) C.PrimarySoft else C.Card)
+                    .semantics { selected = selectedApp }
+                    .editorAction("选择应用：${app.label}") { onParameter(app.id) }
                     .padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     val icon = remember(app.icon) { app.icon.toBitmap(96, 96).asImageBitmap() }
                     Image(icon, "应用图标：${app.label}", Modifier.size(40.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        T(app.label, 15.sp, FontWeight.Medium)
-                        T(app.packageName, 12.sp, color = C.OnSurfaceVar)
+                        T(if (app.userId == 0) app.label else "${app.label} · ${app.profileLabel}", 15.sp, FontWeight.Medium)
+                        T(app.id, 12.sp, color = C.OnSurfaceVar)
                     }
-                    if (current == app.packageName) T("已选", 12.sp, color = C.Primary)
+                    if (selectedApp) T("已选", 12.sp, color = C.Primary)
                 }
             }
         }

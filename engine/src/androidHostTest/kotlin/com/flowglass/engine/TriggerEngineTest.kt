@@ -456,6 +456,26 @@ class TriggerEngineTest {
     }
 
     @Test
+    fun notificationTriggerKeepsCloneIdentitySeparateFromTheMainApp() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        val r = rule("notification-clone", listOf(TriggerComponent(
+            "trigger.notification", "notification",
+            mapOf("app" to JsonPrimitive("com.example.chat@10")),
+        )))
+        fun event(app: String) = TriggerEvent(
+            TriggerKinds.NOTIFICATION, TriggerSource.NOTIFICATION, clock.now,
+            mapOf("notification.app" to app, "notification.title" to "", "notification.text" to ""),
+        )
+
+        assertEquals(0, d.dispatch(event("com.example.chat"), listOf(r)).executions.size)
+        val hit = d.dispatch(event("com.example.chat@10"), listOf(r))
+        assertEquals(1, hit.executions.size)
+        assertEquals("com.example.chat@10", hit.executions.single().variables["event.notification.app"])
+    }
+
+    @Test
     fun appForegroundTriggerFiresOnEnterAndLeave() {
         val clock = FakeClock(0)
         val executor = RecordingExecutor()

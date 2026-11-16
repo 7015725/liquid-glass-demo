@@ -4,9 +4,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.LauncherApps
 import android.graphics.drawable.Drawable
 import android.os.Build
+import android.os.Process
 import android.os.SystemClock
+import android.os.UserHandle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -16,7 +19,20 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
-data class LaunchableApp(val packageName: String, val label: String, val icon: Drawable)
+/**
+ * A launchable activity. [userId] is the Android profile id; the stable storage form is
+ * `package@userId`, while the current profile keeps the legacy bare package name.
+ */
+data class LaunchableApp(
+    val packageName: String,
+    val label: String,
+    val icon: Drawable,
+    val userId: Int = 0,
+    val profileLabel: String = "",
+) {
+    val id: String get() = if (userId == 0) packageName else "$packageName@$userId"
+}
+
 object LaunchableApps {
     private data class Cache(val createdAt: Long, val generation: Long, val apps: List<LaunchableApp>)
     private val loadMutex = Mutex()
@@ -59,18 +75,14 @@ object LaunchableApps {
     }
 
     private suspend fun refresh(appContext: Context): List<LaunchableApp> {
-        val pm = appContext.packageManager
         while (true) {
             currentCoroutineContext().ensureActive()
             val version = generation.get()
-            val apps = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
-                .mapNotNull { info ->
-                    val activity = info.activityInfo ?: return@mapNotNull null
-                    if (!activity.enabled || !activity.applicationInfo.enabled) return@mapNotNull null
-                    LaunchableApp(activity.packageName, info.loadLabel(pm).toString().ifBlank { activity.packageName },
-                        info.loadIcon(pm) ?: pm.defaultActivityIcon)
-                }.distinctBy { it.packageName }
-                .sortedWith(compareBy<LaunchableApp> { it.label.lowercase(Locale.ROOT) }.thenBy { it.packageName })
+            val apps = queryLauncherApps(appContext)
+                .ifEmpty { queryPackageManager(appContext) }
+                .distinctBy { it.packageName to it.userId }
+                .sortedWith(compareBy<LaunchableApp> { it.label.lowercase(Locale.ROOT) }
+                    .thenBy { it.userId }.thenBy { it.packageName })
             // A broadcast can arrive on Main while the IO query is in progress.
             if (generation.get() == version) {
                 cache = Cache(SystemClock.elapsedRealtime(), version, apps)
@@ -78,10 +90,114 @@ object LaunchableApps {
             }
         }
     }
-    suspend fun label(context: Context, packageName: String): String = withContext(Dispatchers.IO) {
-        val pm = context.applicationContext.packageManager
-        try {
-            pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString().ifBlank { packageName }
-        } catch (_: android.content.pm.PackageManager.NameNotFoundException) { packageName }
+
+    private fun queryLauncherApps(appContext: Context): List<LaunchableApp> {
+        val launcher = appContext.getSystemService(LauncherApps::class.java) ?: return emptyList()
+        val profiles = runCatching { launcher.profiles }.getOrDefault(emptyList())
+        if (profiles.isEmpty()) return emptyList()
+        val pm = appContext.packageManager
+        return profiles.flatMap { profile ->
+            val userId = profile.hashCode()
+            val profileLabel = profileLabel(profile)
+            runCatching { launcher.getActivityList(null, profile) }.getOrElse { emptyList() }
+                .mapNotNull { info ->
+                    val application = runCatching { info.applicationInfo }.getOrNull() ?: return@mapNotNull null
+                    if (!application.enabled) return@mapNotNull null
+                    val label = runCatching { info.label?.toString() }.getOrNull().orEmpty()
+                        .ifBlank { info.componentName.packageName }
+                    val icon = runCatching { info.getIcon(0) }.getOrNull()
+                        ?: runCatching { pm.getApplicationIcon(info.componentName.packageName) }.getOrNull()
+                        ?: pm.defaultActivityIcon
+                    LaunchableApp(
+                        packageName = info.componentName.packageName,
+                        label = label,
+                        icon = icon,
+                        userId = userId,
+                        profileLabel = profileLabel,
+                    )
+                }
+        }
+    }
+
+    private fun queryPackageManager(appContext: Context): List<LaunchableApp> {
+        val pm = appContext.packageManager
+        return pm.queryIntentActivities(
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0,
+        ).mapNotNull { info ->
+            val activity = info.activityInfo ?: return@mapNotNull null
+            if (!activity.enabled || !activity.applicationInfo.enabled) return@mapNotNull null
+            LaunchableApp(
+                packageName = activity.packageName,
+                label = info.loadLabel(pm).toString().ifBlank { activity.packageName },
+                icon = info.loadIcon(pm) ?: pm.defaultActivityIcon,
+                userId = 0,
+                profileLabel = "当前用户",
+            )
+        }
+    }
+
+    private fun profileLabel(profile: UserHandle): String = when {
+        profile == Process.myUserHandle() -> "当前用户"
+        profile.hashCode() == 10 -> "工作资料"
+        else -> "用户 ${profile.hashCode()}"
+    }
+
+    /** Parses the persisted form; a bare package means the current profile (legacy behavior). */
+    fun parseLaunchTarget(requested: String): Pair<String, Int?> {
+        val value = requested.trim()
+        require(value.isNotEmpty()) { "参数格式不正确：期望 应用包名或应用名称" }
+        val at = value.lastIndexOf('@')
+        if (at <= 0) return value to null
+        val packageName = value.substring(0, at)
+        val userId = value.substring(at + 1).toIntOrNull()
+            ?: throw IllegalArgumentException("参数格式不正确：分身应用应写成 package@userId")
+        require(packageName.isNotBlank()) { "参数格式不正确：缺少应用包名" }
+        return packageName to userId
+    }
+
+    suspend fun label(context: Context, target: String): String = withContext(Dispatchers.IO) {
+        val (packageName, _) = runCatching { parseLaunchTarget(target) }.getOrElse { return@withContext target }
+        val apps = load(context)
+        apps.firstOrNull { it.id == target || (it.packageName == packageName && it.userId == 0) }?.label
+            ?: apps.firstOrNull { it.packageName == packageName }?.label
+            ?: packageName
+    }
+
+    /**
+     * Launches the target. A profile target never silently falls back to the same package in the
+     * current profile: if enumeration or the launch fails, the caller gets the actionable error.
+     */
+    suspend fun launch(context: Context, requested: String): String {
+        val (packageName, userId) = parseLaunchTarget(requested)
+        if (userId == null) {
+            val intent = withContext(Dispatchers.IO) {
+                context.packageManager.getLaunchIntentForPackage(packageName)
+                    ?: run {
+                        val apps = load(context)
+                        val app = apps.firstOrNull {
+                            it.packageName == packageName || it.label.equals(packageName, ignoreCase = true)
+                        } ?: apps.firstOrNull { it.label.contains(packageName, ignoreCase = true) }
+                        app?.let { context.packageManager.getLaunchIntentForPackage(it.packageName) }
+                    }
+            }
+            checkNotNull(intent) { "未找到可启动应用：$requested" }
+            withContext(Dispatchers.Main.immediate) {
+                context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            return "已启动应用：$requested"
+        }
+
+        val launcher = checkNotNull(context.getSystemService(LauncherApps::class.java)) { "启动器服务不可用" }
+        val profile = runCatching { launcher.profiles }.getOrElse {
+            throw IllegalStateException("无法枚举用户资料：${it.message ?: "权限不足"}")
+        }.firstOrNull { it.hashCode() == userId }
+            ?: throw IllegalStateException("找不到用户资料 $userId；请重新选择分身应用")
+        val activity = runCatching { launcher.getActivityList(packageName, profile) }.getOrElse {
+            throw IllegalStateException("无法读取分身应用：${it.message ?: "权限不足"}")
+        }.firstOrNull()
+            ?: throw IllegalStateException("用户资料 $userId 中没有可启动应用 $packageName")
+        runCatching { launcher.startMainActivity(activity.componentName, profile, null, null) }
+            .getOrElse { throw IllegalStateException("启动分身应用失败：${it.message ?: "系统拒绝"}") }
+        return "已启动应用：$requested（${profileLabel(profile)}）"
     }
 }
