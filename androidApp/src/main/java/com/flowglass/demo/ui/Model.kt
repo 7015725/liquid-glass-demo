@@ -697,6 +697,19 @@ class AppState internal constructor(saved: PersistedAppState?) {
     /** Display order: pinned first, otherwise original order. */
     fun sorted(auto: Boolean): List<Cmd> = listFor(auto).sortedByDescending { it.pinned }
 
+    /** Replaces the whole in-memory document after an import/restore has been fully validated. */
+    internal fun replaceWith(converted: PersistedAppState) {
+        autoCmds.clear(); autoCmds.addAll(converted.autoCmds)
+        oneTaps.clear(); oneTaps.addAll(converted.oneTaps)
+        logs.clear(); logs.addAll(converted.logs)
+        engineRules = converted.engineRules
+        engineUi = converted.engineUi
+        engineGlobals = converted.engineGlobals
+        running = converted.running
+        mode = converted.mode
+        engineStartedAt = converted.engineUi.startedAt
+    }
+
     private fun update(id: Long, f: (Cmd) -> Cmd) {
         for (l in arrayOf(autoCmds, oneTaps)) {
             val i = l.indexOfFirst { it.id == id }

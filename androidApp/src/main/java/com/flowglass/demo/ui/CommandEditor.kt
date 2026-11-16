@@ -932,16 +932,8 @@ private fun DeleteCommandDialog(title: String, onCancel: () -> Unit, onConfirm: 
 }
 
 private fun shareCommand(context: Context, cmd: Cmd) {
-    val text = buildString {
-        appendLine("【流光自动化】${cmd.title}")
-        appendLine(cmd.desc)
-        if (cmd.auto) {
-            appendLine("触发器：${cmd.triggers.joinToString("、")}")
-            if (cmd.conditions.isNotEmpty()) appendLine("条件：${cmd.conditions.joinToString("、")}")
-        }
-        append("任务：${cmd.actions.joinToString(" → ")}")
-    }
-    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+    val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+        .putExtra(Intent.EXTRA_TEXT, commandShareText(cmd))
     runCatching {
         context.startActivity(Intent.createChooser(send, "分享指令").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
