@@ -29,11 +29,6 @@ internal fun AppState.validationItems(cmd: Cmd): List<ValidationIssue> {
                     if (item.children.isEmpty() && item.branches.all { it.children.isEmpty() }) {
                         issue(item.id, "「${item.name}」还没有任何步骤")
                     }
-                    item.branches.forEachIndexed { index, branch ->
-                        if (branch.conditions.isEmpty() && index < item.branches.lastIndex) {
-                            issue(item.id, "「${item.name}」的第 ${index + 1} 个否则如果缺少条件")
-                        }
-                    }
                 }
                 BlockKind.LOOP -> {
                     val byTimes = item.parameter.contains("按次数")

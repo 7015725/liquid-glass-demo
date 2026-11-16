@@ -141,17 +141,23 @@ class TaskChainMigrationTest {
         val ifItem = command.actions.single()
 
         assertEquals("block.if", ifItem.typeId)
-        assertEquals(2, ifItem.branches.size)
+        // alpha8: the old else-if chain is loaded as one else branch with a nested if.
+        assertEquals(1, ifItem.branches.size)
+        assertTrue(ifItem.branches.single().conditions.isEmpty())
+        val nestedIf = ifItem.branches.single().children.single()
+        assertEquals("block.if", nestedIf.typeId)
+        assertTrue(nestedIf.conditions.isNotEmpty())
+        assertEquals("block.break", nestedIf.children.single().typeId)
+        assertEquals("action.set_var", nestedIf.branches.single().children.single().typeId)
         assertEquals("block.loop", ifItem.children.single().typeId)
         assertEquals("action.delay", ifItem.children.single().children.single().typeId)
-        assertEquals("block.break", ifItem.branches[0].children.single().typeId)
         assertEquals(11L, ifItem.id)
         assertEquals(mapOf("done" to JsonPrimitive("0")), restored.engineGlobals)
         assertNotNull(decoded.ui.presentation.getValue("rule-1").items[12L])
 
-        // Saving the restored state must produce the very same tree again.
+        // The first save writes the converted tree; loading that file again must be byte-stable.
         val again = AppStateJson.encode(restored)
-        assertEquals(RuleJson.encode(decoded), again)
+        assertEquals(again, AppStateJson.encode(AppStateJson.decode(again)))
     }
 
     @Test

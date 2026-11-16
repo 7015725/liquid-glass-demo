@@ -401,6 +401,93 @@ class TaskChainTest {
         assertEquals(1, polls)
     }
 
+    @Test
+    fun elseIfMigrationChoosesTheSameActionForEveryInput() = runSuspend {
+        for ((a, b, expected) in listOf(
+            Triple("yes", "yes", listOf("then")),
+            Triple("no", "yes", listOf("elseif")),
+            Triple("no", "no", listOf("else")),
+        )) {
+            val oldThen = mutableListOf<String>()
+            val oldElseIf = mutableListOf<String>()
+            val oldElse = mutableListOf<String>()
+            val (thenMeta, thenAction) = echo(oldThen, "then")
+            val (elseIfMeta, elseIfAction) = echo(oldElseIf, "elseif")
+            val (elseMeta, elseAction) = echo(oldElse, "else")
+            val old = ifBlock(
+                conditions = listOf(condition("%{run.a}", "yes")),
+                children = listOf(RuleComponent("a.then")),
+                branches = listOf(
+                    RuleBranch(
+                        conditions = listOf(condition("%{run.b}", "yes")),
+                        children = listOf(RuleComponent("a.elseif")),
+                    ),
+                    RuleBranch(children = listOf(RuleComponent("a.else"))),
+                ),
+            )
+            val newThen = mutableListOf<String>()
+            val newElseIf = mutableListOf<String>()
+            val newElse = mutableListOf<String>()
+            suspend fun run(block: RuleComponent, t: MutableList<String>, e: MutableList<String>, n: MutableList<String>) =
+                executor(
+                    mapOf("a.then" to Action { _, _ -> t += "then"; ActionOutcome(StepStatus.SUCCESS, "then") },
+                        "a.elseif" to Action { _, _ -> e += "elseif"; ActionOutcome(StepStatus.SUCCESS, "elseif") },
+                        "a.else" to Action { _, _ -> n += "else"; ActionOutcome(StepStatus.SUCCESS, "else") }),
+                    metas = listOf(thenMeta, elseIfMeta, elseMeta),
+                ).run(rule(block), "测试", mapOf("a" to a, "b" to b))
+            val oldResult = run(old, oldThen, oldElseIf, oldElse)
+            val newResult = run(old.normalizeElseIfBranches(), newThen, newElseIf, newElse)
+            assertEquals(expected, oldThen + oldElseIf + oldElse)
+            assertEquals(oldThen + oldElseIf + oldElse, newThen + newElseIf + newElse)
+            assertEquals(oldResult.status, newResult.status)
+        }
+    }
+
+    @Test
+    fun elseIfMigrationWithoutAnElseRunsTheSameBranchOrNothing() = runSuspend {
+        for ((b, expected) in listOf("yes" to listOf("elseif"), "no" to emptyList())) {
+            val old = ifBlock(
+                conditions = listOf(condition("%{run.a}", "yes")),
+                children = listOf(RuleComponent("a.then")),
+                branches = listOf(
+                    RuleBranch(conditions = listOf(condition("%{run.b}", "yes")), children = listOf(RuleComponent("a.elseif"))),
+                ),
+            )
+            val oldLog = mutableListOf<String>()
+            val newLog = mutableListOf<String>()
+            fun executorFor(log: MutableList<String>) = executor(
+                mapOf("a.then" to Action { _, _ -> log += "then"; ActionOutcome(StepStatus.SUCCESS, "then") },
+                    "a.elseif" to Action { _, _ -> log += "elseif"; ActionOutcome(StepStatus.SUCCESS, "elseif") }),
+                metas = listOf(echo(mutableListOf(), "then").first, echo(mutableListOf(), "elseif").first),
+            )
+            executorFor(oldLog).run(rule(old), "测试", mapOf("a" to "no", "b" to b))
+            executorFor(newLog).run(rule(old.normalizeElseIfBranches()), "测试", mapOf("a" to "no", "b" to b))
+            assertEquals(expected, oldLog)
+            assertEquals(oldLog, newLog)
+        }
+    }
+
+    @Test
+    fun elseIfMigrationIsRecursiveAndKeepsAnAbsentElseAbsent() {
+        val old = ifBlock(
+            conditions = listOf(condition("%{run.a}", "yes")),
+            children = listOf(RuleComponent("a.then")),
+            branches = listOf(
+                RuleBranch(conditions = listOf(condition("%{run.b}", "yes")), children = listOf(RuleComponent("a.b"))),
+                RuleBranch(conditions = listOf(condition("%{run.c}", "yes")), children = listOf(RuleComponent("a.c"))),
+            ),
+        )
+        val migrated = old.normalizeElseIfBranches()
+        assertEquals(1, migrated.branches.size)
+        assertTrue(migrated.branches.single().conditions.isEmpty())
+        val nested = migrated.branches.single().children.single()
+        assertEquals("block.if", nested.type)
+        assertEquals(1, nested.branches.size)
+        assertEquals(1, nested.branches.single().children.size)
+        assertEquals("block.if", nested.branches.single().children.single().type)
+        assertTrue(nested.branches.single().children.single().branches.isEmpty())
+    }
+
     private fun <T> runSuspend(block: suspend () -> T): T {
         var result: Result<T>? = null
         block.startCoroutine(Continuation(EmptyCoroutineContext) { result = it })
