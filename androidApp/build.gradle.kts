@@ -12,8 +12,8 @@ android {
         applicationId = "com.flowglass.demo"
         minSdk = 26
         targetSdk = 37
-        versionCode = 40
-        versionName = "0.8.0-alpha2"
+        versionCode = 41
+        versionName = "0.8.0-alpha3"
         androidResources.localeFilters += arrayOf("zh", "en")
     }
 
@@ -67,6 +67,7 @@ dependencies {
     implementation(libs.compose.ui.graphics)
     implementation(libs.kyant.shapes)
     implementation(project(":backdrop"))
+    implementation("org.mozilla:rhino:1.9.2")
     compileOnly("de.robv.android.xposed:api:82")
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

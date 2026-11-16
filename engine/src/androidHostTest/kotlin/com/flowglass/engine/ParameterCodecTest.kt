@@ -149,6 +149,19 @@ class ParameterCodecTest {
         for ((old, new) in listOf("\"type\":\"auto\"" to "\"type\":\"AUTO\"", "\"runMode\":\"drop\"" to "\"runMode\":\"later\"", "\"mode\":\"any\"" to "\"mode\":\"other\"", "\"onError\":\"stop\"" to "\"onError\":\"ignore\""))
             assertFailsWith<IllegalArgumentException> { RuleJson.decode(base.replace(old, new)) }
     }
+    @Test fun scriptRoundTripKeepsPipesAndNewlinesOutOfTheDelimiterFormat() {
+        val meta = BuiltInComponents.registry().find("action.script") ?: error("missing script action")
+        val params = mapOf(
+            "script" to JsonPrimitive("if (a || b) {\n  log('x|y');\n}\n42;"),
+            "timeout" to JsonPrimitive(7),
+        )
+
+        val text = ParameterCodec.formatComponent(meta, params)
+
+        assertTrue(text.startsWith("{"))
+        assertEquals(params, ParameterCodec.parseComponent(meta, text))
+    }
+
     @Test fun validatorRejectsNullRequiredValueAndImpossibleMatchThreshold() {
         val rule = Rule("id", name = "test", triggerMatch = MatchSpec(MatchMode.CUSTOM, atLeast = 1),
             actions = listOf(RuleComponent("action.launch_app", mapOf("package" to JsonNull))))

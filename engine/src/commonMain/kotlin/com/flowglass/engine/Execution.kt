@@ -48,6 +48,8 @@ data class RunContext(
     var currentStep: Int = -1,
     /** 当前步骤在任务树中的路径，与 [StepResult.path] 同一套编码。 */
     var currentPath: List<Int> = emptyList(),
+    /** Present only for hosts that allow the sandboxed script action to read/write variables. */
+    var scriptVariables: ScriptVariableAccess? = null,
 )
 
 /** [output] is published to the run context under the first key of `ComponentMeta.outputs`. */
@@ -230,6 +232,17 @@ class RuleExecutor(
         val steps = mutableListOf<StepResult>()
         val context = RunContext(rule, reason)
         val scopes = RunScopes(rule, initialVariables, globals)
+        context.scriptVariables = object : ScriptVariableAccess {
+            override fun read(name: String): Any? = scopes.flattened()[name]
+            override fun write(name: String, value: Any?) {
+                val text = when (value) {
+                    null -> ""
+                    is Double -> if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()
+                    else -> value.toString()
+                }
+                scopes.set(name, text, "set")
+            }
+        }
         var budgetExceeded: BudgetExceeded? = null
         var stopped: StopSignal? = null
 

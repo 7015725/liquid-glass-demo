@@ -242,7 +242,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
                         TaskOutcome(StepStatus.FAILURE, "缺少执行层：${layerResolver.unavailableReason(meta)}")
                     } else {
                         selectedLayer = selection.layer
-                        ActionLayers.run(context, cmd, item, selection)
+                        ActionLayers.run(context, cmd, item, selection, runContext.scriptVariables)
                     }
                 } else {
                     // Test seam: injected executors retain their previous normal-layer behavior.
