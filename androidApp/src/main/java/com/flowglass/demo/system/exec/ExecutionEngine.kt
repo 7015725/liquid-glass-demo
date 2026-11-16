@@ -13,6 +13,7 @@ import com.flowglass.engine.BuiltInActions
 import com.flowglass.engine.BuiltInComponents
 import com.flowglass.engine.CancellationCheckpoint
 import com.flowglass.engine.ConditionEnvironment
+import com.flowglass.engine.ExecutionLayer
 import com.flowglass.engine.ParameterCodec
 import com.flowglass.engine.Rule
 import com.flowglass.engine.RuleCaller
@@ -22,7 +23,14 @@ import com.flowglass.engine.VariableSink
 import com.flowglass.engine.StepStatus as EngineStepStatus
 
 enum class StepStatus { SUCCESS, FAILURE, SKIPPED }
-data class StepResult(val itemId: Long, val name: String, val status: StepStatus, val detail: String, val durationMs: Long)
+data class StepResult(
+    val itemId: Long,
+    val name: String,
+    val status: StepStatus,
+    val detail: String,
+    val durationMs: Long,
+    val layer: ExecutionLayer? = null,
+)
 /** [output] becomes `%{...}` in later steps when the action declares an output key. */
 data class TaskOutcome(val status: StepStatus, val detail: String, val output: String? = null)
 data class RunResult(val cmdId: Long, val reason: String, val steps: List<StepResult>, val durationMs: Long, val ignored: Boolean = false) {
@@ -56,6 +64,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
     private val active = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
     private val registry = BuiltInComponents.registry()
     private val environment = AndroidConditionEnvironment(context)
+    private val layerResolver = LayerResolver()
 
     /** Resolves a target rule by name; set by [com.flowglass.demo.ui.AppState]. */
     var ruleLookup: ((String) -> Cmd?)? = null
@@ -161,6 +170,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
                 },
                 detail = step.detail,
                 durationMs = step.durationMs,
+                layer = step.layer,
             )
         }
         val capped = capSteps(cmd, steps)
@@ -212,9 +222,26 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
                 ic = cmd.ic,
                 typeId = component.type,
             )
+            var selectedLayer: ExecutionLayer? = null
             val outcome = try {
-                if (executor == null) NativeTasks.run(context, cmd, item)
-                else executor.invoke(cmd, item)
+                if (executor == null) {
+                    // Refresh only when this component declares Root; normal-only actions never
+                    // touch su. `request = false` reuses a remembered grant and never prompts.
+                    if (meta.supports.any { it.layer == ExecutionLayer.ROOT }) {
+                        LayerStatus.refresh(requestRoot = false)
+                    }
+                    val selection = layerResolver.select(meta)
+                    if (selection == null) {
+                        TaskOutcome(StepStatus.FAILURE, "缺少执行层：${layerResolver.unavailableReason(meta)}")
+                    } else {
+                        selectedLayer = selection.layer
+                        ActionLayers.run(context, cmd, item, selection)
+                    }
+                } else {
+                    // Test seam: injected executors retain their previous normal-layer behavior.
+                    selectedLayer = ExecutionLayer.NORMAL
+                    executor.invoke(cmd, item)
+                }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -228,6 +255,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
                 },
                 detail = outcome.detail,
                 output = outcome.output,
+                layer = selectedLayer,
             )
         }
     }

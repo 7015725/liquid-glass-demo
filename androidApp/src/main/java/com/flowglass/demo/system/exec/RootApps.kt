@@ -96,11 +96,16 @@ internal object RootApps {
         }
     }
 
-    suspend fun launch(context: Context, packageName: String, userId: Int): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun launch(
+        context: Context,
+        packageName: String,
+        userId: Int,
+        rootInfo: com.flowglass.demo.system.RootInfo? = null,
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             require(packagePattern.matches(packageName)) { "包名格式不正确" }
             require(userPattern.matches(userId.toString())) { "用户 id 格式不正确" }
-            val root = authorized(requestPermission = true)
+            val root = rootInfo ?: authorized(requestPermission = true)
             val component = resolveComponent(
                 shell(root, "cmd package resolve-activity --brief -c android.intent.category.LAUNCHER --user $userId $packageName"),
             ) ?: error("Root 未能解析 $packageName 的启动 Activity")

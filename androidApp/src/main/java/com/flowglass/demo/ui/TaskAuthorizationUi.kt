@@ -28,12 +28,24 @@ import com.flowglass.demo.system.SysTick
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 
-internal val RootTaskNames = setOf("执行 Shell(Root)", "开关 WiFi", "开关蓝牙")
+internal val RootTaskNames = setOf("执行 Shell(Root)")
 
 private fun bluetoothToggle(parameter: String): Boolean {
     val value = parameter.trim()
     return value == "切换" || value.equals("toggle", true)
 }
+
+/**
+ * A step needs Root only when the component declares no usable normal implementation. WiFi and
+ * Bluetooth are Root-first but still have a normal panel fallback, so they must not be marked as
+ * "Root required" just because a Root implementation exists.
+ */
+internal fun CommandItem.requiresRoot(): Boolean =
+    typeId?.let { type ->
+        val supports = CommandCatalog.meta(type)?.supports.orEmpty()
+        supports.any { it.layer == com.flowglass.engine.ExecutionLayer.ROOT } &&
+            supports.none { it.layer == com.flowglass.engine.ExecutionLayer.NORMAL }
+    } ?: (name in RootTaskNames)
 
 /**
  * The permission a step depends on. Metadata is the source of truth; the name table only keeps
@@ -55,10 +67,6 @@ internal fun CommandItem.permissionKey(): String? {
         else -> null
     }
 }
-
-/** Root is required when metadata says so, or for the shell/WiFi/Bluetooth names of old rules. */
-internal fun CommandItem.requiresRoot(): Boolean =
-    typeId?.let { CommandCatalog.meta(it)?.minTier == com.flowglass.engine.Tier.ROOT } ?: (name in RootTaskNames)
 
 /** Every permission the rule needs and the app does not hold right now. */
 internal fun Cmd.missingPermissions(ctx: Context): List<PermItem> =

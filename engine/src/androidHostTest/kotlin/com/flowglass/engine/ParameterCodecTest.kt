@@ -10,7 +10,8 @@ class ParameterCodecTest {
                        badText: String? = null, badValue: JsonElement = JsonNull) {
         assertEquals(value, ParameterCodec.parse(spec, input))
         assertEquals(display, ParameterCodec.format(spec, value))
-        val meta = ComponentMeta("test.parameter", "测试", "测试", ComponentKind.ACTION, listOf(spec))
+        val meta = ComponentMeta("test.parameter", "测试", "测试", ComponentKind.ACTION, listOf(spec),
+            supports = listOf(LayerSupport(ExecutionLayer.NORMAL)))
         assertEquals(mapOf(spec.key to value), ParameterCodec.parseComponent(meta, input))
         val document = RuleDocument(rules = listOf(Rule("id", actions = listOf(RuleComponent(meta.typeId, mapOf(spec.key to value))))))
         assertEquals(document, RuleJson.decode(RuleJson.encode(document)))

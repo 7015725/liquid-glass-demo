@@ -15,7 +15,8 @@ class EngineCoreTest {
     @Test
     fun registryRejectsDuplicateIdsAndFiltersByTier() {
         val registry = ComponentRegistry()
-        val normal = ComponentMeta("action.normal", "普通", "设备", ComponentKind.ACTION)
+        val normal = ComponentMeta("action.normal", "普通", "设备", ComponentKind.ACTION,
+            supports = listOf(LayerSupport(ExecutionLayer.NORMAL)))
         val root = normal.copy(typeId = "action.root", name = "Root", minTier = Tier.ROOT)
         registry.register(normal)
         registry.register(root)
@@ -115,8 +116,10 @@ class EngineCoreTest {
     @Test
     fun executorPreservesStopOnFailureBehavior() {
         val registry = ComponentRegistry()
-        val firstMeta = ComponentMeta("action.first", "第一步", "测试", ComponentKind.ACTION)
-        val secondMeta = ComponentMeta("action.second", "第二步", "测试", ComponentKind.ACTION)
+        val firstMeta = ComponentMeta("action.first", "第一步", "测试", ComponentKind.ACTION,
+            supports = listOf(LayerSupport(ExecutionLayer.NORMAL)))
+        val secondMeta = ComponentMeta("action.second", "第二步", "测试", ComponentKind.ACTION,
+            supports = listOf(LayerSupport(ExecutionLayer.NORMAL)))
         registry.register(firstMeta)
         registry.register(secondMeta)
         val first = Action { context, _ ->
@@ -157,6 +160,7 @@ class EngineCoreTest {
         registry.register(ComponentMeta(
             "action.echo", "回显", "测试", ComponentKind.ACTION,
             params = listOf(ParamSpec("text", "文本", ParamType.TEXT, required = true)),
+            supports = listOf(LayerSupport(ExecutionLayer.NORMAL)),
         ))
         var seen: String? = null
         val echo = Action { _, component ->

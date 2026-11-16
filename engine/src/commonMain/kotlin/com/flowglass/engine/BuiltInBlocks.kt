@@ -11,6 +11,8 @@ import kotlinx.serialization.json.JsonPrimitive
  * the nesting depth and the variable scopes.
  */
 object BuiltInBlocks {
+    private val normalLayer = listOf(LayerSupport(ExecutionLayer.NORMAL))
+
     private fun duration(key: String, label: String, millis: Long, required: Boolean = false, hint: String = "") =
         ParamSpec(key, label, ParamType.DURATION, required, JsonPrimitive(millis), hint = hint)
 
@@ -18,6 +20,7 @@ object BuiltInBlocks {
         ComponentMeta(
             "block.if", "如果", "流程控制", ComponentKind.ACTION,
             description = "条件成立时执行「就」里的步骤，否则执行「否则」；旧数据会等价转换。",
+            supports = normalLayer,
             block = BlockKind.IF,
         ),
         ComponentMeta(
@@ -29,6 +32,7 @@ object BuiltInBlocks {
                 ParamSpec("times", "次数", ParamType.INTEGER, false, JsonPrimitive(3), minValue = 1, maxValue = 1000),
             ),
             description = "按次数循环，或条件成立时一直循环；最多 1000 次。",
+            supports = normalLayer,
             block = BlockKind.LOOP,
         ),
         ComponentMeta(
@@ -38,11 +42,13 @@ object BuiltInBlocks {
                 duration("poll", "轮询间隔", 1_000, hint = "250 毫秒–5 秒；整个等待只计 1 步。"),
             ),
             description = "等待条件成立；超时后按失败处理。",
+            supports = normalLayer,
             block = BlockKind.WAIT,
         ),
         ComponentMeta(
             "block.break", "跳出循环", "流程控制", ComponentKind.ACTION,
             description = "结束最近的一层循环，只能放在循环内。",
+            supports = normalLayer,
             block = BlockKind.BREAK,
         ),
         ComponentMeta(
@@ -54,6 +60,7 @@ object BuiltInBlocks {
                 ParamSpec("message", "说明", ParamType.TEXT, false, JsonPrimitive(""), hint = "留空使用默认说明。"),
             ),
             description = "提前结束整条任务，可按成功或失败定型。",
+            supports = normalLayer,
             block = BlockKind.STOP,
         ),
         ComponentMeta(
@@ -68,6 +75,7 @@ object BuiltInBlocks {
                 ParamSpec("value", "值", ParamType.TEXT, false, JsonPrimitive("")),
             ),
             description = "赋值或做简单运算；值支持 %{变量}。",
+            supports = normalLayer,
             block = BlockKind.SET_VAR,
         ),
         ComponentMeta(
@@ -81,6 +89,7 @@ object BuiltInBlocks {
                 )),
             ),
             description = "执行另一条指令的动作；可选择等待或立即继续。",
+            supports = normalLayer,
             block = BlockKind.RUN_RULE,
         ),
     )

@@ -72,7 +72,8 @@ internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Bool
                 icon = log.ic.name,
                 detail = log.detail,
                 steps = log.steps.map { step ->
-                    PersistedLogStep(step.itemId, step.name, step.status.name, step.detail, step.durationMs)
+                    PersistedLogStep(step.itemId, step.name, step.status.name, step.detail, step.durationMs,
+                        step.layer?.name)
                 },
                 skipped = log.skipped,
                 at = log.at,
@@ -207,7 +208,12 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
         oneTaps = rules.filterNot { it.auto },
         logs = this.ui.logs.map { log ->
             RunLog(log.id, log.title, log.reason, log.time, log.ok, iconOrDefault(log.icon), log.detail,
-                log.steps.map { step -> StepResult(step.itemId, step.name, UiStepStatus.valueOf(step.status), step.detail, step.durationMs) },
+                log.steps.map { step ->
+                    StepResult(step.itemId, step.name, UiStepStatus.valueOf(step.status), step.detail,
+                        step.durationMs, step.layer?.let { name ->
+                            runCatching { com.flowglass.engine.ExecutionLayer.valueOf(name) }.getOrNull()
+                        })
+                },
                 log.skipped, at = log.at, durationMs = log.durationMs)
         },
         running = this.ui.running,

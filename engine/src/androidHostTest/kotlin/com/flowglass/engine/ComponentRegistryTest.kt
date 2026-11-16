@@ -13,6 +13,7 @@ class ComponentRegistryTest {
             name = "测试动作",
             category = "测试",
             kind = ComponentKind.ACTION,
+            supports = listOf(LayerSupport(ExecutionLayer.NORMAL)),
         )
 
         registry.register(component)
@@ -24,7 +25,8 @@ class ComponentRegistryTest {
     @Test
     fun duplicateTypeIdsAreRejected() {
         val registry = ComponentRegistry()
-        val first = ComponentMeta("action.test", "动作", "测试", ComponentKind.ACTION)
+        val first = ComponentMeta("action.test", "动作", "测试", ComponentKind.ACTION,
+            supports = listOf(LayerSupport(ExecutionLayer.NORMAL)))
         val duplicate = first.copy(name = "重复动作")
         registry.register(first)
 

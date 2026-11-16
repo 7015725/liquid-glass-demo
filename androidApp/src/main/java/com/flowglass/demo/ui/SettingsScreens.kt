@@ -48,6 +48,10 @@ import com.flowglass.demo.system.PermItem
 import com.flowglass.demo.system.Perms
 import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.SysTick
+import com.flowglass.demo.system.exec.LayerState
+import com.flowglass.demo.system.exec.LayerStatus
+import com.flowglass.demo.system.exec.label
+import com.flowglass.engine.ExecutionLayer
 import com.flowglass.demo.xposed.ModuleStatus
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -64,12 +68,14 @@ object SettingsPage {
     const val LSPosed = 3
     const val Permissions = 4
     const val Appearance = 5
+    const val Layers = 6
     fun title(p: Int) = when (p) {
         KeepAlive -> "App 保活"
         Root -> "Root 激活"
         LSPosed -> "LSPosed 激活"
         Permissions -> "权限声明管理"
         Appearance -> "外观"
+        Layers -> "执行层级"
         else -> "设置"
     }
 }
@@ -87,6 +93,7 @@ fun SettingsHost(
         SettingsPage.LSPosed -> LSPosedPage()
         SettingsPage.Permissions -> PermissionsPage()
         SettingsPage.Appearance -> AppearancePage(themeMode, onThemeModeChange)
+        SettingsPage.Layers -> LayersPage()
         else -> SettingsMain(state, themeMode)
     }
 }
@@ -260,7 +267,13 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
     val keepReady = remember(t) { keepAliveReady(ctx) }
     val granted = remember(t) { Perms.all.count { it.check(ctx) } }
     val lsposed = remember(t) { ModuleStatus.isActive() }
-    LaunchedEffect(t) { state.root = Root.check(request = false).let { if (state.root?.granted == true) state.root else it } }
+    LaunchedEffect(t) {
+        val info = Root.check(request = false)
+        state.root = if (state.root?.granted == true) state.root else info
+        LayerStatus.updateRoot(info)
+        val active = runCatching { ModuleStatus.isActive() }.getOrDefault(false)
+        LayerStatus.updateLsposed(active, systemHookReady = false)
+    }
     val root = state.root
     val modes = listOf("省电", "均衡", "极速")
 
@@ -275,6 +288,10 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
             valueColor = if (root?.granted == true) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Root }, true)
         ListRow(Row1(Ic.Puzzle, "LSPosed 激活", if (lsposed) "已激活" else "未激活", sub = "Xposed 模块增强",
             valueColor = if (lsposed) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.LSPosed }, true)
+        val layers = LayerStatus.current()
+        ListRow(Row1(Ic.Shield, "执行层级", "普通可用",
+            sub = "Root：${layers.stateOf(ExecutionLayer.ROOT).label()} · LSPosed：${layers.stateOf(ExecutionLayer.XPOSED).label()}",
+            valueColor = C.GoodText) { state.settingsPage = SettingsPage.Layers }, true)
         ListRow(Row1(Ic.Lock, "权限声明管理", "$granted/${Perms.all.size}", sub = "查看每项权限的用途并授权",
             valueColor = if (granted == Perms.all.size) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Permissions }, false)
     }
@@ -471,6 +488,53 @@ private fun LSPosedPage() {
 
 private fun state_toast(ctx: Context) {
     android.widget.Toast.makeText(ctx, "未找到 LSPosed 管理器，请从通知栏进入", android.widget.Toast.LENGTH_SHORT).show()
+}
+
+// ================================================================ execution layers
+
+@Composable
+private fun LayersPage() {
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var snapshot by remember { mutableStateOf(LayerStatus.current()) }
+    LaunchedEffect(Unit) { snapshot = LayerStatus.refresh(requestRoot = false) }
+    var k = 0
+    StatusCard(
+        k++, Ic.Shield, "执行层级",
+        if (snapshot.normal == LayerState.READY) "普通可用" else "不可用",
+        snapshot.normal == LayerState.READY,
+        "普通", "层",
+        listOf(
+            "Root ${snapshot.stateOf(ExecutionLayer.ROOT).label()}",
+            "LSPosed ${snapshot.stateOf(ExecutionLayer.XPOSED).label()}",
+        ),
+        busy = busy,
+        action = {
+            PrimaryButton("刷新状态", Ic.Refresh, {
+                if (!busy) scope.launch {
+                    busy = true
+                    snapshot = LayerStatus.refresh(requestRoot = false)
+                    busy = false
+                }
+            }, Modifier.fillMaxWidth())
+        },
+    )
+    GroupTitle("各层状态", k++)
+    GroupCard(k++) {
+        ListRow(Row1(Ic.Shield, "普通", snapshot.normal.label(),
+            sub = "应用进程内实现；具体权限按组件声明检查",
+            valueColor = if (snapshot.normal == LayerState.READY) C.GoodText else C.Muted), true)
+        ListRow(Row1(Ic.Key, "Root", snapshot.stateOf(ExecutionLayer.ROOT).label(),
+            sub = snapshot.details[ExecutionLayer.ROOT] ?: "未检测",
+            valueColor = if (snapshot.stateOf(ExecutionLayer.ROOT) == LayerState.READY) C.GoodText else C.Muted), true)
+        ListRow(Row1(Ic.Puzzle, "LSPosed", snapshot.stateOf(ExecutionLayer.XPOSED).label(),
+            sub = snapshot.details[ExecutionLayer.XPOSED] ?: "未检测",
+            valueColor = if (snapshot.stateOf(ExecutionLayer.XPOSED) == LayerState.READY) C.GoodText else C.Muted), false)
+    }
+    NoteCard(
+        k++,
+        "动作按 Root → 普通选择，事件触发器按 LSPosed → Root → 普通选择。Root 自动路径只复用已有授权，不主动弹授权框；LSPosed 只有在系统前台钩子就绪后才算可用。",
+    )
 }
 
 @Composable

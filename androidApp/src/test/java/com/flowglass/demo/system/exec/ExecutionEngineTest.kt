@@ -3,6 +3,7 @@ package com.flowglass.demo.system.exec
 import com.flowglass.demo.ui.Cmd
 import com.flowglass.demo.ui.CommandItem
 import com.flowglass.demo.ui.Ic
+import com.flowglass.engine.ExecutionLayer
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
@@ -87,6 +88,14 @@ class ExecutionEngineTest {
         assertEquals(listOf(12L), invoked)
         assertTrue(result.ok)
         assertEquals(listOf(StepStatus.SUCCESS), result.steps.map { it.status })
+    }
+
+    @Test fun injectedActionRecordsTheNormalLayerInTheStepLog() = runTest {
+        val result = ExecutionEngine(RuntimeEnvironment.getApplication()) { _, _ ->
+            TaskOutcome(StepStatus.SUCCESS, "完成")
+        }.run(command(1), "测试")
+
+        assertEquals(ExecutionLayer.NORMAL, result.steps.single().layer)
     }
 
     @Test fun aRepeatedInstructionIsIgnoredUntilTheFirstRunFinishes() = runTest {

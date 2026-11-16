@@ -167,7 +167,7 @@ object LaunchableApps {
      * Launches the target. A profile target never silently falls back to the same package in the
      * current profile: if enumeration or the launch fails, the caller gets the actionable error.
      */
-    suspend fun launch(context: Context, requested: String): String {
+    suspend fun launch(context: Context, requested: String, allowRootFallback: Boolean = true): String {
         val (packageName, userId) = parseLaunchTarget(requested)
         if (userId == null) {
             val intent = withContext(Dispatchers.IO) {
@@ -189,12 +189,24 @@ object LaunchableApps {
 
         val direct = runCatching { launchWithLauncher(context, packageName, userId, requested) }
         if (direct.isSuccess) return direct.getOrThrow()
+        if (!allowRootFallback) {
+            throw IllegalStateException(
+                "普通层启动分身失败：${direct.exceptionOrNull()?.message ?: "未知原因"}",
+            )
+        }
         val root = runCatching { RootApps.launch(context, packageName, userId) }
         if (root.isSuccess) return "已启动应用：$requested（Root）"
         throw IllegalStateException(
             "LauncherApps 启动失败：${direct.exceptionOrNull()?.message ?: "未知原因"}；" +
                 "Root 启动失败：${root.exceptionOrNull()?.message ?: "未知原因"}",
         )
+    }
+
+    /** Root-layer launch, using an already selected grant instead of probing Root again. */
+    suspend fun launchRoot(context: Context, requested: String, root: com.flowglass.demo.system.RootInfo) {
+        val (packageName, userId) = parseLaunchTarget(requested)
+        val result = RootApps.launch(context, packageName, userId ?: 0, root)
+        check(result.isSuccess) { result.exceptionOrNull()?.message ?: "Root 启动失败" }
     }
 
     private suspend fun launchWithLauncher(

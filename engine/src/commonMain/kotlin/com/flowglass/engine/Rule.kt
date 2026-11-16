@@ -147,6 +147,9 @@ data class PersistedLogStep(
     val status: String,
     val detail: String,
     val durationMs: Long,
+    /** Execution layer name; null for legacy rows or engine-internal steps. */
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val layer: String? = null,
 )
 
 object RuleFactory {

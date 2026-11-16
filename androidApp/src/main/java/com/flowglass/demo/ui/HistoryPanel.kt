@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.flowglass.demo.system.exec.StepStatus
+import com.flowglass.demo.system.exec.label
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
@@ -137,7 +138,7 @@ private fun HistoryRow(log: RunLog, open: Boolean, onToggle: () -> Unit) {
                             T(step.detail, 12.sp, color = C.OnSurfaceVar, lineHeight = 17.sp)
                         }
                         Spacer(Modifier.width(8.dp))
-                        T("${step.durationMs} ms", 11.sp, color = C.Muted, tabular = true)
+                        T("${step.layer?.label() ?: "未记录"} · ${step.durationMs} ms", 11.sp, color = C.Muted, tabular = true)
                     }
                 }
             }

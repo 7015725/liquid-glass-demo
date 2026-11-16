@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.flowglass.demo.system.exec.StepStatus
+import com.flowglass.demo.system.exec.label
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 
@@ -51,7 +52,7 @@ internal fun RunLogPanel(log: RunLog, backdrop: Backdrop, onClose: () -> Unit) {
                         T(status, 12.sp, FontWeight.SemiBold, color)
                     }
                     T(step.detail, 13.sp, color = C.OnSurfaceVar)
-                    T("耗时 ${step.durationMs} ms", 12.sp, color = C.Muted)
+                    T("层：${step.layer?.label() ?: "未记录"} · 耗时 ${step.durationMs} ms", 12.sp, color = C.Muted)
                 }
             }
         }
