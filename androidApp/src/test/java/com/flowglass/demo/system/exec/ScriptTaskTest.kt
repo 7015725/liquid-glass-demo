@@ -1,0 +1,114 @@
+package com.flowglass.demo.system.exec
+
+import com.flowglass.demo.ui.Cmd
+import com.flowglass.demo.ui.CommandItem
+import com.flowglass.demo.ui.Ic
+import com.flowglass.engine.ScriptVariableAccess
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
+class ScriptTaskTest {
+    private fun variables(): Pair<ScriptVariableAccess, MutableMap<String, Any?>> {
+        val map = linkedMapOf<String, Any?>()
+        return object : ScriptVariableAccess {
+            override fun read(name: String): Any? = map[name]
+            override fun write(name: String, value: Any?) { map[name] = value }
+        } to map
+    }
+
+    private fun task(script: String, timeout: Int = 10) = CommandItem(
+        id = 1,
+        name = "执行脚本",
+        parameter = buildJsonObject {
+            put("script", JsonPrimitive(script))
+            put("timeout", JsonPrimitive(timeout))
+        }.toString(),
+        ic = Ic.Bolt,
+        typeId = "action.script",
+    )
+
+    private fun command(item: CommandItem) = Cmd(
+        id = 1,
+        auto = false,
+        ic = Ic.Bolt,
+        title = "脚本测试",
+        desc = "",
+        actions = listOf(item),
+    )
+
+    @Test
+    fun readsAndWritesRunAndGlobalVariables() {
+        val (access, map) = variables()
+        val result = ScriptTask.run(
+            RuntimeEnvironment.getApplication(),
+            command(task("set('run.count', Number(get('run.count') || 0) + 1); set('global.last', 'ok'); get('run.count') + '-done';")),
+            task("set('run.count', Number(get('run.count') || 0) + 1); set('global.last', 'ok'); get('run.count') + '-done';"),
+            access,
+        )
+
+        assertTrue(result.detail, result.status == StepStatus.SUCCESS)
+        assertEquals(1L, map["run.count"])
+        assertEquals("ok", map["global.last"])
+        assertEquals("1-done", result.output)
+    }
+
+    @Test
+    fun infiniteScriptStopsAtTheConfiguredTimeout() {
+        val started = System.nanoTime()
+        val result = ScriptTask.run(
+            RuntimeEnvironment.getApplication(),
+            command(task("while (true) {}", timeout = 1)),
+            task("while (true) {}", timeout = 1),
+            null,
+        )
+
+        assertFalse(result.detail, result.status == StepStatus.SUCCESS)
+        assertTrue(result.detail, result.detail.contains("超时"))
+        assertTrue("timeout took too long", System.nanoTime() - started < 4_000_000_000L)
+    }
+
+    @Test
+    fun javaClassesAndReflectionAreBlocked() {
+        val result = ScriptTask.run(
+            RuntimeEnvironment.getApplication(),
+            command(task("var c = this.getClass().getName(); c;")),
+            task("var c = this.getClass().getName(); c;"),
+            null,
+        )
+
+        assertFalse(result.detail, result.status == StepStatus.SUCCESS)
+        assertTrue(result.detail, result.detail.contains("脚本"))
+    }
+
+    @Test
+    fun executionEngineRunsScriptThroughTheRealParameterCodec() = kotlinx.coroutines.runBlocking {
+        val item = CommandItem(2, "执行脚本", "log('engine'); 7;", Ic.Bolt, "action.script")
+        val result = ExecutionEngine(RuntimeEnvironment.getApplication()).run(command(item), "测试")
+
+        assertTrue(result.detail, result.ok)
+        assertTrue(result.detail, result.detail.contains("7"))
+    }
+
+    @Test
+    fun scriptExceptionReturnsAReadableMessage() {
+        val result = ScriptTask.run(
+            RuntimeEnvironment.getApplication(),
+            command(task("throw new Error('boom');")),
+            task("throw new Error('boom');"),
+            null,
+        )
+
+        assertFalse(result.detail, result.status == StepStatus.SUCCESS)
+        assertTrue(result.detail, result.detail.contains("boom"))
+    }
+}

@@ -51,7 +51,9 @@ class CanonicalLegacyMatrixTest {
             "action.airplane_mode" to "开启", "action.mobile_data" to "开启",
         )
         // Task-chain blocks did not exist in v0.5, so they have no legacy text form.
-        val legacyComponents = BuiltInComponents.all.filter { it.block == null }
+        val legacyComponents = BuiltInComponents.all.filter {
+            it.block == null && it.typeId != "action.script" // introduced in 0.8, no v0.5 form
+        }
         assertEquals(expected.keys, legacyComponents.map { it.typeId }.toSet())
         for (meta in legacyComponents) {
             val text = expected.getValue(meta.typeId)

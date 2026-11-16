@@ -22,3 +22,7 @@
 # LSPosed module entry + status probe
 -keep class com.flowglass.demo.xposed.** { *; }
 -dontwarn de.robv.android.xposed.**
+
+# Rhino loads interpreter classes reflectively; keep the engine intact in release builds.
+-keep class org.mozilla.javascript.** { *; }
+-dontwarn org.mozilla.javascript.**

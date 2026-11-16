@@ -30,6 +30,13 @@ data class CommandItem(
         val text = when (typeId) {
             "action.post_notification" -> notificationDisplayText(parameter)
             "action.toast" -> toastDisplayText(parameter)
+            "action.script" -> runCatching {
+                val script = kotlinx.serialization.json.Json.parseToJsonElement(parameter)
+                    .let { (it as? kotlinx.serialization.json.JsonObject) }
+                    ?.get("script")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+                    ?: parameter
+                "JavaScript · ${script.lineSequence().count()} 行"
+            }.getOrDefault("JavaScript")
             "trigger.time" -> parameter.split('|').joinToString(" · ")
             "trigger.battery_level" -> parameter.split('|').joinToString(" ").trim()
             "trigger.location_enter", "trigger.location_exit" ->

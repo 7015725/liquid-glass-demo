@@ -8,14 +8,21 @@ import android.provider.Settings
 import com.flowglass.demo.ui.Cmd
 import com.flowglass.demo.ui.CommandItem
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
+import com.flowglass.engine.ScriptVariableAccess
 
 /**
  * Normal-layer action implementations. They must never probe Root; Root is a separate handler
  * selected by [LayerResolver], so a normal fallback cannot accidentally re-enter the Root path.
  */
 internal object NormalTasks {
-    suspend fun run(context: Context, cmd: Cmd, task: CommandItem): TaskOutcome {
+    suspend fun run(
+        context: Context,
+        cmd: Cmd,
+        task: CommandItem,
+        scriptVariables: ScriptVariableAccess? = null,
+    ): TaskOutcome {
         val typeId = task.typeId ?: com.flowglass.engine.BuiltInActions.metadata
             .firstOrNull { it.name == task.name }?.typeId
         return when (typeId) {
@@ -96,6 +103,9 @@ internal object NormalTasks {
                 require(requested.isNotEmpty()) { "参数格式不正确：期望 应用包名或应用名称" }
                 val detail = LaunchableApps.launch(context, requested, allowRootFallback = false)
                 TaskOutcome(StepStatus.SUCCESS, detail)
+            }
+            "action.script" -> withContext(Dispatchers.Default) {
+                runInterruptible { ScriptTask.run(context, cmd, task, scriptVariables) }
             }
             "action.http_request" -> HttpTask.run(TaskParameters.http(task.parameter))
             // Root-only actions deliberately have no normal implementation. The resolver never

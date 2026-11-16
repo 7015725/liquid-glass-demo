@@ -70,6 +70,24 @@ object BuiltInActions {
                 hint = "格式：非空 Shell 命令，执行前需要 Root 授权。变量值会先写入 FG_Vn 再以引用形式使用；请只执行你理解其作用的命令。",
                 expansion = ParamExpansion.SHELL_QUOTED)),
             minTier = Tier.ROOT, supports = rootLayer, outputs = listOf("shell.stdout")),
+        ComponentMeta("action.script", "执行脚本", "脚本", ComponentKind.ACTION,
+            listOf(
+                ParamSpec("script", "脚本", ParamType.MULTILINE_TEXT, true,
+                    JsonPrimitive("log(\"hello\");\n\"done\";"),
+                    hint = "JavaScript（Rhino）。示例：\n" +
+                        "log(\"开始\");\n" +
+                        "var count = get(\"run.count\") || \"0\";\n" +
+                        "set(\"run.count\", Number(count) + 1);\n" +
+                        "set(\"global.lastScript\", \"ok\");\n" +
+                        "\"完成\";\n" +
+                        "可用 API：get(name)、set(name, value)、log(text)、toast(text)、notify(title, text)、http(method, url, body?)、sleep(ms)。" +
+                        "变量名可带 run. / rule. / global. 前缀；裸名写入运行级。脚本不能访问 Java 类、反射或文件系统。"),
+                ParamSpec("timeout", "超时", ParamType.INTEGER, false, JsonPrimitive(10),
+                    minValue = 1, maxValue = 60, suffix = "秒",
+                    hint = "默认 10 秒；超时会中断脚本并把该动作标记为失败。"),
+            ),
+            outputs = listOf("script.result"), supports = normalLayer,
+            description = "在沙箱中执行 JavaScript，返回值写入 %{script.result}。"),
         ComponentMeta("action.http_request", "HTTP 请求", "网络", ComponentKind.ACTION,
             listOf(parameter("request", "请求", ParamType.MULTILINE_TEXT, "GET https://example.com", false,
                 hint = "格式：GET <URL> 或 POST <URL> <内容>；GET 不带正文，POST 内容可换行。",

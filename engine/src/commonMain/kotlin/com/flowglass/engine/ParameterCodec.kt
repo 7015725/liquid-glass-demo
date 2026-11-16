@@ -156,6 +156,7 @@ object ParameterCodec {
     }
 
     fun parseComponent(meta: ComponentMeta, text: String): Map<String, JsonElement> {
+        if (meta.typeId == "action.script") return parseScript(meta, text)
         if (meta.typeId == "action.post_notification") return parseNotification(meta, text)
         if (meta.typeId == "action.toast") return parseToast(meta, text)
         // v0.5 location rules stored a free-form label such as "公司"; keep them editable rather
@@ -172,6 +173,19 @@ object ParameterCodec {
         }
         val spec = meta.params.single()
         return mapOf(spec.key to parse(spec, text))
+    }
+
+    private fun parseScript(meta: ComponentMeta, text: String): Map<String, JsonElement> {
+        val structured = jsonObjectOrNull(text)?.takeIf { it.containsKey("script") }
+        if (structured != null) {
+            val script = stringField(meta, "script", structured["script"]?.jsonPrimitive?.contentOrNull ?: "")
+            val timeout = stringField(meta, "timeout", structured["timeout"]?.jsonPrimitive?.contentOrNull ?: "10")
+            return mapOf("script" to script, "timeout" to timeout)
+        }
+        return mapOf(
+            "script" to parse(meta.params.single { it.key == "script" }, text),
+            "timeout" to JsonPrimitive(10),
+        )
     }
 
     private fun parseNotification(meta: ComponentMeta, text: String): Map<String, JsonElement> {
@@ -216,6 +230,12 @@ object ParameterCodec {
         parse(meta.params.single { it.key == key }, raw ?: fallback)
 
     fun formatComponent(meta: ComponentMeta, params: Map<String, JsonElement>): String {
+        if (meta.typeId == "action.script") {
+            return buildJsonObject {
+                put("script", JsonPrimitive(format(meta.params.single { it.key == "script" }, params["script"])))
+                put("timeout", JsonPrimitive(format(meta.params.single { it.key == "timeout" }, params["timeout"])))
+            }.toString()
+        }
         if (meta.typeId == "action.post_notification") {
             fun field(key: String) = format(meta.params.single { it.key == key }, params[key])
             val title = field("title")

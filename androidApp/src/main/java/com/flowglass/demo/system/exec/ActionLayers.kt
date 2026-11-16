@@ -18,7 +18,7 @@ internal object ActionLayers {
         "action.http_request", "action.vibrate", "action.flashlight", "action.ringer_mode",
         "action.media_control", "action.open_url", "action.speak", "action.toast",
         "action.screen_timeout", "action.auto_rotate", "action.global_action",
-        "action.airplane_mode", "action.mobile_data",
+        "action.airplane_mode", "action.mobile_data", "action.script",
     )
 
     val rootTypes: Set<String> = setOf(
@@ -39,8 +39,9 @@ internal object ActionLayers {
         cmd: Cmd,
         task: CommandItem,
         selection: LayerSelection,
+        scriptVariables: com.flowglass.engine.ScriptVariableAccess? = null,
     ): TaskOutcome = when (selection.layer) {
-        ExecutionLayer.NORMAL -> NormalTasks.run(context, cmd, task)
+        ExecutionLayer.NORMAL -> NormalTasks.run(context, cmd, task, scriptVariables)
         ExecutionLayer.ROOT -> {
             val root = selection.rootInfo
                 ?: return TaskOutcome(StepStatus.FAILURE, "Root 层已选中，但授权信息缺失")
