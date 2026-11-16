@@ -1,5 +1,6 @@
 package com.flowglass.demo.ui
 
+import com.flowglass.engine.ApplicationScope
 import com.flowglass.engine.BuiltInComponents
 import com.flowglass.engine.ParamEditor
 import com.flowglass.engine.ParamSource
@@ -54,5 +55,14 @@ class ParamEditorMappingTest {
         assertEquals(ParamSource.PAIRED_BLUETOOTH, bluetooth.source)
         val wifi = requireNotNull(registry.find("trigger.wifi")).params.single { it.key == "ssid" }
         assertEquals(ParamSource.WIFI_NETWORKS, wifi.source)
+    }
+
+    @Test fun foregroundApplicationScopeIsDeclaredByTheParameterNotTheComponentId() {
+        val foreground = requireNotNull(registry.find("trigger.app_foreground")).params.single { it.key == "package" }
+        assertEquals(ApplicationScope.CURRENT_PROFILE, foreground.applicationScope)
+        assertEquals(ApplicationScope.ALL_PROFILES,
+            requireNotNull(registry.find("trigger.notification")).params.single { it.key == "app" }.applicationScope)
+        assertEquals(ApplicationScope.ALL_PROFILES,
+            requireNotNull(registry.find("action.launch_app")).params.single { it.key == "package" }.applicationScope)
     }
 }

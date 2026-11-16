@@ -12,6 +12,7 @@ object BuiltInComponents {
         options: List<ParamOption> = emptyList(),
         hint: String = "",
         source: ParamSource = ParamSource.NONE,
+        applicationScope: ApplicationScope = ApplicationScope.ALL_PROFILES,
     ) = ParamSpec(key, label, type, required, when (type) {
         ParamType.PERCENTAGE -> JsonPrimitive(default.removeSuffix("%").toInt())
         ParamType.TIME_RANGE -> kotlinx.serialization.json.buildJsonObject {
@@ -25,7 +26,8 @@ object BuiltInComponents {
         minValue = if (type == ParamType.INT_RANGE) 0 else null,
         maxValue = if (type == ParamType.INT_RANGE) 100 else null,
         suffix = if (type == ParamType.INT_RANGE) "%" else "",
-        source = source)
+        source = source,
+        applicationScope = applicationScope)
 
     private val allWeekdays = "1,2,3,4,5,6,7"
 
@@ -83,7 +85,9 @@ object BuiltInComponents {
             listOf(
                 param("state", "状态", "foreground", ParamType.ENUM, required = true, options = listOf(
                     ParamOption("foreground", "切到前台"), ParamOption("background", "离开前台"))),
-                param("package", "应用", "应用包名", ParamType.APPLICATION, required = true),
+                param("package", "应用", "应用包名", ParamType.APPLICATION, required = true,
+                    hint = "只列出当前资料的主应用；应用前台触发器暂不能可靠识别分身。",
+                    applicationScope = ApplicationScope.CURRENT_PROFILE),
             ), permissions = listOf("foreground_app")),
         ComponentMeta("trigger.headset", "耳机插入/拔出", "设备", ComponentKind.TRIGGER,
             listOf(

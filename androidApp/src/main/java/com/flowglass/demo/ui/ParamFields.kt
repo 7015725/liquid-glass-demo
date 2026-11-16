@@ -64,8 +64,8 @@ internal fun ParamField(
             ParamEditor.WEEKDAYS -> WeekdayField(current, onValue)
             ParamEditor.APPLICATION -> ApplicationParameterPicker(
                 current = current,
+                spec = spec,
                 stateKey = tag,
-                searchTag = "$tag-search",
                 onParameter = onValue,
             )
             ParamEditor.RULE -> RuleField(targets, current, tag, onValue)
