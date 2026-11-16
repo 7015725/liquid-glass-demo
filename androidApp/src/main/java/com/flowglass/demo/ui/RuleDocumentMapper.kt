@@ -17,6 +17,7 @@ import com.flowglass.engine.Rule
 import com.flowglass.engine.RuleBranch
 import com.flowglass.engine.RuleComponent
 import com.flowglass.engine.RuleDocument
+import com.flowglass.engine.normalizeElseIfBranches
 import com.flowglass.engine.RulePresentation
 import com.flowglass.engine.RuleUiMetadata
 import kotlinx.serialization.json.JsonElement
@@ -158,7 +159,7 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
         }
         val triggers = items(rule.triggers, sidecar.triggers)
         val conditions = items(rule.conditions, sidecar.conditions)
-        val actions = items(rule.actions, sidecar.actions)
+        val actions = items(rule.actions.map { it.normalizeElseIfBranches() }, sidecar.actions)
         val command = Cmd(
             id = commandId,
             auto = auto,

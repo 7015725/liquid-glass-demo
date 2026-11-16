@@ -83,7 +83,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
     RefreshEditorRoot(state, cmd)
     val context = androidx.compose.ui.platform.LocalContext.current
     val tick = com.flowglass.demo.system.SysTick.tick
-    val issues = state.validationIssues(cmd)
+    val issues = state.validationItems(cmd)
     var panel by remember { mutableStateOf<EditorPanel?>(null) }
     var moreOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -150,6 +150,10 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                             Modifier.width(200.dp).clip(RoundedRectangle(18.dp)).background(C.Card).padding(6.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
+                            MenuEntry("编辑描述", enabled = true) {
+                                moreOpen = false
+                                panel = EditorPanel.Description
+                            }
                             MenuEntry("变量", enabled = true) {
                                 moreOpen = false
                                 panel = EditorPanel.Variables
@@ -178,38 +182,21 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 }
             }
         }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            BasicTextField(
-                cmd.desc, { state.setDescription(cmd.id, it) },
-                Modifier.weight(1f).testTag("editor-description"),
-                textStyle = TextStyle(color = C.OnSurfaceVar, fontSize = 13.sp, lineHeight = 18.sp),
-                maxLines = 2,
-                cursorBrush = SolidColor(C.Primary),
-                decorationBox = { inner ->
-                    Box {
-                        if (cmd.desc.isEmpty()) T("添加描述", 13.sp, color = C.Muted, maxLines = 2)
-                        inner()
-                    }
-                },
-            )
-            if (cmd.auto) {
-                Spacer(Modifier.width(8.dp))
+        if (cmd.descriptionEdited && cmd.desc.isNotBlank()) {
+            T(cmd.desc, 13.sp, color = C.OnSurfaceVar, maxLines = 2, lineHeight = 18.sp)
+        }
+        if (cmd.auto) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 ListenStatePill(cmd.listenState(state.running, context))
-                Spacer(Modifier.width(8.dp))
-                AutoEnableToggle(state, cmd, context, issues)
+                Spacer(Modifier.weight(1f))
+                AutoEnableToggle(state, cmd, context, issues.map { it.text })
             }
         }
         StorageErrorNotice(state.storageError)
         state.editorNotice?.let { notice ->
             NoticeCard(notice, C.Mid, C.MidSoft) { state.editorNotice = null }
         }
-        if (issues.isNotEmpty()) {
-            NoticeCard(
-                "任务还不完整：" + issues.take(3).joinToString("；") +
-                    if (issues.size > 3) "；等 ${issues.size} 项" else "",
-                C.Bad, C.BadSoft,
-            )
-        }
+        ValidationBanner(state, cmd, issues)
         MissingPermissionNotice(cmd) { onAuthorization(SettingsPage.Permissions) }
         val sections = if (cmd.auto) CommandSection.entries else listOf(CommandSection.ACTIONS)
         sections.forEachIndexed { i, section ->
@@ -232,47 +219,11 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 } else {
                     cmd.items(section).forEachIndexed { index, item ->
                         key(item.id) {
-                            val itemMeta = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
-                            Column(Modifier.fillMaxWidth().testTag("item-${item.id}").animatePlacement().staggerIn(index)
-                                .clip(RoundedRectangle(24.dp)).background(C.Tonal)
-                                .editorAction("编辑${item.name}") {
-                                    if (section == CommandSection.ACTIONS) {
-                                        state.actionEditingCmd = cmd.id
-                                        state.actionEditing = item.id
-                                    } else {
-                                        panel = EditorPanel.Parameter(section, item.id)
-                                    }
-                                }
-                                .padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    LineIcon(item.ic, C.Primary, 22.dp)
-                                    Spacer(Modifier.width(10.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        T(item.name, 15.sp, FontWeight.SemiBold)
-                                        T(itemParameterLabel(section, item), 13.sp, color = C.OnSurfaceVar)
-                                    }
-                                }
-                                if (section != CommandSection.ACTIONS && itemMeta?.comingSoon == true) {
-                                    T("即将支持，暂不会自动运行", 11.sp, color = C.Mid)
-                                }
-                                FlowRow(
-                                    Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    TaskAuthorizationBadge(state, section, item) { destination ->
-                                        panel = null
-                                        onAuthorization(destination)
-                                    }
-                                    if (index > 0) EditorIconButton(Ic.ArrowUp, "上移第${index + 1}项") {
-                                        state.moveItem(cmd.id, section, item.id, -1)
-                                    }
-                                    if (index < cmd.items(section).lastIndex) EditorIconButton(Ic.ArrowDown, "下移第${index + 1}项") {
-                                        state.moveItem(cmd.id, section, item.id, 1)
-                                    }
-                                    EditorIconButton(Ic.Trash, "删除第${index + 1}项") { state.removeItem(cmd.id, section, item.id) }
-                                }
-                            }
+                            ConfigItemRow(
+                                state = state, cmd = cmd, section = section, item = item,
+                                index = index, lastIndex = cmd.items(section).lastIndex,
+                                onPanel = { panel = it },
+                            )
                         }
                     }
                 }
@@ -305,6 +256,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
             is EditorPanel.Add -> "添加${active.section.label}"
             is EditorPanel.Parameter -> "编辑参数"
             is EditorPanel.Move -> "移动到…"
+            EditorPanel.Description -> "编辑描述"
             EditorPanel.Icons -> "选择图标"
             EditorPanel.Variables -> "变量"
         },
@@ -348,6 +300,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                         onAuthorization = { destination -> panel = null; onAuthorization(destination) })
                 }
                 is EditorPanel.Move -> MoveToPanel(state, cmd, active.sourceId) { panel = null }
+                EditorPanel.Description -> DescriptionPanel(state, cmd) { panel = null }
                 EditorPanel.Variables -> VariablePanel(state, cmd)
             }
         }
@@ -365,11 +318,6 @@ private fun BlockPage(
 ) {
     val meta = block.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
     val kind = meta?.block
-    val nested = block.conditions.size + block.children.size +
-        block.branches.sumOf { it.children.size + it.conditions.size }
-    val issues = state.blockValidationIssues(cmd, block.id)
-    val timesLoop = kind == com.flowglass.engine.BlockKind.LOOP &&
-        block.parameter.substringBefore('|') in listOf("按次数", "times")
     val crumbs = buildList {
         add(cmd.title)
         state.blockPath.forEach { id -> cmd.actions.findActionNode(id)?.let { add(it.name) } }
@@ -383,7 +331,7 @@ private fun BlockPage(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             EditorIconButton(Ic.Back, "返回上一级") { state.backBlock() }
             Spacer(Modifier.width(8.dp))
-            T("块编辑", 20.sp, FontWeight.Bold, modifier = Modifier.weight(1f))
+            T(block.name, 20.sp, FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             crumbs.forEachIndexed { index, label ->
@@ -400,106 +348,223 @@ private fun BlockPage(
                 if (index < crumbs.lastIndex) T("›", 14.sp, color = C.Muted)
             }
         }
-        Column(
-            Modifier.fillMaxWidth().clip(RoundedRectangle(28.dp)).background(C.Card).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                LineIcon(block.ic, C.Primary, 24.dp)
-                Spacer(Modifier.width(10.dp))
-                T(block.name, 20.sp, FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
-            }
-            T(ActionSummary.summarize(block, nested, true), 14.sp, color = C.OnSurfaceVar, maxLines = 3)
-            T(ActionSummary.blockPreview(block), 12.sp, color = C.Muted, maxLines = 2)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                EditorPill("编辑参数", "编辑${block.name}参数") {
-                    onPanel(EditorPanel.Parameter(CommandSection.ACTIONS, block.id))
-                }
-            }
-        }
-        if (issues.isNotEmpty()) {
-            NoticeCard(
-                "块内有 ${issues.size} 个问题：" + issues.take(3).joinToString("；") +
-                    if (issues.size > 3) "；等 ${issues.size} 项" else "",
-                C.Bad, C.BadSoft,
-            )
-        }
-        if (block.conditions.isNotEmpty()) {
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(C.Card).padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                T("条件", 15.sp, FontWeight.SemiBold)
-                block.conditions.forEachIndexed { index, condition ->
-                    ConditionLine(
-                        state = state, cmd = cmd, item = block, branch = null,
-                        conditionIndex = index, condition = condition, onPanel = onPanel,
-                    )
-                }
-            }
-        }
-        if (kind == com.flowglass.engine.BlockKind.IF || kind == com.flowglass.engine.BlockKind.WAIT ||
-            (kind == com.flowglass.engine.BlockKind.LOOP && !timesLoop)
-        ) {
-            EditorPill("添加条件", "为${block.name}添加条件") {
-                onPanel(EditorPanel.Add(CommandSection.CONDITIONS, block.id))
-            }
-        }
-        if (kind != com.flowglass.engine.BlockKind.WAIT) {
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedRectangle(28.dp)).background(C.Card).padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    T("内部步骤", 18.sp, FontWeight.Bold, modifier = Modifier.weight(1f))
-                    T("${block.children.size}", 12.sp, color = C.Muted)
-                }
-                if (block.children.isEmpty()) T("还没有步骤", 13.sp, color = C.Muted)
-                ActionList(
-                    state = state, cmd = cmd, items = block.children, depth = 0,
-                    parentId = block.id, branch = null, onPanel = onPanel,
-                    cards = true, onOpenBlock = { state.openBlock(it) },
-                )
-                BlockAddButton(
-                    label = "向${block.name}添加内容",
-                    tag = "block-page-add-${block.id}",
-                    entries = blockAddEntries(state, cmd, block, kind, timesLoop, branch = null, onPanel = onPanel),
-                )
-            }
-        }
-        if (kind == com.flowglass.engine.BlockKind.IF) {
-            block.branches.forEachIndexed { branchIndex, branch ->
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(C.Card).padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        T(if (branch.conditions.isEmpty()) "否则" else "否则如果 ${branchIndex + 1}", 17.sp, FontWeight.Bold,
-                            modifier = Modifier.weight(1f))
-                        T("${branch.children.size} 步", 12.sp, color = C.Muted)
-                    }
-                    branch.conditions.forEachIndexed { conditionIndex, condition ->
-                        ConditionLine(
-                            state = state, cmd = cmd, item = block, branch = branchIndex,
-                            conditionIndex = conditionIndex, condition = condition, onPanel = onPanel,
-                        )
-                    }
-                    if (branch.children.isEmpty()) T("还没有步骤", 13.sp, color = C.Muted)
-                    ActionList(
-                        state = state, cmd = cmd, items = branch.children, depth = 0,
-                        parentId = block.id, branch = branchIndex, onPanel = onPanel,
-                        cards = true, onOpenBlock = { state.openBlock(it) },
-                    )
-                    BlockAddButton(
-                        label = "向该分支添加内容",
-                        tag = "block-page-branch-add-${block.id}-$branchIndex",
-                        entries = blockAddEntries(state, cmd, block, kind, timesLoop, branchIndex, onPanel),
-                    )
-                }
-            }
+        ValidationBanner(
+            state, cmd,
+            state.validationItems(cmd).filter { issue ->
+                issue.ownerId?.let { owner -> state.blockPathTo(owner)?.contains(block.id) == true } == true
+            },
+        )
+        when (kind) {
+            com.flowglass.engine.BlockKind.IF -> IfBlockSections(state, cmd, block, onPanel)
+            com.flowglass.engine.BlockKind.LOOP -> LoopBlockSections(state, cmd, block, onPanel)
+            com.flowglass.engine.BlockKind.WAIT -> WaitBlockSections(state, cmd, block, onPanel)
+            else -> Unit
         }
         Spacer(Modifier.height(16.dp))
     }
+}
+
+@Composable
+private fun PageSection(title: String, tag: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().testTag(tag).clip(RoundedRectangle(26.dp)).background(C.Card).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        T(title, 18.sp, FontWeight.Bold)
+        content()
+    }
+}
+
+@Composable
+private fun ConditionSection(
+    state: AppState,
+    cmd: Cmd,
+    block: CommandItem,
+    onPanel: (EditorPanel) -> Unit,
+) {
+    if (block.conditions.isEmpty()) T("还没有条件", 13.sp, color = C.Muted)
+    block.conditions.forEachIndexed { index, condition ->
+        ConditionLine(
+            state = state, cmd = cmd, item = block, branch = null,
+            conditionIndex = index, condition = condition, onPanel = onPanel,
+        )
+    }
+    EditorPill("＋ 添加条件", "添加条件") {
+        onPanel(EditorPanel.Add(CommandSection.CONDITIONS, block.id))
+    }
+}
+
+@Composable
+private fun StepSection(
+    state: AppState,
+    cmd: Cmd,
+    items: List<CommandItem>,
+    parentId: Long,
+    branch: Int?,
+    addTag: String,
+    addLabel: String,
+    onPanel: (EditorPanel) -> Unit,
+) {
+    if (items.isEmpty()) T("还没有步骤", 13.sp, color = C.Muted)
+    ActionList(
+        state = state, cmd = cmd, items = items, depth = 0,
+        parentId = parentId, branch = branch, onPanel = onPanel,
+        cards = true, onOpenBlock = { state.openBlock(it) },
+    )
+    BlockAddButton(
+        label = addLabel,
+        tag = addTag,
+        entries = listOf("步骤" to { onPanel(EditorPanel.Add(CommandSection.ACTIONS, parentId, branch)) }),
+    )
+}
+
+@Composable
+private fun IfBlockSections(
+    state: AppState,
+    cmd: Cmd,
+    block: CommandItem,
+    onPanel: (EditorPanel) -> Unit,
+) {
+    PageSection("如果", "block-page-section-if") {
+        ConditionSection(state, cmd, block, onPanel)
+    }
+    PageSection("就", "block-page-section-then") {
+        StepSection(
+            state = state, cmd = cmd, items = block.children, parentId = block.id, branch = null,
+            addTag = "block-page-add-${block.id}",
+            addLabel = "向就添加步骤", onPanel = onPanel,
+        )
+    }
+    val elseIndex = block.branches.indexOfFirst { it.conditions.isEmpty() }
+    PageSection("否则", "block-page-section-else") {
+        if (elseIndex < 0) {
+            EditorPill("＋ 添加否则", "添加否则", Modifier.testTag("block-page-add-else-${block.id}")) {
+                state.addBranch(cmd.id, block.id, withCondition = false)
+            }
+        } else {
+            val branch = block.branches[elseIndex]
+            StepSection(
+                state = state, cmd = cmd, items = branch.children,
+                parentId = block.id, branch = elseIndex,
+                addTag = "block-page-add-else-step-${block.id}",
+                addLabel = "向否则添加步骤", onPanel = onPanel,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LoopBlockSections(
+    state: AppState,
+    cmd: Cmd,
+    block: CommandItem,
+    onPanel: (EditorPanel) -> Unit,
+) {
+    val mode = block.parameter.substringBefore('|').trim().ifBlank { "按次数" }
+    val timesLoop = mode in listOf("按次数", "times")
+    var timesText by remember(block.id) { mutableStateOf(block.parameter.substringAfter('|', "3")) }
+    LaunchedEffect(block.parameter) {
+        val incoming = block.parameter.substringAfter('|', "3")
+        if (incoming != timesText && incoming.toIntOrNull() != timesText.toIntOrNull()) timesText = incoming
+    }
+    fun setMode(nextMode: String) {
+        val times = timesText.toIntOrNull()?.coerceIn(1, 1000) ?: 3
+        state.setItemParameter(cmd.id, CommandSection.ACTIONS, block.id, "$nextMode|$times")
+    }
+    PageSection("方式", "block-page-section-mode") {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ModeChip("按次数", timesLoop, "循环方式：按次数") { setMode("按次数") }
+            ModeChip("条件循环", !timesLoop, "循环方式：条件循环") { setMode("条件成立时一直循环") }
+        }
+        if (timesLoop) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                T("次数", 14.sp, color = C.OnSurfaceVar)
+                BasicTextField(
+                    timesText,
+                    { raw ->
+                        timesText = raw.filter(Char::isDigit).take(4)
+                        val times = timesText.toIntOrNull()
+                        if (times != null && times in 1..1000) {
+                            state.setItemParameter(cmd.id, CommandSection.ACTIONS, block.id, "按次数|$times")
+                        }
+                    },
+                    Modifier.width(84.dp).testTag("loop-times-field")
+                        .clip(RoundedRectangle(12.dp)).background(C.Tonal).padding(horizontal = 10.dp, vertical = 8.dp),
+                    textStyle = TextStyle(color = C.OnSurface, fontSize = 15.sp),
+                    singleLine = true,
+                    cursorBrush = SolidColor(C.Primary),
+                )
+                T("1–1000 次", 12.sp, color = C.Muted)
+            }
+        } else {
+            ConditionSection(state, cmd, block, onPanel)
+        }
+    }
+    PageSection("循环体", "block-page-section-body") {
+        StepSection(
+            state = state, cmd = cmd, items = block.children, parentId = block.id, branch = null,
+            addTag = "block-page-add-${block.id}",
+            addLabel = "向循环体添加步骤", onPanel = onPanel,
+        )
+    }
+}
+
+@Composable
+private fun ModeChip(label: String, selected: Boolean, description: String, onClick: () -> Unit) {
+    Box(
+        Modifier.clip(Capsule()).background(if (selected) C.PrimarySoft else C.Tonal)
+            .editorAction(description, onClick).padding(horizontal = 14.dp, vertical = 8.dp),
+    ) { T(label, 13.sp, FontWeight.SemiBold, if (selected) C.Primary else C.OnSurfaceVar, maxLines = 1) }
+}
+
+@Composable
+private fun WaitBlockSections(
+    state: AppState,
+    cmd: Cmd,
+    block: CommandItem,
+    onPanel: (EditorPanel) -> Unit,
+) {
+    var timeoutText by remember(block.id) { mutableStateOf(waitTimeoutSeconds(block.parameter).toString()) }
+    LaunchedEffect(block.parameter) {
+        val incoming = waitTimeoutSeconds(block.parameter).toString()
+        if (incoming != timeoutText) timeoutText = incoming
+    }
+    PageSection("等待条件", "block-page-section-wait-condition") {
+        ConditionSection(state, cmd, block, onPanel)
+    }
+    PageSection("超时", "block-page-section-timeout") {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            T("最长等待", 14.sp, color = C.OnSurfaceVar)
+            BasicTextField(
+                timeoutText,
+                { raw ->
+                    timeoutText = raw.filter(Char::isDigit).take(4)
+                    val seconds = timeoutText.toIntOrNull()
+                    if (seconds != null && seconds in 1..3600) {
+                        val poll = block.parameter.substringAfter('|', "1 秒").ifBlank { "1 秒" }
+                        state.setItemParameter(cmd.id, CommandSection.ACTIONS, block.id, "$seconds 秒|$poll")
+                    }
+                },
+                Modifier.width(84.dp).testTag("wait-timeout-field")
+                    .clip(RoundedRectangle(12.dp)).background(C.Tonal).padding(horizontal = 10.dp, vertical = 8.dp),
+                textStyle = TextStyle(color = C.OnSurface, fontSize = 15.sp),
+                singleLine = true,
+                cursorBrush = SolidColor(C.Primary),
+            )
+            T("秒（1–3600）", 12.sp, color = C.Muted)
+        }
+    }
+}
+
+private fun waitTimeoutSeconds(parameter: String): Int {
+    val head = parameter.substringBefore('|').trim()
+    val match = Regex("""([0-9]+)\s*(毫秒|秒|分钟)""").matchEntire(head) ?: return 30
+    val value = match.groupValues[1].toIntOrNull() ?: return 30
+    return when (match.groupValues[2]) {
+        "分钟" -> value * 60
+        "毫秒" -> (value / 1000).coerceAtLeast(1)
+        else -> value
+    }.coerceIn(1, 3600)
 }
 
 @Composable
@@ -536,14 +601,13 @@ private fun blockAddEntries(
     onPanel: (EditorPanel) -> Unit,
 ): List<Pair<String, () -> Unit>> = buildList {
     add("步骤" to { onPanel(EditorPanel.Add(CommandSection.ACTIONS, block.id, branch)) })
-    if (!timesLoop && (branch == null || block.branches.getOrNull(branch)?.conditions?.isNotEmpty() == true)) {
-        add("条件" to { onPanel(EditorPanel.Add(CommandSection.CONDITIONS, block.id, branch)) })
+    if (!timesLoop && branch == null) {
+        add("条件" to { onPanel(EditorPanel.Add(CommandSection.CONDITIONS, block.id, null)) })
     }
-    if (branch == null && kind == com.flowglass.engine.BlockKind.IF) {
-        add("否则如果" to { state.addBranch(cmd.id, block.id, withCondition = true) })
-        if (block.branches.none { it.conditions.isEmpty() }) {
-            add("否则" to { state.addBranch(cmd.id, block.id, withCondition = false) })
-        }
+    if (branch == null && kind == com.flowglass.engine.BlockKind.IF &&
+        block.branches.none { it.conditions.isEmpty() }
+    ) {
+        add("否则" to { state.addBranch(cmd.id, block.id, withCondition = false) })
     }
 }
 
@@ -552,6 +616,7 @@ internal sealed interface EditorPanel {
     data class Add(val section: CommandSection, val parentId: Long? = null, val branch: Int? = null) : EditorPanel
     data class Parameter(val section: CommandSection, val itemId: Long) : EditorPanel
     data class Move(val sourceId: Long) : EditorPanel
+    data object Description : EditorPanel
     data object Variables : EditorPanel
 }
 
@@ -594,6 +659,133 @@ private val Ic.editorLabel: String
 internal fun Modifier.editorAction(label: String, action: () -> Unit): Modifier =
     semantics { role = Role.Button; contentDescription = label; onClick { action(); true } }
         .pressable(onClick = action)
+
+@Composable
+private fun ValidationBanner(state: AppState, cmd: Cmd, issues: List<ValidationIssue>) {
+    if (issues.isEmpty()) return
+    var expanded by remember(cmd.id) { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxWidth().testTag("validation-banner")
+            .clip(RoundedRectangle(18.dp)).background(C.BadSoft),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().clickable { expanded = !expanded }
+                .testTag("validation-banner-toggle")
+                .semantics { contentDescription = if (expanded) "收起问题" else "展开问题" }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            T("${issues.size} 个问题", 13.sp, FontWeight.SemiBold, C.Bad, modifier = Modifier.weight(1f))
+            T(if (expanded) "⌃" else "›", 18.sp, FontWeight.Bold, C.Bad, maxLines = 1)
+        }
+        if (expanded) {
+            Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, bottom = 8.dp)) {
+                issues.forEach { issue ->
+                    val ownerId = issue.ownerId
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .then(
+                                if (ownerId != null) Modifier
+                                    .testTag("validation-issue-${ownerId}")
+                                    .editorAction("打开问题") { state.openBlockAt(ownerId) }
+                                else Modifier
+                            )
+                            .padding(vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        T("•", 12.sp, color = C.Bad)
+                        Spacer(Modifier.width(6.dp))
+                        T(issue.text, 12.sp, color = C.Bad, lineHeight = 17.sp, maxLines = 3,
+                            modifier = Modifier.weight(1f))
+                        if (ownerId != null) T("›", 16.sp, color = C.Bad)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DescriptionPanel(state: AppState, cmd: Cmd, onDone: () -> Unit) {
+    var text by remember(cmd.id) { mutableStateOf(if (cmd.descriptionEdited) cmd.desc else "") }
+    T("只显示你手写的描述；列表页仍保留自动摘要。", 12.sp, color = C.Muted, lineHeight = 17.sp)
+    BasicTextField(
+        text, { text = it.take(500) },
+        Modifier.fillMaxWidth().testTag("description-editor")
+            .clip(RoundedRectangle(14.dp)).background(C.Tonal).padding(12.dp),
+        textStyle = TextStyle(color = C.OnSurface, fontSize = 14.sp, lineHeight = 20.sp),
+        maxLines = 2,
+        cursorBrush = SolidColor(C.Primary),
+    )
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        EditorPill("清空", "清空描述") {
+            state.setDescription(cmd.id, "")
+            onDone()
+        }
+        EditorPill("完成", "保存描述") {
+            state.setDescription(cmd.id, text.trim())
+            onDone()
+        }
+    }
+}
+
+@Composable
+private fun ConfigItemRow(
+    state: AppState,
+    cmd: Cmd,
+    section: CommandSection,
+    item: CommandItem,
+    index: Int,
+    lastIndex: Int,
+    onPanel: (EditorPanel) -> Unit,
+) {
+    var menuOpen by remember(item.id) { mutableStateOf(false) }
+    val itemMeta = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
+    Column(
+        Modifier.fillMaxWidth().testTag("item-${item.id}").animatePlacement()
+            .clip(RoundedRectangle(24.dp)).background(C.Tonal)
+            .editorAction("编辑${item.name}") {
+                onPanel(EditorPanel.Parameter(section, item.id))
+            }
+            .padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            LineIcon(item.ic, C.Primary, 22.dp)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f).testTag("item-text-${item.id}")) {
+                T(item.name, 15.sp, FontWeight.SemiBold, maxLines = 1)
+                T(itemParameterLabel(section, item), 13.sp, color = C.OnSurfaceVar, maxLines = 1)
+            }
+            Box {
+                EditorIconButton(Ic.More, "更多操作${item.name}") { menuOpen = true }
+                if (menuOpen) {
+                    Popup(onDismissRequest = { menuOpen = false }, offset = IntOffset(-180, 0)) {
+                        Column(
+                            Modifier.width(160.dp).clip(RoundedRectangle(18.dp)).background(C.Card).padding(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            MenuEntry("上移", enabled = index > 0) {
+                                menuOpen = false
+                                state.moveItem(cmd.id, section, item.id, -1)
+                            }
+                            MenuEntry("下移", enabled = index < lastIndex) {
+                                menuOpen = false
+                                state.moveItem(cmd.id, section, item.id, 1)
+                            }
+                            MenuEntry("删除", enabled = true) {
+                                menuOpen = false
+                                state.removeItem(cmd.id, section, item.id)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (itemMeta?.comingSoon == true) {
+            T("即将支持，暂不会自动运行", 11.sp, color = C.Mid)
+        }
+    }
+}
 
 @Composable
 private fun NoticeCard(text: String, color: androidx.compose.ui.graphics.Color, background: androidx.compose.ui.graphics.Color, onDismiss: (() -> Unit)? = null) {
@@ -880,15 +1072,11 @@ internal fun blockAddMenuLabels(
     return buildList {
         add("步骤")
         if (!timesLoop) add("条件")
-        if (block == com.flowglass.engine.BlockKind.IF) {
-            add("否则如果")
-            if (branches.none { it.conditions.isEmpty() }) add("否则")
-        }
+        if (block == com.flowglass.engine.BlockKind.IF && branches.none { it.conditions.isEmpty() }) add("否则")
     }
 }
 
-internal fun branchAddMenuLabels(hasConditions: Boolean): List<String> =
-    buildList { add("步骤"); if (hasConditions) add("条件") }
+internal fun branchAddMenuLabels(hasConditions: Boolean): List<String> = listOf("步骤")
 
 /** One compact add button at the end of a block or branch. The menu is the only place where
  * a block's allowed additions are listed, so narrow screens never have to fit four pills. */
@@ -1286,10 +1474,10 @@ private fun ActionTreeRow(
                 }
             }
             item.branches.forEachIndexed { branchIndex, branch ->
+                if (branch.conditions.isNotEmpty()) return@forEachIndexed
                 Column(Modifier.fillMaxWidth().padding(start = childIndent(depth)), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        T(if (branch.conditions.isEmpty()) "否则" else "否则如果（${branch.conditions.size} 个条件）",
-                            12.sp, color = C.Mid, modifier = Modifier.weight(1f))
+                        T("否则", 12.sp, color = C.Mid, modifier = Modifier.weight(1f))
                         EditorIconButton(Ic.Trash, "删除分支${branchIndex + 1}") {
                             state.removeBranch(cmd.id, item.id, branchIndex)
                         }
@@ -1313,7 +1501,7 @@ private fun ActionTreeRow(
                             add("步骤" to {
                                 onPanel(EditorPanel.Add(CommandSection.ACTIONS, item.id, branchIndex))
                             })
-                            if (branch.conditions.isNotEmpty()) add("条件" to {
+                            if (!timesLoop) add("条件" to {
                                 onPanel(EditorPanel.Add(CommandSection.CONDITIONS, item.id, branchIndex))
                             })
                         },
@@ -1332,11 +1520,10 @@ private fun ActionTreeRow(
                             if (!timesLoop) add("条件" to {
                                 onPanel(EditorPanel.Add(CommandSection.CONDITIONS, item.id))
                             })
-                            if (block == com.flowglass.engine.BlockKind.IF) {
-                                add("否则如果" to { state.addBranch(cmd.id, item.id, withCondition = true) })
-                                if (item.branches.none { it.conditions.isEmpty() }) {
-                                    add("否则" to { state.addBranch(cmd.id, item.id, withCondition = false) })
-                                }
+                            if (block == com.flowglass.engine.BlockKind.IF &&
+                                item.branches.none { it.conditions.isEmpty() }
+                            ) {
+                                add("否则" to { state.addBranch(cmd.id, item.id, withCondition = false) })
                             }
                         },
                     )

@@ -52,7 +52,8 @@ internal fun moveTargets(actions: List<CommandItem>, sourceId: Long): List<MoveT
                 path = nextPath.joinToString(" › "), detail = "块主体 · $bodyDetail", depth = depth,
             )
             item.branches.forEachIndexed { index, branch ->
-                val branchLabel = if (branch.conditions.isEmpty()) "否则" else "否则如果 ${index + 1}"
+                if (branch.conditions.isNotEmpty()) return@forEachIndexed
+                val branchLabel = "否则"
                 val branchPath = nextPath + branchLabel
                 val branchDetail = when {
                     branch.children.isEmpty() -> "空分支 · 放到第一个步骤"
@@ -66,8 +67,8 @@ internal fun moveTargets(actions: List<CommandItem>, sourceId: Long): List<MoveT
             }
             walk(item.children, nextPath, depth + 1)
             item.branches.forEachIndexed { index, branch ->
-                val branchLabel = if (branch.conditions.isEmpty()) "否则" else "否则如果 ${index + 1}"
-                walk(branch.children, nextPath + branchLabel, depth + 2)
+                if (branch.conditions.isNotEmpty()) return@forEachIndexed
+                walk(branch.children, nextPath + "否则", depth + 2)
             }
         }
     }

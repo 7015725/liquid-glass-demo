@@ -208,6 +208,30 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     fun gotoBlock(index: Int) { blockPath = blockPath.take((index + 1).coerceAtLeast(0)) }
 
+    /** Path from the command root to [blockId], or null when it is not an openable block. */
+    fun blockPathTo(blockId: Long): List<Long>? {
+        val cmd = editing?.let(::find) ?: return null
+        fun walk(items: List<CommandItem>, ancestors: List<Long>): List<Long>? {
+            for (item in items) {
+                val isBlock = blockKind(item) in BlockPageKinds
+                val next = if (isBlock) ancestors + item.id else ancestors
+                if (isBlock && item.id == blockId) return next
+                walk(item.children, next)?.let { return it }
+                for (branch in item.branches) {
+                    walk(branch.children, next)?.let { return it }
+                }
+            }
+            return null
+        }
+        return walk(cmd.actions, emptyList())
+    }
+
+    /** Opens the page that owns [blockId], including a nested block from a validation row. */
+    fun openBlockAt(blockId: Long) {
+        val path = blockPathTo(blockId) ?: return
+        blockPath = validBlockPath(path)
+    }
+
     /** Drops any path level whose node is missing, wrong kind or no longer a direct child. */
     fun validBlockPath(path: List<Long>): List<Long> {
         val cmd = editing?.let(::find) ?: return emptyList()
@@ -487,7 +511,23 @@ class AppState internal constructor(saved: PersistedAppState?) {
     val executionMessages = mutableStateMapOf<Long, String>()
     val logs = mutableStateListOf<RunLog>().apply { addAll(saved?.logs.orEmpty()) }
 
-    init { if (saved != null) reserveIds(saved) }
+    init {
+        if (saved != null) {
+            reserveIds(saved)
+            normalizeLegacyBranches()
+        }
+    }
+
+    /** Old if-blocks with else-if branches become nested if-blocks before any page opens. */
+    private fun normalizeLegacyBranches() {
+        fun normalize(cmd: Cmd): Cmd {
+            val actions = cmd.actions.normalizeUiElseIfBranches(::newId)
+            return if (actions == cmd.actions) cmd else cmd.copy(actions = actions)
+        }
+        for (list in arrayOf(autoCmds, oneTaps)) {
+            for (index in list.indices) list[index] = normalize(list[index])
+        }
+    }
 
     // search (null = closed)
     var query by mutableStateOf<String?>(null)

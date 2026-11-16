@@ -17,7 +17,7 @@ object BuiltInBlocks {
     val metadata: List<ComponentMeta> = listOf(
         ComponentMeta(
             "block.if", "如果", "流程控制", ComponentKind.ACTION,
-            description = "条件成立时执行块内步骤；可以添加多个「否则如果」和一个「否则」。",
+            description = "条件成立时执行「就」里的步骤，否则执行「否则」；旧数据会等价转换。",
             block = BlockKind.IF,
         ),
         ComponentMeta(

@@ -51,6 +51,9 @@ class ConditionEditingTest {
         state.addItem(command.id, CommandSection.ACTIONS, blockType(typeId))
         val block = requireNotNull(state.find(command.id)).actions.single()
         repeat(3) { addConditionFromBlockMenu(state, command.id, block.id, null, charging()) }
+        if (typeId == "block.loop") {
+            state.setItemParameter(command.id, CommandSection.ACTIONS, block.id, "条件成立时一直循环|3")
+        }
         state.openEditor(command.id)
         state.openBlock(block.id)
 

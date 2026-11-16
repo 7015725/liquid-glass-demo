@@ -7,13 +7,13 @@ import org.junit.Test
 /** The block footer menu must expose only the additions valid for that block/mode. */
 class BlockAddMenuTest {
     @Test
-    fun ifMenuListsStepsConditionsElseIfAndElseUntilElseExists() {
+    fun ifMenuListsStepsConditionsAndOnlyTheMissingElse() {
         assertEquals(
-            listOf("步骤", "条件", "否则如果", "否则"),
+            listOf("步骤", "条件", "否则"),
             blockAddMenuLabels(BlockKind.IF, timesLoop = false, branches = emptyList()),
         )
         assertEquals(
-            listOf("步骤", "条件", "否则如果"),
+            listOf("步骤", "条件"),
             blockAddMenuLabels(BlockKind.IF, timesLoop = false, branches = listOf(CommandBranch())),
         )
     }
@@ -37,6 +37,6 @@ class BlockAddMenuTest {
     @Test
     fun branchMenuKeepsOnlyItsOwnAdditions() {
         assertEquals(listOf("步骤"), branchAddMenuLabels(hasConditions = false))
-        assertEquals(listOf("步骤", "条件"), branchAddMenuLabels(hasConditions = true))
+        assertEquals(listOf("步骤"), branchAddMenuLabels(hasConditions = true))
     }
 }
