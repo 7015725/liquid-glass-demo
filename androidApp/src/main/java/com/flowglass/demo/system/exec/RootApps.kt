@@ -50,8 +50,9 @@ internal object RootApps {
     ): Result<List<LaunchableApp>> = withContext(Dispatchers.IO) {
         runCatching {
             val root = authorized(requestPermission)
-            val result = Root.runProcess(
-                listOf(root.suPath, "-c", scanCommand()),
+            val result = RootSessions.run(
+                root,
+                scanCommand(),
                 timeoutMs = 45_000,
                 outputLimit = SCAN_OUTPUT_LIMIT,
             )
@@ -109,8 +110,9 @@ internal object RootApps {
             val component = resolveComponent(
                 shell(root, "cmd package resolve-activity --brief -c android.intent.category.LAUNCHER --user $userId $packageName"),
             ) ?: error("Root 未能解析 $packageName 的启动 Activity")
-            val result = Root.runProcess(listOf(root.suPath, "-c", "am start --user $userId -n $component"))
+            val result = RootSessions.run(root, "am start --user $userId -n $component")
             check(!result.timedOut) { "Root 启动超时" }
+            check(!result.truncated) { "Root 启动输出超过上限" }
             check(result.exitCode == 0) { "Root 启动失败：${result.output.take(200)}" }
         }
     }
@@ -125,8 +127,9 @@ internal object RootApps {
     }
 
     private suspend fun shell(info: com.flowglass.demo.system.RootInfo, command: String): String {
-        val result = Root.runProcess(listOf(info.suPath, "-c", command), 30_000)
+        val result = RootSessions.run(info, command, 30_000)
         check(!result.timedOut) { "Root 命令超时" }
+        check(!result.truncated) { "Root 命令输出超过上限" }
         check(result.exitCode == 0) { "Root 命令失败：${result.output.take(200)}" }
         return result.output
     }

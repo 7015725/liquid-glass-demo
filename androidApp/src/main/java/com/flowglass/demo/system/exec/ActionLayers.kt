@@ -18,11 +18,14 @@ internal object ActionLayers {
         "action.http_request", "action.vibrate", "action.flashlight", "action.ringer_mode",
         "action.media_control", "action.open_url", "action.speak", "action.toast",
         "action.screen_timeout", "action.auto_rotate", "action.global_action",
+        "action.airplane_mode", "action.mobile_data",
     )
 
     val rootTypes: Set<String> = setOf(
         "action.wifi_switch", "action.bluetooth_switch", "action.launch_app",
         "action.root_shell", "action.airplane_mode", "action.mobile_data",
+        "action.dnd_switch", "action.set_brightness", "action.screen_timeout",
+        "action.auto_rotate", "action.global_action",
     )
 
     fun hasImplementation(typeId: String, layer: ExecutionLayer): Boolean = when (layer) {

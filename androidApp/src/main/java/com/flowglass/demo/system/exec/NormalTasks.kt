@@ -3,6 +3,8 @@ package com.flowglass.demo.system.exec
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import com.flowglass.demo.ui.Cmd
 import com.flowglass.demo.ui.CommandItem
 import kotlinx.coroutines.Dispatchers
@@ -98,8 +100,10 @@ internal object NormalTasks {
             "action.http_request" -> HttpTask.run(TaskParameters.http(task.parameter))
             // Root-only actions deliberately have no normal implementation. The resolver never
             // selects NORMAL for them; this guard catches a hand-edited/legacy call.
-            "action.root_shell", "action.airplane_mode", "action.mobile_data" ->
+            "action.root_shell" ->
                 TaskOutcome(StepStatus.FAILURE, "该动作需要 Root 权限，当前没有可用的普通实现")
+            "action.airplane_mode" -> openSettings(context, Settings.ACTION_AIRPLANE_MODE_SETTINGS)
+            "action.mobile_data" -> openSettings(context, Settings.ACTION_WIRELESS_SETTINGS)
             "action.vibrate" -> SystemActions.vibrate(context, task.parameter)
             "action.flashlight" -> SystemActions.flashlight(context, task.parameter)
             "action.ringer_mode" -> SystemActions.ringerMode(context, task.parameter)
@@ -115,4 +119,16 @@ internal object NormalTasks {
             else -> TaskOutcome(StepStatus.SKIPPED, "暂不支持该任务")
         }
     }
+
+    private suspend fun openSettings(context: Context, action: String): TaskOutcome =
+        withContext(Dispatchers.Main.immediate) {
+            try {
+                context.startActivity(
+                    Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                TaskOutcome(StepStatus.SUCCESS, "已打开系统设置页，请手动确认开关状态")
+            } catch (_: Throwable) {
+                TaskOutcome(StepStatus.FAILURE, "无法打开系统设置页")
+            }
+        }
 }

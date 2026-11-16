@@ -19,7 +19,6 @@ import android.speech.tts.UtteranceProgressListener
 import android.view.KeyEvent
 import android.widget.Toast
 import com.flowglass.demo.system.FlowAccessibilityService
-import com.flowglass.demo.system.Root
 import com.flowglass.engine.BuiltInActions
 import com.flowglass.engine.ComponentMeta
 import kotlinx.coroutines.CompletableDeferred
@@ -352,9 +351,80 @@ internal object RootActions {
         )
     }
 
+    suspend fun dnd(parameter: String, root: com.flowglass.demo.system.RootInfo): TaskOutcome {
+        val mode = TaskParameters.mode(parameter)
+        val current = if (mode == SwitchMode.TOGGLE) {
+            when (val raw = query("settings get global zen_mode", root)) {
+                null -> return TaskOutcome(StepStatus.FAILURE, "无法读取勿扰状态")
+                "0" -> false
+                else -> true
+            }
+        } else false
+        val enabled = when (mode) {
+            SwitchMode.ON -> true
+            SwitchMode.OFF -> false
+            SwitchMode.TOGGLE -> !current
+        }
+        return run(
+            if (enabled) "cmd notification set_dnd none" else "cmd notification set_dnd all",
+            if (enabled) "勿扰已开启" else "勿扰已关闭",
+            root,
+        )
+    }
+
+    suspend fun brightness(parameter: String, root: com.flowglass.demo.system.RootInfo): TaskOutcome {
+        val percent = TaskParameters.percent(parameter).coerceIn(0.0, 100.0)
+        val value = java.lang.Math.round(255 * percent / 100.0).toInt()
+        return run(
+            "settings put system screen_brightness_mode 0; settings put system screen_brightness $value",
+            "亮度已设为 ${percent.toInt()}%",
+            root,
+        )
+    }
+
+    suspend fun screenTimeout(parameter: String, root: com.flowglass.demo.system.RootInfo): TaskOutcome {
+        val millis = TaskParameters.durationMillis(parameter).coerceIn(5_000L, 1_800_000L)
+        return run(
+            "settings put system screen_off_timeout $millis",
+            "屏幕超时已设为 ${millis / 1000} 秒",
+            root,
+        )
+    }
+
+    suspend fun autoRotate(parameter: String, root: com.flowglass.demo.system.RootInfo): TaskOutcome {
+        val mode = TaskParameters.mode(parameter)
+        val current = if (mode == SwitchMode.TOGGLE) {
+            query("settings get system accelerometer_rotation", root) == "1"
+        } else false
+        val enabled = when (mode) {
+            SwitchMode.ON -> true
+            SwitchMode.OFF -> false
+            SwitchMode.TOGGLE -> !current
+        }
+        return run(
+            "settings put system accelerometer_rotation ${if (enabled) 1 else 0}",
+            if (enabled) "自动旋转已开启" else "自动旋转已关闭",
+            root,
+        )
+    }
+
+    suspend fun globalAction(parameter: String, root: com.flowglass.demo.system.RootInfo): TaskOutcome {
+        val meta = com.flowglass.engine.BuiltInActions.metadata.first { it.typeId == "action.global_action" }
+        val action = TaskParameters.token(meta, parameter, "action")
+        val (key, label) = when (action) {
+            "back" -> "KEYCODE_BACK" to "返回"
+            "home" -> "KEYCODE_HOME" to "主页"
+            "recents" -> "KEYCODE_APP_SWITCH" to "最近任务"
+            "lock" -> "KEYCODE_SLEEP" to "锁屏"
+            "screenshot" -> "KEYCODE_SYSRQ" to "截屏"
+            else -> return TaskOutcome(StepStatus.FAILURE, "系统导航参数无效")
+        }
+        return run("input keyevent $key", "已执行：$label", root)
+    }
+
     private suspend fun query(command: String, root: com.flowglass.demo.system.RootInfo): String? {
-        val result = Root.runProcess(listOf(root.suPath, "-c", command))
-        return if (!result.timedOut && result.exitCode == 0) result.output.trim() else null
+        val result = RootSessions.run(root, command)
+        return if (!result.timedOut && !result.truncated && result.exitCode == 0) result.output.trim() else null
     }
 
     private suspend fun run(
@@ -362,9 +432,10 @@ internal object RootActions {
         success: String,
         root: com.flowglass.demo.system.RootInfo,
     ): TaskOutcome {
-        val result = Root.runProcess(listOf(root.suPath, "-c", command))
+        val result = RootSessions.run(root, command)
         return when {
-            result.timedOut -> TaskOutcome(StepStatus.FAILURE, "Root Shell 执行超时（30 秒）")
+            result.timedOut -> TaskOutcome(StepStatus.FAILURE, "Root Shell 执行超时（30 秒）；已清理 Root 会话")
+            result.truncated -> TaskOutcome(StepStatus.FAILURE, "Root Shell 输出超过上限")
             result.exitCode != 0 -> TaskOutcome(StepStatus.FAILURE, "Root Shell 退出码 ${result.exitCode}\n${result.output}")
             else -> TaskOutcome(StepStatus.SUCCESS, success)
         }

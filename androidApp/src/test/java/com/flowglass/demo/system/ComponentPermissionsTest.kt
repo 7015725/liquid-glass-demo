@@ -26,8 +26,8 @@ class ComponentPermissionsTest {
         assertEquals(setOf("write_settings"), metas.getValue("action.screen_timeout").permissions.toSet())
         assertEquals(setOf("write_settings"), metas.getValue("action.auto_rotate").permissions.toSet())
         assertEquals(setOf("a11y"), metas.getValue("action.global_action").permissions.toSet())
-        assertEquals(com.flowglass.engine.Tier.ROOT, metas.getValue("action.airplane_mode").minTier)
-        assertEquals(com.flowglass.engine.Tier.ROOT, metas.getValue("action.mobile_data").minTier)
+        assertEquals(com.flowglass.engine.Tier.NORMAL, metas.getValue("action.airplane_mode").minTier)
+        assertEquals(com.flowglass.engine.Tier.NORMAL, metas.getValue("action.mobile_data").minTier)
     }
 
     @Test fun manifestDeclaresServicesAndNetworkStatePermission() {

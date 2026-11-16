@@ -11,6 +11,10 @@ object BuiltInActions {
     )
     private fun normalSupport(vararg permissions: String) =
         listOf(LayerSupport(ExecutionLayer.NORMAL, permissions.toList()))
+    private fun rootAndNormalSupport(vararg permissions: String) = listOf(
+        LayerSupport(ExecutionLayer.ROOT),
+        LayerSupport(ExecutionLayer.NORMAL, permissions.toList()),
+    )
 
     private fun parameter(
         key: String,
@@ -37,10 +41,10 @@ object BuiltInActions {
             supports = listOf(LayerSupport(ExecutionLayer.ROOT), LayerSupport(ExecutionLayer.NORMAL, listOf("bluetooth_connect")))),
         ComponentMeta("action.dnd_switch", "开关勿扰", "设备", ComponentKind.ACTION,
             listOf(ParamSpec("mode", "模式", ParamType.TRI_STATE, false, JsonPrimitive("on"), ParameterCodec.switchOptions)),
-            permissions = listOf("dnd"), supports = normalSupport("dnd")),
+            permissions = listOf("dnd"), supports = rootAndNormalSupport("dnd")),
         ComponentMeta("action.set_brightness", "调节亮度", "设备", ComponentKind.ACTION,
             listOf(parameter("value", "亮度", ParamType.PERCENTAGE, "50%", false)),
-            permissions = listOf("write_settings"), supports = normalSupport("write_settings")),
+            permissions = listOf("write_settings"), supports = rootAndNormalSupport("write_settings")),
         ComponentMeta("action.set_volume", "调节音量", "设备", ComponentKind.ACTION,
             listOf(parameter("value", "音量", ParamType.PERCENTAGE, "50%", false)), supports = normalLayer),
         ComponentMeta("action.launch_app", "启动应用", "应用", ComponentKind.ACTION,
@@ -98,23 +102,23 @@ object BuiltInActions {
         ComponentMeta("action.screen_timeout", "屏幕超时", "设备", ComponentKind.ACTION,
             listOf(parameter("duration", "时长", ParamType.DURATION, "30 秒", false,
                 hint = "范围 5 秒–30 分钟；需要修改系统设置权限。", durationMs = 30_000)),
-            permissions = listOf("write_settings"), supports = normalSupport("write_settings")),
+            permissions = listOf("write_settings"), supports = rootAndNormalSupport("write_settings")),
         ComponentMeta("action.auto_rotate", "自动旋转", "设备", ComponentKind.ACTION,
             listOf(ParamSpec("mode", "模式", ParamType.TRI_STATE, false, JsonPrimitive("on"),
                 ParameterCodec.switchOptions)), permissions = listOf("write_settings"),
-            supports = normalSupport("write_settings")),
+            supports = rootAndNormalSupport("write_settings")),
         ComponentMeta("action.global_action", "系统导航", "设备", ComponentKind.ACTION,
             listOf(ParamSpec("action", "操作", ParamType.ENUM, true, JsonPrimitive("home"), listOf(
                 ParamOption("back", "返回"), ParamOption("home", "主页"),
                 ParamOption("recents", "最近任务"), ParamOption("lock", "锁屏"),
                 ParamOption("screenshot", "截屏")))), permissions = listOf("a11y"),
-            supports = normalSupport("a11y")),
+            supports = rootAndNormalSupport("a11y")),
         ComponentMeta("action.airplane_mode", "飞行模式", "网络", ComponentKind.ACTION,
             listOf(ParamSpec("mode", "模式", ParamType.TRI_STATE, false, JsonPrimitive("on"),
-                ParameterCodec.switchOptions)), minTier = Tier.ROOT, supports = rootLayer),
+                ParameterCodec.switchOptions)), minTier = Tier.NORMAL, supports = rootAndNormal),
         ComponentMeta("action.mobile_data", "移动数据", "网络", ComponentKind.ACTION,
             listOf(ParamSpec("mode", "模式", ParamType.TRI_STATE, false, JsonPrimitive("on"),
-                ParameterCodec.switchOptions)), minTier = Tier.ROOT, supports = rootLayer),
+                ParameterCodec.switchOptions)), minTier = Tier.NORMAL, supports = rootAndNormal),
     )
 
     fun registerInto(registry: ComponentRegistry) = metadata.forEach(registry::register)
