@@ -60,7 +60,7 @@ internal fun VariableTextField(
     BasicTextField(
         field,
         { next -> field = next; onValue(next.text) },
-        Modifier.fillMaxWidth().heightIn(min = if (multiline) 120.dp else 64.dp).testTag(tag)
+        Modifier.fillMaxWidth().heightIn(min = if (multiline) 120.dp else 64.dp).testTag(tag).imeAutoScroll()
             .clip(RoundedRectangle(24.dp)).background(C.Card).padding(16.dp),
         textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 24.sp),
         cursorBrush = SolidColor(C.Primary),
@@ -207,7 +207,7 @@ internal fun DurationField(value: String, tag: String, onValue: (String) -> Unit
         BasicTextField(
             number,
             { next -> number = next; emit(next, unit) },
-            Modifier.weight(1f).heightIn(min = 56.dp).testTag(tag)
+            Modifier.weight(1f).heightIn(min = 56.dp).testTag(tag).imeAutoScroll()
                 .clip(RoundedRectangle(20.dp)).background(C.Card).padding(12.dp),
             textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp),
             cursorBrush = SolidColor(C.Primary),
@@ -244,7 +244,7 @@ internal fun StepperField(spec: ParamSpec, value: String, tag: String, onValue: 
         BasicTextField(
             value,
             { text -> text.toLongOrNull()?.let(::commit) },
-            Modifier.weight(1f).heightIn(min = 48.dp).testTag(tag)
+            Modifier.weight(1f).heightIn(min = 48.dp).testTag(tag).imeAutoScroll()
                 .clip(RoundedRectangle(16.dp)).background(C.Tonal).padding(10.dp),
             textStyle = TextStyle(color = C.OnSurface, fontSize = 18.sp, fontWeight = FontWeight.SemiBold),
             cursorBrush = SolidColor(C.Primary),

@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
@@ -275,7 +277,7 @@ private fun ApplicationSearchField(value: String, onQueryChange: (String) -> Uni
     BasicTextField(
         value = value,
         onValueChange = onQueryChange,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag("application-search")
+        modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag("application-search").imeAutoScroll()
             .clip(RoundedRectangle(22.dp)).background(C.Card).padding(horizontal = 16.dp, vertical = 14.dp),
         singleLine = true,
         textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 22.sp),
@@ -363,10 +365,17 @@ private fun ManualApplicationDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(Modifier.fillMaxSize().background(C.ScrimSubtle).padding(24.dp), contentAlignment = Alignment.Center) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Box(
+            Modifier.fillMaxSize().background(C.ScrimSubtle).imePadding().padding(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
             Column(
-                Modifier.fillMaxWidth().clip(RoundedRectangle(28.dp)).background(C.Card).padding(20.dp),
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                    .clip(RoundedRectangle(28.dp)).background(C.Card).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 T("手动输入应用", 18.sp, FontWeight.Bold)
@@ -383,7 +392,7 @@ private fun ManualApplicationDialog(
                 BasicTextField(
                     value = value,
                     onValueChange = onValueChange,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag("application-manual-field")
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp).testTag("application-manual-field").imeAutoScroll()
                         .clip(RoundedRectangle(20.dp)).background(C.Tonal).padding(14.dp),
                     singleLine = true,
                     textStyle = TextStyle(color = C.OnSurface, fontSize = 15.sp),

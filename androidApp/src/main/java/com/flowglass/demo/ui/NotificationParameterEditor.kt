@@ -115,7 +115,7 @@ private fun NotificationField(
     onValue: (String) -> Unit,
 ) {
     BasicTextField(value, onValue,
-        Modifier.fillMaxWidth().heightIn(min = minHeight).testTag(tag)
+        Modifier.fillMaxWidth().heightIn(min = minHeight).testTag(tag).imeAutoScroll()
             .semantics { contentDescription = label }
             .clip(RoundedRectangle(24.dp)).background(C.Card).padding(16.dp),
         textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 24.sp),

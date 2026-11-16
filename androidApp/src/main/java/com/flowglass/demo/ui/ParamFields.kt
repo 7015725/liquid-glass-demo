@@ -151,7 +151,7 @@ private fun WeekdayField(current: String, onValue: (String) -> Unit) {
 @Composable
 private fun NumberTextField(value: String, tag: String, onValue: (String) -> Unit) {
     BasicTextField(value, onValue,
-        Modifier.fillMaxWidth().heightIn(min = 64.dp).testTag(tag)
+        Modifier.fillMaxWidth().heightIn(min = 64.dp).testTag(tag).imeAutoScroll()
             .clip(RoundedRectangle(24.dp)).background(C.Card).padding(16.dp),
         textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 24.sp),
         cursorBrush = SolidColor(C.Primary),
