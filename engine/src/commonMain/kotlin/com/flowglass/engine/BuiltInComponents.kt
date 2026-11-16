@@ -92,9 +92,13 @@ object BuiltInComponents {
                 param("state", "状态", "foreground", ParamType.ENUM, required = true, options = listOf(
                     ParamOption("foreground", "切到前台"), ParamOption("background", "离开前台"))),
                 param("package", "应用", "应用包名", ParamType.APPLICATION, required = true,
-                    hint = "只列出当前资料的主应用；应用前台触发器暂不能可靠识别分身。",
-                    applicationScope = ApplicationScope.CURRENT_PROFILE),
-            ), permissions = listOf("foreground_app"), supports = normalSupport("foreground_app"),
+                    hint = "LSPosed 系统钩子或 Root 可用时支持分身；普通方式只识别主应用。",
+                    applicationScope = ApplicationScope.ALL_PROFILES),
+            ), permissions = listOf("foreground_app"), supports = listOf(
+                LayerSupport(ExecutionLayer.XPOSED),
+                LayerSupport(ExecutionLayer.ROOT),
+                LayerSupport(ExecutionLayer.NORMAL, permissions = listOf("foreground_app")),
+            ),
             applicationCapability = ApplicationCapability.FOREGROUND_EVENTS),
         ComponentMeta("trigger.headset", "耳机插入/拔出", "设备", ComponentKind.TRIGGER,
             listOf(

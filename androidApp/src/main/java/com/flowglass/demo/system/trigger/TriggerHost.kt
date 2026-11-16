@@ -146,6 +146,7 @@ internal class TriggerHost(
     private val headsetWatcher = HeadsetWatcher(context, ::emitEvent)
     private val locationWatcher = LocationWatcher(context, ::emitEvent)
     private val appWatcher = AppForegroundWatcher(context, scope, ::emitEvent)
+    private val rootAppWatcher = RootForegroundWatcher(context, scope, ::emitEvent)
     private val notificationListener: (String, String, String, Int) -> Unit = { app, title, text, userId ->
         // A clone and the main app share a package; the persisted app identity includes the
         // profile so a "收到通知" rule cannot fire for the wrong clone.
@@ -245,6 +246,13 @@ internal class TriggerHost(
         lastRules = emptyList()
     }
 
+    /** Rebuild the foreground source after the system hook's first heartbeat. */
+    fun refreshAppSource() {
+        if (!started || TriggerSource.APP !in sourceRegistry.registered) return
+        uninstallSource(TriggerSource.APP)
+        installSource(TriggerSource.APP)
+    }
+
     private fun reconcile(input: TriggerInput) {
         val eligible = eligibleRules(input.rules)
         if (!input.running || eligible.isEmpty()) {
@@ -277,6 +285,13 @@ internal class TriggerHost(
     private fun eligibleRules(rules: List<TriggerRule>): List<TriggerRule> =
         rules.filter { it.enabled && it.permissionsGranted(context) }
 
+    private fun hasCloneTarget(): Boolean = lastRules.any { rule ->
+        rule.triggers.any { trigger ->
+            trigger.typeId == TriggerTypes.APP_FOREGROUND &&
+                trigger.params["package"]?.toString()?.trim('"')?.contains('@') == true
+        }
+    }
+
     private fun syncAlarms(rules: List<TriggerRule>, exact: Boolean, force: Boolean = false) {
         val bindings = TriggerPlan.timeBindings(rules)
         val signature = bindings.joinToString("|") { binding ->
@@ -307,7 +322,15 @@ internal class TriggerHost(
             TriggerSource.WIFI -> wifiWatcher.start()
             TriggerSource.BLUETOOTH -> bluetoothWatcher.start()
             TriggerSource.NOTIFICATION -> NotificationEvents.add(notificationListener)
-            TriggerSource.APP -> appWatcher.start()
+            TriggerSource.APP -> when (TriggerLayers.appForegroundLayer(context)) {
+                com.flowglass.engine.ExecutionLayer.XPOSED -> Unit
+                com.flowglass.engine.ExecutionLayer.ROOT -> {
+                    // Normal watcher keeps main-app events; Root polls clones only.
+                    appWatcher.start()
+                    rootAppWatcher.start(::hasCloneTarget)
+                }
+                com.flowglass.engine.ExecutionLayer.NORMAL -> appWatcher.start()
+            }
             TriggerSource.HEADSET -> headsetWatcher.start()
             TriggerSource.LOCATION -> locationWatcher.start()
             // TIME is an AlarmManager schedule, BOOT is a manifest receiver; neither has a
@@ -324,7 +347,10 @@ internal class TriggerHost(
             TriggerSource.WIFI -> wifiWatcher.stop()
             TriggerSource.BLUETOOTH -> bluetoothWatcher.stop()
             TriggerSource.NOTIFICATION -> NotificationEvents.remove(notificationListener)
-            TriggerSource.APP -> appWatcher.stop()
+            TriggerSource.APP -> {
+                appWatcher.stop()
+                rootAppWatcher.stop()
+            }
             TriggerSource.HEADSET -> headsetWatcher.stop()
             TriggerSource.LOCATION -> locationWatcher.stop()
             TriggerSource.TIME, TriggerSource.BOOT -> Unit
