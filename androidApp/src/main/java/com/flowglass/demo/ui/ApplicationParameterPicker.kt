@@ -1,102 +1,102 @@
 package com.flowglass.demo.ui
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.drawable.toBitmap
-import com.flowglass.demo.system.Root
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.flowglass.demo.system.SysTick
-import com.flowglass.demo.system.exec.LaunchableApp
+import com.flowglass.demo.system.exec.ApplicationCatalog
 import com.flowglass.demo.system.exec.LaunchableApps
-import com.flowglass.demo.system.exec.RootApps
+import com.flowglass.engine.ParamSpec
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
 
+/**
+ * A compact application field plus the shared full-screen list page. The field itself has no
+ * application list, search or root branch; all of that lives in [ApplicationListPage].
+ */
 @Composable
 internal fun ApplicationParameterPicker(
     current: String,
+    spec: ParamSpec,
     stateKey: Any?,
-    searchTag: String,
     onParameter: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    val tick = SysTick.tick
-    var query by rememberSaveable(stateKey) { mutableStateOf("") }
-    var apps by remember { mutableStateOf<List<LaunchableApp>?>(null) }
-    var failed by remember { mutableStateOf(false) }
-    var rootMessage by remember { mutableStateOf<String?>(null) }
-    var rootBusy by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(context, tick) {
-        failed = false
-        try { apps = LaunchableApps.load(context) }
-        catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { failed = true }
+    var open by rememberSaveable(stateKey) { mutableStateOf(false) }
+    var display by remember(current) {
+        mutableStateOf(current.ifBlank { if (spec.required) "未选择应用" else "任意应用（留空）" })
     }
-    T("搜索应用名称或包名", 14.sp, FontWeight.Medium)
-    ParameterTextField(query, searchTag) { query = it }
-    T("点选应用后保存包名；分身应用保存为 package@userId，返回不会清空原选择。", 12.sp, color = C.OnSurfaceVar)
-    T("当前应用：${current.ifEmpty { "未选择" }}", 13.sp, color = C.OnSurfaceVar)
-    if (Root.findSu() != null) {
-        EditorPill(if (rootBusy) "Root 扫描中…" else "Root 扫描分身应用", "Root 扫描分身应用") {
-            if (!rootBusy) {
-                rootBusy = true
-                scope.launch {
-                    RootApps.scan(context)
-                        .onSuccess { found ->
-                            apps = (apps.orEmpty() + found).distinctBy { it.id }
-                            rootMessage = "Root 扫描到 ${found.size} 个应用；启动时若 LauncherApps 不可见会使用 Root。"
-                        }
-                        .onFailure { rootMessage = it.message ?: "Root 扫描失败" }
-                    rootBusy = false
-                }
+    LaunchedEffect(current) {
+        if (current.isNotBlank()) {
+            display = try {
+                ApplicationCatalog.label(context, current)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                current
             }
         }
-        rootMessage?.let { T(it, 12.sp, color = C.OnSurfaceVar) }
     }
-    val filtered = apps?.filter {
-        it.label.contains(query.trim(), true) ||
-            it.packageName.contains(query.trim(), true) ||
-            it.id.contains(query.trim(), true) ||
-            it.profileLabel.contains(query.trim(), true)
-    }
-    when {
-        failed -> T("读取应用列表失败，请重新打开后重试。", 13.sp, color = C.Bad)
-        filtered == null -> T("正在读取应用…", 13.sp, color = C.Muted)
-        filtered.isEmpty() -> T("未找到匹配应用", 13.sp, color = C.Muted)
-        else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 224.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            itemsIndexed(filtered, key = { _, app -> app.id }) { index, app ->
-                val selectedApp = current == app.id || (app.userId == 0 && current == app.packageName)
-                Row(Modifier.fillMaxWidth().staggerIn(index.coerceAtMost(8)).clip(RoundedRectangle(24.dp))
-                    .background(if (selectedApp) C.PrimarySoft else C.Card)
-                    .semantics { selected = selectedApp }
-                    .editorAction("选择应用：${app.label}") { onParameter(app.id) }
-                    .padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    val icon = remember(app.icon) { app.icon.toBitmap(96, 96).asImageBitmap() }
-                    Image(icon, "应用图标：${app.label}", Modifier.size(40.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        T(if (app.userId == 0) app.label else "${app.label} · ${app.profileLabel}", 15.sp, FontWeight.Medium)
-                        T(app.id, 12.sp, color = C.OnSurfaceVar)
-                    }
-                    if (selectedApp) T("已选", 12.sp, color = C.Primary)
-                }
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 62.dp).clip(RoundedRectangle(22.dp))
+                .background(C.Card).editorAction("选择应用") { open = true }.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                T(display, 15.sp, FontWeight.Medium, maxLines = 1)
+                T(current.ifBlank { "未选择" }, 12.sp, color = C.OnSurfaceVar, maxLines = 1)
             }
+            T("选择", 13.sp, FontWeight.SemiBold, C.Primary)
+        }
+        T(
+            if (spec.applicationScope == com.flowglass.engine.ApplicationScope.CURRENT_PROFILE) {
+                "只提供当前资料的主应用；应用前台触发器暂不能可靠识别分身。"
+            } else {
+                "主应用和分身分别显示；分身保存为 package@userId。"
+            },
+            12.sp,
+            color = C.OnSurfaceVar,
+            lineHeight = 18.sp,
+        )
+    }
+
+    if (open) {
+        Dialog(
+            onDismissRequest = { open = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            ApplicationListPage(
+                current = current,
+                scope = spec.applicationScope,
+                allowEmpty = !spec.required,
+                onDismiss = { open = false },
+                onPick = { value ->
+                    open = false
+                    onParameter(value)
+                },
+            )
         }
     }
 }

@@ -70,26 +70,35 @@ internal class PrefsRootGrantStore(private val prefs: SharedPreferences) : RootG
 }
 
 object Root {
-    @Volatile private var access = RootAccess(::findSu, ::execute)
+    @Volatile private var access = RootAccess(::findSu, ::execute, ::executeLarge)
     private val paths = listOf(
         "/system/bin/su", "/system/xbin/su", "/sbin/su", "/debug_ramdisk/su",
         "/data/adb/ksu/bin/su", "/data/adb/ap/bin/su", "/system_ext/bin/su", "/vendor/bin/su",
     )
 
     private suspend fun execute(arguments: List<String>, timeoutMs: Long): ProcessResult =
+        executeLarge(arguments, timeoutMs, 500)
+
+    private suspend fun executeLarge(arguments: List<String>, timeoutMs: Long, outputLimit: Int): ProcessResult =
         if (arguments.size == 3 && arguments[1] == "-c") {
-            com.flowglass.demo.system.exec.BoundedProcess.runRoot(arguments[0], arguments[2], timeoutMs)
+            com.flowglass.demo.system.exec.BoundedProcess.runRoot(
+                arguments[0], arguments[2], timeoutMs, outputLimit,
+            )
         } else {
-            com.flowglass.demo.system.exec.BoundedProcess.run(arguments, timeoutMs)
+            com.flowglass.demo.system.exec.BoundedProcess.run(arguments, timeoutMs, outputLimit)
         }
 
     /** Called once from the Activity: the grant survives process death from here on. */
     fun install(context: Context) {
         val prefs = context.applicationContext.getSharedPreferences("root_state", Context.MODE_PRIVATE)
-        access = RootAccess(::findSu, ::execute).apply { store = PrefsRootGrantStore(prefs) }
+        access = RootAccess(::findSu, ::execute, ::executeLarge).apply { store = PrefsRootGrantStore(prefs) }
     }
 
-    internal suspend fun runProcess(arguments: List<String>, timeoutMs: Long = 30_000) = access.runProcess(arguments, timeoutMs)
+    internal suspend fun runProcess(
+        arguments: List<String>,
+        timeoutMs: Long = 30_000,
+        outputLimit: Int = 500,
+    ) = access.runProcess(arguments, timeoutMs, outputLimit)
     suspend fun check(request: Boolean, refresh: Boolean = false): RootInfo = access.check(request, refresh)
 
     fun findSu(): String? = paths.firstOrNull { runCatching { File(it).exists() }.getOrDefault(false) }
@@ -99,15 +108,30 @@ object Root {
 internal class RootAccess(
     private val locateSu: () -> String?,
     private val execute: suspend (List<String>, Long) -> ProcessResult,
+    private val executeLarge: suspend (List<String>, Long, Int) -> ProcessResult,
 ) {
+    /** Test/legacy seam: no separate large-output executor means the normal one is used. */
+    internal constructor(
+        locateSu: () -> String?,
+        execute: suspend (List<String>, Long) -> ProcessResult,
+    ) : this(locateSu, execute, { arguments, timeoutMs, _ -> execute(arguments, timeoutMs) })
+
     var store: RootGrantStore = RootGrantStore.None
     private val mutex = Mutex()
     private var cached: RootInfo? = null
 
-    suspend fun runProcess(arguments: List<String>, timeoutMs: Long = 30_000): ProcessResult {
+    suspend fun runProcess(
+        arguments: List<String>,
+        timeoutMs: Long = 30_000,
+        outputLimit: Int = 500,
+    ): ProcessResult {
         val authorization = mutex.withLock { cached }
         try {
-            return execute(arguments, timeoutMs)
+            return if (outputLimit > 500) {
+                executeLarge(arguments, timeoutMs, outputLimit)
+            } else {
+                execute(arguments, timeoutMs)
+            }
         } catch (denied: com.flowglass.demo.system.exec.RootPermissionDeniedException) {
             mutex.withLock {
                 // An older in-flight failure must not evict a newer grant.

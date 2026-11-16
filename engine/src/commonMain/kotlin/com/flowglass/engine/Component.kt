@@ -64,6 +64,17 @@ enum class ParamSource {
     WIFI_NETWORKS,
 }
 
+/**
+ * Profile reach of an application picker. This is a declaration on the parameter, not a
+ * component-id exception: a trigger that cannot observe another profile limits its picker to
+ * the current profile in metadata.
+ */
+@Serializable
+enum class ApplicationScope {
+    ALL_PROFILES,
+    CURRENT_PROFILE,
+}
+
 /** Resolves the presentation control for a spec without changing its storage type. */
 fun ParamSpec.resolvedEditor(): ParamEditor = when (editor) {
     ParamEditor.AUTO -> when (type) {
@@ -127,6 +138,11 @@ data class ParamSpec(
     val editor: ParamEditor = ParamEditor.AUTO,
     /** Dynamic source for editors such as [ParamEditor.APPLICATION] or [ParamEditor.RULE]. */
     val source: ParamSource = ParamSource.NONE,
+    /**
+     * For [ParamEditor.APPLICATION]: whether the picker may offer apps from other profiles.
+     * Defaults to all profiles so existing application parameters keep their behavior.
+     */
+    val applicationScope: ApplicationScope = ApplicationScope.ALL_PROFILES,
 )
 
 /** Task-chain semantics executed by the interpreter instead of a plain action handler. */

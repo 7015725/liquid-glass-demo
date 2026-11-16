@@ -15,7 +15,13 @@ import java.util.concurrent.TimeUnit
 
 internal class RootPermissionDeniedException : IOException("缺少 Root 权限：su 拒绝执行")
 
-internal data class ProcessResult(val exitCode: Int, val output: String, val timedOut: Boolean)
+internal data class ProcessResult(
+    val exitCode: Int,
+    val output: String,
+    val timedOut: Boolean,
+    /** True when [output] is only the beginning of a larger stream; never parse it as complete. */
+    val truncated: Boolean = false,
+)
 internal object BoundedProcess {
     private val android = File("/system/bin/sh").isFile
     private val shell = if (android) "/system/bin/sh" else "/bin/sh"
@@ -23,18 +29,26 @@ internal object BoundedProcess {
     private val sleep = if (android) "/system/bin/sleep" else "/bin/sleep"
     private val grep = if (android) "/system/bin/grep" else "/bin/grep"
 
+    /** Upper bound for explicit, fixed read-only scans; ordinary shell commands stay at 500. */
+    const val MAX_OUTPUT_LIMIT = 512 * 1024
+
     suspend fun run(arguments: List<String>, timeoutMs: Long = 30_000, outputLimit: Int = 500): ProcessResult =
         supervised(arguments, null, timeoutMs, outputLimit)
 
     /** The guardian is executed by su, not around the unprivileged su client. */
-    suspend fun runRoot(su: String, command: String, timeoutMs: Long = 30_000): ProcessResult =
-        supervised(listOf(shell, "-c", command), su, timeoutMs, 500)
+    suspend fun runRoot(
+        su: String,
+        command: String,
+        timeoutMs: Long = 30_000,
+        outputLimit: Int = 500,
+    ): ProcessResult =
+        supervised(listOf(shell, "-c", command), su, timeoutMs, outputLimit)
 
     private fun quote(value: String): String = "'" + value.replace("'", "'\"'\"'") + "'"
 
     private suspend fun supervised(arguments: List<String>, su: String?, timeoutMs: Long, outputLimit: Int): ProcessResult = withContext(Dispatchers.IO) {
         require(arguments.isNotEmpty() && arguments.none { '\u0000' in it })
-        require(timeoutMs in 1..300_000 && outputLimit in 0..500)
+        require(timeoutMs in 1..300_000 && outputLimit in 0..MAX_OUTPUT_LIMIT)
         val token = UUID.randomUUID().toString()
         // Executable discovery happens inside su: app-side visibility is not enough.
         val bootstrap = "if [ -x \"\$1\" ]; then exec \"\$@\"; else shift; exec \"\$@\"; fi"
@@ -94,7 +108,12 @@ internal object BoundedProcess {
             if (su != null && !released && rejection) throw RootPermissionDeniedException()
             throw IOException("安全进程监督不可用：需要 ps、/proc、shell 信号与控制管道")
         }
-        ProcessResult(if (timedOut) -1 else checkNotNull(capture.exitCode), capture.output(), timedOut)
+        ProcessResult(
+            if (timedOut) -1 else checkNotNull(capture.exitCode),
+            capture.output(),
+            timedOut,
+            capture.truncated,
+        )
     }
 
     private fun drain(process: Process, capture: Capture, buffer: ByteArray) {
@@ -106,16 +125,21 @@ internal object BoundedProcess {
         }
     }
 
-    /** Control frames are bounded and separate from the 500-character output budget. */
+    /** Control frames are bounded and separate from the output budget. */
     private class Capture(token: String, private val limit: Int) {
         private val prefix = ("\u001e$token:").toByteArray(StandardCharsets.US_ASCII)
         private val pending = ByteArrayOutputStream(128)
-        private val bytes = ByteArrayOutputStream(limit * 4 + 4)
+        private val maxBytes = limit * 4 + 4
+        private val bytes = ByteArrayOutputStream(maxBytes.coerceAtLeast(1))
         var ready = false
         var groupId: Long? = null
         var done = false
         var exitCode: Int? = null
-        private fun retain(value: Byte) { if (bytes.size() < limit * 4 + 4) bytes.write(value.toInt()) }
+        var truncated = false
+            private set
+        private fun retain(value: Byte) {
+            if (bytes.size() < maxBytes) bytes.write(value.toInt()) else truncated = true
+        }
         fun accept(value: Byte) {
             if (done) return
             val size = pending.size()
@@ -145,7 +169,11 @@ internal object BoundedProcess {
                 pending.write(value.toInt())
             }
         }
-        fun output(): String = bytes.toString(StandardCharsets.UTF_8.name()).take(limit)
+        fun output(): String {
+            val text = bytes.toString(StandardCharsets.UTF_8.name())
+            if (text.length > limit || bytes.size() >= maxBytes) truncated = true
+            return text.take(limit)
+        }
     }
 
     // The command cannot read the control pipe. It stops before executing user
