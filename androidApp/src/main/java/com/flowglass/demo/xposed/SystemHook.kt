@@ -16,9 +16,13 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * System-server side of the LSPosed integration. It is deliberately read-only: hooks only observe
- * candidate "resumed activity" methods and send a protected broadcast; nothing is replaced or
- * mutated. Installation and every callback are wrapped so an unexpected ROM layout can never
- * escape into system_server.
+ * candidate "resumed activity" methods and enqueue package/user data; nothing is replaced or
+ * mutated. The actual broadcast is sent by [SystemHookDispatcher] on its own HandlerThread, after
+ * the callback has returned and outside the WindowManager/ActivityManager locks held by the
+ * hooked methods.
+ *
+ * Every callback and every posted Runnable is routed through [HookFailureGuard]: an unexpected
+ * ROM layout or SecurityException is logged and can never escape into system_server.
  */
 internal object SystemHook {
     private val enabled = AtomicBoolean(false)
@@ -26,9 +30,17 @@ internal object SystemHook {
     @Volatile private var systemContext: Context? = null
     @Volatile private var receiverRegistered = false
     private var heartbeat: Runnable? = null
+    private val dispatcher: SystemHookDispatcher by lazy {
+        SystemHookDispatcher(
+            capacity = EVENT_QUEUE_CAPACITY,
+            log = ::log,
+            sender = ::sendForeground,
+        )
+    }
 
     fun install(lpparam: XC_LoadPackage.LoadPackageParam) {
         safe("install") {
+            dispatcher.warmUp()
             hookSystemContext(lpparam.classLoader)
             hookForegroundCandidates(lpparam.classLoader)
         }
@@ -38,25 +50,19 @@ internal object SystemHook {
         val activityThread = XposedHelpers.findClass("android.app.ActivityThread", classLoader)
         XposedBridge.hookAllMethods(activityThread, "systemMain", object : XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam?) {
-                safe("register state receiver") {
-                    Handler(Looper.getMainLooper()).post { registerStateReceiver(classLoader) }
-                }
+                postToMain("register state receiver (systemMain)", classLoader)
             }
         })
         // Try immediately as well: on some LSPosed versions handleLoadPackage is already running
         // after the system context exists, so systemMain may have been called before our hook.
-        safe("register state receiver (initial)") {
-            Handler(Looper.getMainLooper()).post { registerStateReceiver(classLoader) }
-        }
+        postToMain("register state receiver (initial)", classLoader)
         // Some ROMs install modules too late for systemMain; startBootstrapServices runs after
         // the system context exists and gives us a second, harmless registration attempt.
         runCatching {
             val systemServer = XposedHelpers.findClass("com.android.server.SystemServer", classLoader)
             XposedBridge.hookAllMethods(systemServer, "startBootstrapServices", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam?) {
-                    safe("register state receiver (bootstrap)") {
-                        Handler(Looper.getMainLooper()).post { registerStateReceiver(classLoader) }
-                    }
+                    postToMain("register state receiver (bootstrap)", classLoader)
                 }
             })
         }.onFailure { log("bootstrap hook unavailable: ${it.javaClass.simpleName}: ${it.message}") }
@@ -64,12 +70,19 @@ internal object SystemHook {
             val ams = XposedHelpers.findClass("com.android.server.am.ActivityManagerService", classLoader)
             XposedBridge.hookAllMethods(ams, "systemReady", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam?) {
-                    safe("register state receiver (ams)") {
-                        Handler(Looper.getMainLooper()).post { registerStateReceiver(classLoader) }
-                    }
+                    postToMain("register state receiver (ams)", classLoader)
                 }
             })
         }.onFailure { log("AMS systemReady hook unavailable: ${it.javaClass.simpleName}: ${it.message}") }
+    }
+
+    /** Schedules on the main Looper; the posted Runnable itself is protected, not just post(). */
+    private fun postToMain(where: String, classLoader: ClassLoader) {
+        safe("post $where") {
+            Handler(Looper.getMainLooper()).post {
+                safe(where) { registerStateReceiver(classLoader) }
+            }
+        }
     }
 
     private fun registerStateReceiver(classLoader: ClassLoader) {
@@ -99,20 +112,13 @@ internal object SystemHook {
     }
 
     private fun hookForegroundCandidates(classLoader: ClassLoader) {
-        val candidates = listOf(
-            "com.android.server.wm.ActivityTaskManagerService" to "setResumedActivity",
-            "com.android.server.wm.ActivityTaskManagerService" to "updateResumedActivity",
-            "com.android.server.am.ActivityManagerService" to "setResumedActivity",
-            "com.android.server.wm.ActivityTaskSupervisor" to "realStartActivityLocked",
-            "com.android.server.wm.RootWindowContainer" to "onActivityAdded",
-        )
         val hook = object : XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam?) {
                 safe("foreground event") { observe(param?.args) }
             }
         }
         var installed = 0
-        for ((className, methodName) in candidates) {
+        for ((className, methodName) in SystemHookCandidates.resumed) {
             try {
                 val clazz = XposedHelpers.findClass(className, classLoader)
                 val methods = XposedBridge.hookAllMethods(clazz, methodName, hook)
@@ -125,9 +131,12 @@ internal object SystemHook {
         log("foreground hooks installed=$installed")
     }
 
+    /**
+     * Runs on the hooked system-server thread while WMS/AMS locks may be held. It must not send a
+     * broadcast or call into ActivityManager here; only copy plain data into the bounded queue.
+     */
     private fun observe(arguments: Array<Any?>?) {
         if (!enabled.get()) return
-        val context = systemContext ?: return
         for (argument in arguments.orEmpty()) {
             val packageName = packageOf(argument) ?: continue
             if (!PACKAGE_PATTERN.matches(packageName)) continue
@@ -135,14 +144,26 @@ internal object SystemHook {
             val identity = if (userId == 0) packageName else "$packageName@$userId"
             if (lastIdentity.get() == identity) return
             lastIdentity.set(identity)
-            val intent = Intent(SystemHookProtocol.ACTION_FOREGROUND)
-                .setClassName(SystemHookProtocol.APP_PACKAGE, SystemHookProtocol.SYSTEM_RECEIVER)
-                .putExtra(SystemHookProtocol.EXTRA_PACKAGE, packageName)
-                .putExtra(SystemHookProtocol.EXTRA_USER, userId)
-                .putExtra(SystemHookProtocol.EXTRA_TIME, System.currentTimeMillis())
-            context.sendBroadcast(intent)
+            dispatcher.enqueue(
+                HookForegroundEvent(
+                    packageName = packageName,
+                    userId = userId,
+                    atEpochMs = System.currentTimeMillis(),
+                )
+            )
             return
         }
+    }
+
+    /** Runs on the dispatcher's HandlerThread, never under the hooked method's lock. */
+    private fun sendForeground(event: HookForegroundEvent) {
+        val context = systemContext ?: return
+        val intent = Intent(SystemHookProtocol.ACTION_FOREGROUND)
+            .setClassName(SystemHookProtocol.APP_PACKAGE, SystemHookProtocol.SYSTEM_RECEIVER)
+            .putExtra(SystemHookProtocol.EXTRA_PACKAGE, event.packageName)
+            .putExtra(SystemHookProtocol.EXTRA_USER, event.userId)
+            .putExtra(SystemHookProtocol.EXTRA_TIME, event.atEpochMs)
+        context.sendBroadcast(intent)
     }
 
     private fun packageOf(value: Any?): String? {
@@ -179,12 +200,7 @@ internal object SystemHook {
     }
 
     private fun safe(where: String, block: () -> Unit) {
-        try {
-            block()
-        } catch (failure: Throwable) {
-            // Never propagate into system_server, whatever the ROM's method signatures are.
-            log("$where failed: ${failure.javaClass.simpleName}: ${failure.message}")
-        }
+        HookFailureGuard.run(where, log = ::log, block = block)
     }
 
     private fun log(message: String) {
@@ -198,23 +214,36 @@ internal object SystemHook {
         val task = object : Runnable {
             override fun run() {
                 safe("heartbeat") {
-                    context.sendBroadcast(
-                        Intent(SystemHookProtocol.ACTION_HEARTBEAT)
-                            .setClassName(SystemHookProtocol.APP_PACKAGE, SystemHookProtocol.SYSTEM_RECEIVER)
-                    )
+                    sendHeartbeat(context)
+                    if (enabled.get()) handler.postDelayed(this, HEARTBEAT_MS)
                 }
-                if (enabled.get()) handler.postDelayed(this, HEARTBEAT_MS)
             }
         }
         heartbeat = task
-        handler.post(task)
+        safe("schedule heartbeat") { handler.post(task) }
+    }
+
+    private fun sendHeartbeat(context: Context) {
+        context.sendBroadcast(
+            Intent(SystemHookProtocol.ACTION_HEARTBEAT)
+                .setClassName(SystemHookProtocol.APP_PACKAGE, SystemHookProtocol.SYSTEM_RECEIVER)
+        )
     }
 
     private fun stopHeartbeat() {
-        heartbeat?.let { task -> Handler(Looper.getMainLooper()).removeCallbacks(task) }
+        val task = heartbeat
         heartbeat = null
+        if (task == null) return
+        safe("stop heartbeat") {
+            Handler(Looper.getMainLooper()).removeCallbacks(task)
+        }
     }
 
+    /**
+     * Only methods that represent a real resumed-activity transition are hooked; the candidate
+     * list lives in [SystemHookCandidates] so the exclusion is structurally testable.
+     */
     private val PACKAGE_PATTERN = Regex("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z0-9_]+)*")
     private const val HEARTBEAT_MS = 20_000L
+    private const val EVENT_QUEUE_CAPACITY = 32
 }
