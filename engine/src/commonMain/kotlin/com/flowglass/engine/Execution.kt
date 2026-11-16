@@ -22,6 +22,9 @@ data class StepResult(
      * maps an executed step back to the node that produced it.
      */
     val path: List<Int> = emptyList(),
+    /** Layer selected for this step; null for engine-internal/skipped steps and old logs. */
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val layer: ExecutionLayer? = null,
 )
 
 @Serializable
@@ -48,7 +51,13 @@ data class RunContext(
 )
 
 /** [output] is published to the run context under the first key of `ComponentMeta.outputs`. */
-data class ActionOutcome(val status: StepStatus, val detail: String, val output: String? = null)
+data class ActionOutcome(
+    val status: StepStatus,
+    val detail: String,
+    val output: String? = null,
+    /** Layer used by the host; engine tests can omit it. */
+    val layer: ExecutionLayer? = null,
+)
 
 interface Trigger {
     val meta: ComponentMeta
@@ -361,7 +370,7 @@ class RuleExecutor(
         if (result.status == StepStatus.FAILURE && node.onError == OnError.RETRY) result = attempt()
         cancellationCheckpoint.ensureActive()
         val duration = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(started.elapsedNow().inWholeNanoseconds.coerceAtLeast(0))
-        steps += StepResult(node.type, result.status, result.detail, duration, path)
+        steps += StepResult(node.type, result.status, result.detail, duration, path, result.layer)
         scopes.run[LAST_DETAIL] = result.detail
         val outputKey = meta.outputs.firstOrNull()
         if (outputKey != null && result.output != null) scopes.run[outputKey] = result.output

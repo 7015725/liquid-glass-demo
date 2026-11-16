@@ -17,6 +17,7 @@ class TaskChainTest {
     private fun meta(type: String) = ComponentMeta(
         typeId = type, name = type, category = "测试", kind = ComponentKind.ACTION,
         params = listOf(ParamSpec("text", "文本")),
+        supports = listOf(LayerSupport(ExecutionLayer.NORMAL)),
     )
 
     private fun rule(vararg actions: RuleComponent) = Rule(
@@ -42,6 +43,7 @@ class TaskChainTest {
     private fun echo(log: MutableList<String>, value: String) = ComponentMeta(
         "a.$value", "echo", "测试", ComponentKind.ACTION,
         params = listOf(ParamSpec("text", "文本")),
+        supports = listOf(LayerSupport(ExecutionLayer.NORMAL)),
     ) to Action { _, component ->
         log += component.type.removePrefix("a.")
         ActionOutcome(StepStatus.SUCCESS, value)

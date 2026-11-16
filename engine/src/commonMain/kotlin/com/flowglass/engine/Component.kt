@@ -8,6 +8,37 @@ import kotlinx.serialization.json.JsonPrimitive
 @Serializable
 enum class Tier { NORMAL, SHIZUKU, ROOT, XPOSED }
 
+/**
+ * The concrete execution layer a component implementation runs in. This is deliberately
+ * separate from [Tier]: `Tier` is presentation/legacy metadata, while [LayerSupport] is the
+ * authoritative declaration used by the runtime resolver.
+ */
+@Serializable
+enum class ExecutionLayer {
+    NORMAL,
+    ROOT,
+    XPOSED,
+}
+
+/**
+ * One implementation a component provides. [permissions] are the runtime permissions required
+ * by that specific layer; a missing normal permission must not shadow a working Root/LSPosed
+ * implementation.
+ */
+@Serializable
+data class LayerSupport(
+    val layer: ExecutionLayer,
+    val permissions: List<String> = emptyList(),
+)
+
+/** What an application picker needs to know about the component that owns it. */
+@Serializable
+enum class ApplicationCapability {
+    GENERAL,
+    /** The component can receive foreground events, including from profile clones. */
+    FOREGROUND_EVENTS,
+}
+
 @Serializable
 enum class ComponentKind { TRIGGER, CONDITION, ACTION }
 
@@ -170,6 +201,13 @@ data class ComponentMeta(
     val params: List<ParamSpec> = emptyList(),
     val permissions: List<String> = emptyList(),
     val minTier: Tier = Tier.NORMAL,
+    /**
+     * Implementations this component provides. Required so a newly added component cannot
+     * silently fall through to a native handler without declaring its execution layers.
+     */
+    val supports: List<LayerSupport>,
+    /** How an application picker should treat this component; see [ApplicationCapability]. */
+    val applicationCapability: ApplicationCapability = ApplicationCapability.GENERAL,
     val outputs: List<String> = emptyList(),
     val description: String = "",
     /** Visible in the add panel but not selectable until a later stage lands. */

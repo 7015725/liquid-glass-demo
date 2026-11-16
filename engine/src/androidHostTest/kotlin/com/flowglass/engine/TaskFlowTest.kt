@@ -25,6 +25,7 @@ class TaskFlowTest {
         kind = ComponentKind.ACTION,
         params = params,
         outputs = outputs,
+        supports = listOf(LayerSupport(ExecutionLayer.NORMAL)),
     )
 
     private fun rule(vararg actions: RuleComponent) = Rule(
