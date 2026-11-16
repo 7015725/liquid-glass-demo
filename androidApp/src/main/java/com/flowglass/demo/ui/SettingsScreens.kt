@@ -506,6 +506,9 @@ private fun RootPage(state: AppState) {
                             )
                         }
                         grantBusy = false
+                        // Force the trigger host to re-check blocked rules after the grants land.
+                        AppRuntime.of(ctx).state?.permissionsEpoch =
+                            (AppRuntime.of(ctx).state?.permissionsEpoch ?: 0) + 1
                     }
                 }
             },
