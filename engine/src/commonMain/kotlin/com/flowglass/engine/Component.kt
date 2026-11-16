@@ -28,6 +28,59 @@ enum class ParamType {
 }
 
 /**
+ * Presentation-only editor choice for a parameter. [AUTO] resolves from [ParamType], so new
+ * components automatically get the standard control for their storage type. Overrides are for
+ * values stored as TEXT that still need a dedicated picker (for example a rule name).
+ *
+ * This is intentionally separate from [ParamType]: changing how a value is edited must not
+ * change its persisted JSON shape or its validation rules.
+ */
+@Serializable
+enum class ParamEditor {
+    AUTO,
+    TEXT,
+    MULTILINE,
+    STEPPER,
+    SLIDER,
+    SEGMENTED,
+    TIME,
+    TIME_RANGE,
+    INT_RANGE,
+    WEEKDAYS,
+    DURATION,
+    APPLICATION,
+    RULE,
+    LOCATION,
+}
+
+/** Dynamic data source for an editor such as APPLICATION or RULE. */
+@Serializable
+enum class ParamSource {
+    NONE,
+    LAUNCHER_APPS,
+    RULES,
+    CURRENT_LOCATION,
+}
+
+/** Resolves the presentation control for a spec without changing its storage type. */
+fun ParamSpec.resolvedEditor(): ParamEditor = when (editor) {
+    ParamEditor.AUTO -> when (type) {
+        ParamType.TEXT -> ParamEditor.TEXT
+        ParamType.MULTILINE_TEXT -> ParamEditor.MULTILINE
+        ParamType.INTEGER -> ParamEditor.STEPPER
+        ParamType.PERCENTAGE -> ParamEditor.SLIDER
+        ParamType.DURATION -> ParamEditor.DURATION
+        ParamType.TRI_STATE, ParamType.ENUM -> ParamEditor.SEGMENTED
+        ParamType.TIME -> ParamEditor.TIME
+        ParamType.TIME_RANGE -> ParamEditor.TIME_RANGE
+        ParamType.INT_RANGE -> ParamEditor.INT_RANGE
+        ParamType.WEEKDAYS -> ParamEditor.WEEKDAYS
+        ParamType.APPLICATION -> ParamEditor.APPLICATION
+    }
+    else -> editor
+}
+
+/**
  * How a `%{var}` inside this parameter is substituted.
  *
  * The executor never special-cases component ids: each [ParamSpec] declares the context its
@@ -68,6 +121,10 @@ data class ParamSpec(
     val suffix: String = "",
     /** Context in which `%{var}` values are substituted; see [ParamExpansion]. */
     val expansion: ParamExpansion = ParamExpansion.PLAIN,
+    /** Presentation control; [ParamEditor.AUTO] resolves from [type]. */
+    val editor: ParamEditor = ParamEditor.AUTO,
+    /** Dynamic source for editors such as [ParamEditor.APPLICATION] or [ParamEditor.RULE]. */
+    val source: ParamSource = ParamSource.NONE,
 )
 
 /** Task-chain semantics executed by the interpreter instead of a plain action handler. */

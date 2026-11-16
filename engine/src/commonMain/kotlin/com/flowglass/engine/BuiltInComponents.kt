@@ -92,14 +92,16 @@ object BuiltInComponents {
         ComponentMeta("trigger.location_enter", "进入地点", "位置", ComponentKind.TRIGGER,
             listOf(
                 ParamSpec("location", "地点", ParamType.TEXT, defaultValue = JsonPrimitive(""),
-                    hint = "纬度,经度，例如 31.2304,121.4737"),
+                    hint = "纬度,经度，例如 31.2304,121.4737",
+                    editor = ParamEditor.LOCATION, source = ParamSource.CURRENT_LOCATION),
                 ParamSpec("radius", "半径", ParamType.INTEGER, defaultValue = JsonPrimitive(500),
                     hint = "100–5000 米", minValue = 100, maxValue = 5000),
             ), permissions = listOf("location")),
         ComponentMeta("trigger.location_exit", "离开地点", "位置", ComponentKind.TRIGGER,
             listOf(
                 ParamSpec("location", "地点", ParamType.TEXT, defaultValue = JsonPrimitive(""),
-                    hint = "纬度,经度，例如 31.2304,121.4737"),
+                    hint = "纬度,经度，例如 31.2304,121.4737",
+                    editor = ParamEditor.LOCATION, source = ParamSource.CURRENT_LOCATION),
                 ParamSpec("radius", "半径", ParamType.INTEGER, defaultValue = JsonPrimitive(500),
                     hint = "100–5000 米", minValue = 100, maxValue = 5000),
             ), permissions = listOf("location")),
