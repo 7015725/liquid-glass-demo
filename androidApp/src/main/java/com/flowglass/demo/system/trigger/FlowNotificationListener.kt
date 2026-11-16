@@ -7,18 +7,19 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /** Process-wide fan-out from the system notification listener to the trigger host. */
 internal object NotificationEvents {
-    private val listeners = CopyOnWriteArrayList<(app: String, title: String, text: String) -> Unit>()
+    typealias Listener = (app: String, title: String, text: String, userId: Int) -> Unit
+    private val listeners = CopyOnWriteArrayList<Listener>()
 
-    fun add(listener: (app: String, title: String, text: String) -> Unit) {
+    fun add(listener: Listener) {
         listeners.addIfAbsent(listener)
     }
 
-    fun remove(listener: (app: String, title: String, text: String) -> Unit) {
+    fun remove(listener: Listener) {
         listeners.remove(listener)
     }
 
-    fun dispatch(app: String, title: String, text: String) {
-        listeners.forEach { listener -> runCatching { listener(app, title, text) } }
+    fun dispatch(app: String, title: String, text: String, userId: Int = 0) {
+        listeners.forEach { listener -> runCatching { listener(app, title, text, userId) } }
     }
 }
 
@@ -37,6 +38,7 @@ class FlowNotificationListener : NotificationListenerService() {
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
         val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
             ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
-        NotificationEvents.dispatch(packageName, title, text)
+        val userId = sbn.user?.hashCode() ?: 0
+        NotificationEvents.dispatch(packageName, title, text, userId)
     }
 }
