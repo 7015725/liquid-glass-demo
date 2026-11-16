@@ -283,8 +283,14 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
         )
     }
     panel?.let { active ->
-        EditorGlassPanel(backdrop, when (active) { is EditorPanel.Add -> "添加${active.section.label}"; is EditorPanel.Parameter -> "编辑参数"; EditorPanel.Icons -> "选择图标"; EditorPanel.Variables -> "变量" },
-            bottom = active is EditorPanel.Add, onClose = { panel = null }) {
+        EditorGlassPanel(backdrop, when (active) {
+            is EditorPanel.Add -> "添加${active.section.label}"
+            is EditorPanel.Parameter -> "编辑参数"
+            is EditorPanel.Move -> "移动到…"
+            EditorPanel.Icons -> "选择图标"
+            EditorPanel.Variables -> "变量"
+        },
+            bottom = active is EditorPanel.Add || active is EditorPanel.Move, onClose = { panel = null }) {
             when (active) {
                 EditorPanel.Icons -> CommandIcons.chunked(4).forEach { icons ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -323,6 +329,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                         targets = (state.autoCmds + state.oneTaps).map { it.title },
                         onAuthorization = { destination -> panel = null; onAuthorization(destination) })
                 }
+                is EditorPanel.Move -> MoveToPanel(state, cmd, active.sourceId) { panel = null }
                 EditorPanel.Variables -> VariablePanel(state, cmd)
             }
         }
@@ -334,6 +341,7 @@ internal sealed interface EditorPanel {
     data object Icons : EditorPanel
     data class Add(val section: CommandSection, val parentId: Long? = null, val branch: Int? = null) : EditorPanel
     data class Parameter(val section: CommandSection, val itemId: Long) : EditorPanel
+    data class Move(val sourceId: Long) : EditorPanel
     data object Variables : EditorPanel
 }
 
@@ -557,12 +565,12 @@ private fun ActionRowMenu(
     state: AppState,
     cmd: Cmd,
     item: CommandItem,
-    depth: Int,
     index: Int,
     lastIndex: Int,
     parentId: Long?,
     branch: Int?,
     compact: Boolean = false,
+    onPanel: (EditorPanel) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
@@ -581,13 +589,9 @@ private fun ActionRowMenu(
                         open = false
                         state.moveStepTo(cmd.id, parentId, branch, item.id, index + 1)
                     }
-                    MenuEntry("移入上一个块", enabled = state.canMoveIntoPreviousBlock(cmd.id, item.id)) {
+                    MenuEntry("移动到…", enabled = true) {
                         open = false
-                        state.moveIntoPreviousBlock(cmd.id, item.id)
-                    }
-                    MenuEntry("移出当前块", enabled = depth > 0) {
-                        open = false
-                        state.moveOutOfBlock(cmd.id, item.id)
+                        onPanel(EditorPanel.Move(item.id))
                     }
                     MenuEntry("删除", enabled = true) {
                         open = false
@@ -949,7 +953,7 @@ private fun ActionTreeRow(
                 hint?.let { T(it, 11.sp, color = C.Bad, maxLines = 1) }
             }
             Spacer(Modifier.width(if (compact) 2.dp else 4.dp))
-            ActionRowMenu(state, cmd, item, depth, index, lastIndex, parentId, branch, compact)
+            ActionRowMenu(state, cmd, item, index, lastIndex, parentId, branch, compact, onPanel)
         }
         if (open) {
             item.conditions.forEachIndexed { conditionIndex, condition ->

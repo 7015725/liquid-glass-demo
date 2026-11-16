@@ -638,7 +638,11 @@ fun UndoBar(state: AppState, backdrop: Backdrop, modifier: Modifier) {
         exit = fadeOut(effect()) + scaleOut(spatial(), 0.9f)
     ) {
         var lastTitle by remember { mutableStateOf("") }
-        if (u != null) lastTitle = u.label
+        var lastMessage by remember { mutableStateOf<String?>(null) }
+        if (u != null) {
+            lastTitle = u.label
+            lastMessage = u.message
+        }
         Row(
             Modifier
                 .drawBackdrop(
@@ -654,7 +658,7 @@ fun UndoBar(state: AppState, backdrop: Backdrop, modifier: Modifier) {
                 .padding(start = 20.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            T("已删除「$lastTitle」", 14.sp, FontWeight.Medium, C.InverseOnSurface, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+            T(lastMessage ?: "已删除「$lastTitle」", 14.sp, FontWeight.Medium, C.InverseOnSurface, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
             Spacer(Modifier.width(12.dp))
             Box(
                 Modifier.clip(Capsule()).background(C.InverseOnSurface.copy(alpha = 0.16f))
