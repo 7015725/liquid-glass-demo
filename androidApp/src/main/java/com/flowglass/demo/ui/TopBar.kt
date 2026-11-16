@@ -96,6 +96,32 @@ internal fun DetailTopBar(
     }
 }
 
+@Composable
+internal fun TopBarTextButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier
+            .height(TopBarControlTouch)
+            .editorAction(label, onClick)
+            .padding(vertical = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .height(TopBarControlVisual)
+                .clip(Capsule())
+                .background(C.PrimarySoft)
+                .padding(horizontal = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            T(label, 13.sp, FontWeight.SemiBold, C.Primary, maxLines = 1)
+        }
+    }
+}
+
 /** Large typographic header kept for root pages; detail pages use [DetailTopBar]. */
 @Composable
 internal fun LargePageHeader(

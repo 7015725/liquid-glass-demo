@@ -52,30 +52,30 @@ internal fun ActionParameterEditor(
     commandTitle: String = "",
     onAuthorization: (Int) -> Unit = {},
     targets: List<String> = emptyList(),
+    showDone: Boolean = true,
 ) {
     val meta = item.typeId?.let { id -> com.flowglass.engine.BuiltInComponents.registry().find(id) }
     val parameter = meta?.params?.firstOrNull()
-    T(item.name, 16.sp, FontWeight.SemiBold)
 
     if (meta != null && (item.typeId == "trigger.location_enter" || item.typeId == "trigger.location_exit")) {
-        LocationParameterEditor(meta, item, onParameter, onDone)
+        LocationParameterEditor(meta, item, onParameter, onDone, showDone)
         return
     }
 
     if (item.typeId == "action.run_rule") {
-        RunRulePicker(item, targets, onParameter, onDone)
+        RunRulePicker(item, targets, onParameter, onDone, showDone)
         return
     }
 
     if (meta != null && meta.params.size > 1 && item.typeId != "action.post_notification") {
         MultiParameterEditor(meta, item, onParameter, onAuthorization)
-        EditorPill("完成", "完成", action = onDone)
+        if (showDone) EditorPill("完成", "完成", action = onDone)
         return
     }
 
     when {
         section == CommandSection.ACTIONS && item.typeId == "action.post_notification" -> {
-            NotificationParameterEditor(item, commandTitle, onParameter, onDone)
+            NotificationParameterEditor(item, commandTitle, onParameter, onDone, showDone)
             return
         }
         section == CommandSection.ACTIONS && parameter?.type == ParamType.TRI_STATE -> {
@@ -124,7 +124,7 @@ internal fun ActionParameterEditor(
             }
         }
     }
-    EditorPill("完成", "完成", action = onDone)
+    if (showDone) EditorPill("完成", "完成", action = onDone)
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -278,6 +278,7 @@ private fun RunRulePicker(
     targets: List<String>,
     onParameter: (String) -> Unit,
     onDone: () -> Unit,
+    showDone: Boolean,
 ) {
     val pieces = item.parameter.split('|')
     val selected = pieces.getOrNull(0)?.trim().orEmpty()
@@ -325,5 +326,5 @@ private fun RunRulePicker(
         else "立即发起一次独立运行，有自己的记录和停止按钮，不随父任务结束。",
         12.sp, color = C.Muted, lineHeight = 17.sp,
     )
-    EditorPill("完成", "完成", action = onDone)
+    if (showDone) EditorPill("完成", "完成", action = onDone)
 }

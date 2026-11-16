@@ -36,6 +36,7 @@ internal fun NotificationParameterEditor(
     commandTitle: String,
     onParameter: (String) -> Unit,
     onDone: () -> Unit,
+    showDone: Boolean = true,
 ) {
     val meta = remember { BuiltInActions.metadata.single { it.typeId == "action.post_notification" } }
     val initial = remember(item.id) {
@@ -102,7 +103,7 @@ internal fun NotificationParameterEditor(
     if (invalidTitle) {
         T("通知标题不能包含 |；已保留上一合法参数", 13.sp, color = C.Bad)
     }
-    EditorPill("完成", "完成", action = { if (!invalidTitle) onDone() })
+    if (showDone) EditorPill("完成", "完成", action = { if (!invalidTitle) onDone() })
 }
 
 @Composable

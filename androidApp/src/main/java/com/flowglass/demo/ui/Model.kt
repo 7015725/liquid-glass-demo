@@ -174,6 +174,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
     var actionEditingCmd by mutableStateOf<Long?>(null)
     /** 参数页正在编辑的步骤 id。 */
     var actionEditing by mutableStateOf<Long?>(null)
+    /** 统一的组件参数草稿；null 表示参数页关闭。 */
+    var componentDraft by mutableStateOf<ComponentDraft?>(null)
     var storageError by mutableStateOf<String?>(null)
     /** 编辑页内的即时提示（例如未通过校验时拒绝启用）。 */
     var editorNotice by mutableStateOf<String?>(null)
@@ -267,6 +269,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         blockPath = emptyList()
         actionEditing = null
         actionEditingCmd = null
+        componentDraft = null
     }
     fun setTitle(id: Long, text: String) = update(id) { it.copy(title = text) }
     fun setDescription(id: Long, text: String) = update(id) { it.copy(desc = text, descriptionEdited = true) }
@@ -345,6 +348,131 @@ class AppState internal constructor(saved: PersistedAppState?) {
             editActions(cmdId) { items -> items.updateItem(itemId) { it.copy(parameter = text) } }
         } else {
             editItems(cmdId, section) { items -> items.updateItem(itemId) { it.copy(parameter = text) } }
+        }
+    }
+
+    /** Opens the shared parameter page for an existing component without touching the command yet. */
+    fun openComponentEditor(
+        cmdId: Long,
+        section: CommandSection,
+        item: CommandItem,
+        parentId: Long? = null,
+        branch: Int? = null,
+    ): Boolean {
+        val meta = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
+        if (meta?.block in BlockPageKinds) {
+            openBlock(item.id)
+            return false
+        }
+        if (meta == null || meta.params.isEmpty()) {
+            editorNotice = "该组件没有可编辑参数"
+            return false
+        }
+        componentDraft = ComponentDraft(cmdId, section, item, item.copy(), parentId, branch)
+        if (section == CommandSection.ACTIONS) {
+            actionEditingCmd = cmdId
+            actionEditing = item.id
+        }
+        return true
+    }
+
+    /** Starts a new component as a private draft; [saveComponentDraft] is what inserts it. */
+    fun startComponentDraft(
+        cmdId: Long,
+        section: CommandSection,
+        option: CommandOption,
+        parentId: Long? = null,
+        branch: Int? = null,
+    ): ComponentDraft {
+        val item = CommandItem(newId(), option.name, option.defaultParameter, option.ic, option.typeId)
+        val draft = ComponentDraft(
+            cmdId, section, item, original = null, parentId = parentId, branch = branch,
+            category = option.category,
+        )
+        componentDraft = draft
+        actionEditingCmd = null
+        actionEditing = null
+        return draft
+    }
+
+    fun updateComponentDraft(item: CommandItem) {
+        componentDraft = componentDraft?.copy(item = item)
+    }
+
+    /** Adds a component without opening the parameter page (blocks and parameterless items). */
+    fun addComponentDirect(
+        cmdId: Long,
+        section: CommandSection,
+        option: CommandOption,
+        parentId: Long? = null,
+        branch: Int? = null,
+    ): Long {
+        val item = CommandItem(newId(), option.name, option.defaultParameter, option.ic, option.typeId)
+        insertDraftItem(ComponentDraft(
+            cmdId, section, item, original = null, parentId = parentId, branch = branch,
+            category = option.category,
+        ))
+        return item.id
+    }
+
+    fun cancelComponentDraft() {
+        componentDraft = null
+        actionEditing = null
+        actionEditingCmd = null
+    }
+
+    fun saveComponentDraft(): Boolean {
+        val draft = componentDraft ?: return false
+        if (draft.isNew) insertDraftItem(draft) else replaceDraftItem(draft)
+        componentDraft = null
+        actionEditing = null
+        actionEditingCmd = null
+        return true
+    }
+
+    private fun insertDraftItem(draft: ComponentDraft) {
+        val item = draft.item
+        when (draft.section) {
+            CommandSection.TRIGGERS -> {
+                editItems(draft.cmdId, draft.section) { it + item }
+                draft.category?.let { category ->
+                    update(draft.cmdId) { command ->
+                        if (command.auto && command.triggers.size == 1) command.copy(category = category) else command
+                    }
+                }
+            }
+            CommandSection.CONDITIONS -> if (draft.parentId == null) {
+                editItems(draft.cmdId, draft.section) { it + item }
+            } else {
+                editActions(draft.cmdId) { items ->
+                    items.updateItem(draft.parentId) { parent ->
+                        if (draft.branch == null) parent.copy(conditions = parent.conditions + item)
+                        else parent.copy(branches = parent.branches.mapIndexed { index, branch ->
+                            if (index == draft.branch) branch.copy(conditions = branch.conditions + item) else branch
+                        })
+                    }
+                }
+            }
+            CommandSection.ACTIONS -> if (draft.parentId == null) {
+                editActions(draft.cmdId) { it + item }
+            } else {
+                editActions(draft.cmdId) { items ->
+                    items.updateItem(draft.parentId) { parent ->
+                        if (draft.branch == null) parent.copy(children = parent.children + item)
+                        else parent.copy(branches = parent.branches.mapIndexed { index, branch ->
+                            if (index == draft.branch) branch.copy(children = branch.children + item) else branch
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+    private fun replaceDraftItem(draft: ComponentDraft) {
+        if (draft.section == CommandSection.ACTIONS || draft.parentId != null) {
+            editActions(draft.cmdId) { items -> items.updateItem(draft.item.id) { draft.item } }
+        } else {
+            editItems(draft.cmdId, draft.section) { items -> items.updateItem(draft.item.id) { draft.item } }
         }
     }
 
