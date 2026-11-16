@@ -94,6 +94,19 @@ internal object ActionSummary {
         }
     }
 
+    /** Direct child preview for a block card; branches count as internal steps too. */
+    fun blockPreview(item: CommandItem): String {
+        if (item.typeId == "block.wait_until") return "无内部步骤"
+        val children = item.children + item.branches.flatMap { it.children }
+        if (children.isEmpty()) return "还没有步骤"
+        val names = children.map { it.name }.distinct()
+        return when {
+            children.size == 1 -> names.first()
+            children.size == 2 -> names.take(2).joinToString("、")
+            else -> names.take(2).joinToString("、") + " 等 ${children.size} 步"
+        }
+    }
+
     private fun setVarText(item: CommandItem): String {
         val name = field(item, "name")?.ifBlank { null } ?: "变量"
         val op = field(item, "op") ?: "赋值"

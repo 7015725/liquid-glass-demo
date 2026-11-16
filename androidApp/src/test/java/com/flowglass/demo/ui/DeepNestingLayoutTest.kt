@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.ViewRootForTest
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,8 +24,8 @@ import org.robolectric.annotation.Config
 import java.time.Duration
 
 /**
- * Five alternating loop/if levels are the regression case from the phone: fixed indentation plus
- * two fixed action buttons used to squeeze the text column down to one character per line.
+ * Five levels still exercise the old phone regression, but now each level is its own page:
+ * the card must keep a readable text column and the block-page add pill must stay one line.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -48,7 +49,7 @@ class DeepNestingLayoutTest {
                 parent = requireNotNull(state.find(cmd.id)).actions.last().id
             } else {
                 state.addChildItem(cmd.id, parent!!, null, option)
-                parent = requireNotNull(requireNotNull(state.find(cmd.id)).actions.findItem(parent!!)).children.last().id
+                parent = requireNotNull(requireNotNull(state.find(cmd.id)).actions.findActionNode(parent!!)).children.last().id
             }
         }
         val blocks = requireNotNull(state.find(cmd.id)).actions.allItems()
@@ -71,22 +72,33 @@ class DeepNestingLayoutTest {
                 val density = activity.resources.displayMetrics.density
                 val minPx = 120f * density
                 val maxButtonHeight = 48f * density + 1f
-                val found = nodes(activity.window.decorView)
-                    .associateBy { it.config.getOrNull(SemanticsProperties.TestTag) }
-                blocks.forEach { block ->
-                    val node = found["action-text-${block.id}"]
-                        ?: error("第 ${blocks.indexOf(block) + 1} 层缺少文字列语义节点")
+                blocks.forEachIndexed { index, block ->
+                    val found = nodes(activity.window.decorView)
+                        .associateBy { it.config.getOrNull(SemanticsProperties.TestTag) }
+                    val card = found["block-card-${block.id}"]
+                    assertNotNull("第 ${index + 1} 层应显示块卡片", card)
+                    val text = found["action-text-${block.id}"]
+                    assertNotNull("第 ${index + 1} 层缺少文字列语义节点", text)
                     assertTrue(
-                        "第 ${blocks.indexOf(block) + 1} 层文字列只有 ${node.boundsInRoot.width}px，应不小于 ${minPx}px",
-                        node.boundsInRoot.width >= minPx - 0.5f,
+                        "第 ${index + 1} 层文字列只有 ${text!!.boundsInRoot.width}px，应不小于 ${minPx}px",
+                        text.boundsInRoot.width >= minPx - 0.5f,
                     )
-                    val add = found["block-add-${block.id}"]
-                        ?: error("第 ${blocks.indexOf(block) + 1} 层缺少「＋ 添加」按钮")
-                    assertTrue(
-                        "第 ${blocks.indexOf(block) + 1} 层「＋ 添加」按钮应在单行内（高度 ${add.boundsInRoot.height}px）",
-                        add.boundsInRoot.height <= maxButtonHeight,
-                    )
+                    if (index < blocks.lastIndex) {
+                        state.openBlock(block.id)
+                        pump(activity)
+                    }
                 }
+                // The deepest page still offers a single-line add pill.
+                val deepest = blocks.last()
+                state.openBlock(deepest.id)
+                pump(activity)
+                val add = nodes(activity.window.decorView)
+                    .firstOrNull { it.config.getOrNull(SemanticsProperties.TestTag) == "block-page-add-${deepest.id}" }
+                assertNotNull("块页应保留「＋ 添加」按钮", add)
+                assertTrue(
+                    "「＋ 添加」按钮应在单行内（高度 ${add!!.boundsInRoot.height}px）",
+                    add.boundsInRoot.height <= maxButtonHeight,
+                )
             } finally {
                 activity.resources.configuration.fontScale = oldFontScale
                 activity.resources.updateConfiguration(
@@ -103,9 +115,7 @@ class DeepNestingLayoutTest {
             block(controller.get())
         } finally {
             controller.get().setContent { }
-            state.editing = null
-            state.actionEditing = null
-            state.actionEditingCmd = null
+            state.closeEditor()
             controller.pause().stop().destroy()
             shadowOf(Looper.getMainLooper()).idle()
         }

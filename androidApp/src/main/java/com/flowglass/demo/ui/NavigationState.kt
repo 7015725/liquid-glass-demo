@@ -15,6 +15,7 @@ internal data class NavSnapshot(
     val actionCmd: Long = 0L,
     val action: Long = 0L,
     val settingsPage: Int = 0,
+    val blockPath: List<Long> = emptyList(),
 )
 
 internal val NavSnapshotSaver: Saver<NavSnapshot, Any> = mapSaver(
@@ -25,6 +26,7 @@ internal val NavSnapshotSaver: Saver<NavSnapshot, Any> = mapSaver(
             "actionCmd" to nav.actionCmd,
             "action" to nav.action,
             "settingsPage" to nav.settingsPage,
+            "blockPath" to nav.blockPath.joinToString(","),
         )
     },
     restore = { values ->
@@ -34,6 +36,7 @@ internal val NavSnapshotSaver: Saver<NavSnapshot, Any> = mapSaver(
             actionCmd = (values["actionCmd"] as? Number)?.toLong() ?: 0L,
             action = (values["action"] as? Number)?.toLong() ?: 0L,
             settingsPage = (values["settingsPage"] as? Number)?.toInt() ?: 0,
+            blockPath = (values["blockPath"] as? String)?.split(',')?.mapNotNull { it.toLongOrNull() } ?: emptyList(),
         )
     },
 )
@@ -59,6 +62,10 @@ internal fun restoreNavigation(state: AppState, saved: NavSnapshot): NavSnapshot
         state.actionEditingCmd = actionCmd
         state.actionEditing = action
     }
+    // On Activity recreation AppState is already alive: a path the user opened after the last
+    // saved snapshot must win over that stale snapshot. A process restore has no in-memory path,
+    // so it falls back to the saved one.
+    state.blockPath = state.validBlockPath(if (processRestore) saved.blockPath else state.blockPath)
 
     val savedPage = saved.settingsPage.takeIf { it in SettingsPage.KeepAlive..SettingsPage.Appearance }
     if (state.settingsPage == SettingsPage.Main && savedPage != null) state.settingsPage = savedPage
@@ -69,5 +76,6 @@ internal fun restoreNavigation(state: AppState, saved: NavSnapshot): NavSnapshot
         actionCmd = actionCmd ?: 0L,
         action = action ?: 0L,
         settingsPage = state.settingsPage,
+        blockPath = state.blockPath,
     )
 }

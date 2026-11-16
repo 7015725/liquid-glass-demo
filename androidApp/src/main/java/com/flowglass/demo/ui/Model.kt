@@ -180,7 +180,59 @@ class AppState internal constructor(saved: PersistedAppState?) {
     internal var engineRules by mutableStateOf(saved?.engineRules.orEmpty())
     internal var engineGlobals by mutableStateOf(saved?.engineGlobals.orEmpty())
     internal var engineUi by mutableStateOf(saved?.engineUi ?: com.flowglass.engine.RuleUiMetadata())
-    fun openEditor(id: Long) { if (find(id) != null) editing = id }
+    /** 当前块编辑页路径；空表示指令根页。 */
+    var blockPath by mutableStateOf<List<Long>>(emptyList())
+
+    fun openEditor(id: Long) {
+        if (find(id) != null) {
+            editing = id
+            blockPath = emptyList()
+        }
+    }
+
+    /** True when [id] can be opened from the current page as a block page. */
+    fun canOpenBlock(id: Long): Boolean {
+        val cmd = editing?.let(::find) ?: return false
+        val node = cmd.actions.findActionNode(id) ?: return false
+        if (blockKind(node) !in BlockPageKinds) return false
+        val parentId = blockPath.lastOrNull() ?: return cmd.actions.any { it.id == id }
+        val parent = cmd.actions.findActionNode(parentId) ?: return false
+        return (parent.children + parent.branches.flatMap { it.children }).any { it.id == id }
+    }
+
+    fun openBlock(id: Long) {
+        if (canOpenBlock(id)) blockPath = blockPath + id
+    }
+
+    fun backBlock() { blockPath = blockPath.dropLast(1) }
+
+    fun gotoBlock(index: Int) { blockPath = blockPath.take((index + 1).coerceAtLeast(0)) }
+
+    /** Drops any path level whose node is missing, wrong kind or no longer a direct child. */
+    fun validBlockPath(path: List<Long>): List<Long> {
+        val cmd = editing?.let(::find) ?: return emptyList()
+        var items = cmd.actions
+        val out = mutableListOf<Long>()
+        for (id in path) {
+            val node = items.firstOrNull { it.id == id } ?: break
+            if (blockKind(node) !in BlockPageKinds) break
+            out += id
+            items = node.children + node.branches.flatMap { it.children }
+        }
+        return out
+    }
+
+    private fun blockKind(item: CommandItem): com.flowglass.engine.BlockKind? =
+        item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it)?.block }
+
+    companion object {
+        private val BlockPageKinds = setOf(
+            com.flowglass.engine.BlockKind.IF,
+            com.flowglass.engine.BlockKind.LOOP,
+            com.flowglass.engine.BlockKind.WAIT,
+        )
+    }
+
     fun closeEditor() {
         editing?.let { id ->
             update(id) { cmd ->
@@ -188,6 +240,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
             }
         }
         editing = null
+        blockPath = emptyList()
         actionEditing = null
         actionEditingCmd = null
     }

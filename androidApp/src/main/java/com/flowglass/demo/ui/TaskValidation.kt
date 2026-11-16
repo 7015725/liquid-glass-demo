@@ -7,8 +7,14 @@ import com.flowglass.engine.BuiltInComponents
  * C2 编辑期校验：块是否完整、调用目标是否存在、是否成环。
  * 保存路径仍由 RuleValidator 兜底，这里只负责在界面上提前说清楚。
  */
-internal fun AppState.validationIssues(cmd: Cmd): List<String> {
-    val issues = mutableListOf<String>()
+internal data class ValidationIssue(val ownerId: Long?, val text: String)
+
+internal fun AppState.validationIssues(cmd: Cmd): List<String> = validationItems(cmd).map { it.text }
+
+/** Validation entries keep the owning block id so a block card can show its own count. */
+internal fun AppState.validationItems(cmd: Cmd): List<ValidationIssue> {
+    val issues = mutableListOf<ValidationIssue>()
+    fun issue(ownerId: Long?, text: String) { issues += ValidationIssue(ownerId, text) }
     val titles = (autoCmds + oneTaps).map { it.title.trim() }
 
     fun loopTimes(item: CommandItem): Int? =
@@ -19,13 +25,13 @@ internal fun AppState.validationIssues(cmd: Cmd): List<String> {
             val block = item.typeId?.let { BuiltInComponents.registry().find(it)?.block }
             when (block) {
                 BlockKind.IF -> {
-                    if (item.conditions.isEmpty()) issues += "「${item.name}」缺少条件"
+                    if (item.conditions.isEmpty()) issue(item.id, "「${item.name}」缺少条件")
                     if (item.children.isEmpty() && item.branches.all { it.children.isEmpty() }) {
-                        issues += "「${item.name}」还没有任何步骤"
+                        issue(item.id, "「${item.name}」还没有任何步骤")
                     }
                     item.branches.forEachIndexed { index, branch ->
                         if (branch.conditions.isEmpty() && index < item.branches.lastIndex) {
-                            issues += "「${item.name}」的第 ${index + 1} 个否则如果缺少条件"
+                            issue(item.id, "「${item.name}」的第 ${index + 1} 个否则如果缺少条件")
                         }
                     }
                 }
@@ -33,20 +39,20 @@ internal fun AppState.validationIssues(cmd: Cmd): List<String> {
                     val byTimes = item.parameter.contains("按次数")
                     if (byTimes) {
                         val times = loopTimes(item)
-                        if (times == null || times <= 0) issues += "「${item.name}」的次数无效"
-                        if (times != null && times > 1000) issues += "「${item.name}」最多循环 1000 次"
+                        if (times == null || times <= 0) issue(item.id, "「${item.name}」的次数无效")
+                        if (times != null && times > 1000) issue(item.id, "「${item.name}」最多循环 1000 次")
                     } else if (item.conditions.isEmpty()) {
-                        issues += "「${item.name}」缺少循环条件"
+                        issue(item.id, "「${item.name}」缺少循环条件")
                     }
-                    if (item.children.isEmpty()) issues += "「${item.name}」循环体为空"
+                    if (item.children.isEmpty()) issue(item.id, "「${item.name}」循环体为空")
                 }
-                BlockKind.WAIT -> if (item.conditions.isEmpty()) issues += "「${item.name}」缺少等待条件"
-                BlockKind.BREAK -> if (loopDepth == 0) issues += "「${item.name}」不在循环内"
+                BlockKind.WAIT -> if (item.conditions.isEmpty()) issue(item.id, "「${item.name}」缺少等待条件")
+                BlockKind.BREAK -> if (loopDepth == 0) issue(item.id, "「${item.name}」不在循环内")
                 BlockKind.RUN_RULE -> {
                     val target = item.parameter.substringBefore('|').trim()
                     when {
-                        target.isEmpty() -> issues += "「${item.name}」还没有选择目标指令"
-                        titles.none { it == target } -> issues += "找不到目标指令「$target」"
+                        target.isEmpty() -> issue(item.id, "「${item.name}」还没有选择目标指令")
+                        titles.none { it == target } -> issue(item.id, "找不到目标指令「$target」")
                     }
                 }
                 else -> Unit
@@ -90,7 +96,21 @@ internal fun AppState.validationIssues(cmd: Cmd): List<String> {
         return null
     }
     findCycle(start)?.let { path ->
-        if (issues.none { it.contains("成环") }) issues += "指令调用成环：${path.joinToString(" → ")}"
+        if (issues.none { it.text.contains("成环") }) issue(null, "指令调用成环：${path.joinToString(" → ")}")
     }
     return issues
+}
+
+/** Issues owned by [blockId] or any nested block, in the same order as the global banner. */
+internal fun AppState.blockValidationIssues(cmd: Cmd, blockId: Long): List<String> {
+    val block = cmd.actions.findActionNode(blockId) ?: return emptyList()
+    val ids = buildSet {
+        fun add(item: CommandItem) {
+            add(item.id)
+            item.children.forEach(::add)
+            item.branches.forEach { branch -> branch.children.forEach(::add) }
+        }
+        add(block)
+    }
+    return validationItems(cmd).filter { it.ownerId in ids }.map { it.text }
 }
