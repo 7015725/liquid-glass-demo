@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -41,12 +42,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.flowglass.demo.liquid.LiquidToggle
 import com.flowglass.demo.system.Grant
 import com.flowglass.demo.system.KeepAlive
 import com.flowglass.demo.system.PermItem
 import com.flowglass.demo.system.Perms
 import com.flowglass.demo.system.Root
+import com.flowglass.demo.system.RootGrantResult
+import com.flowglass.demo.system.RootGrants
 import com.flowglass.demo.system.SysTick
 import com.flowglass.demo.system.exec.LayerState
 import com.flowglass.demo.system.exec.LayerStatus
@@ -408,8 +413,12 @@ private fun KeepAlivePage() {
 
 @Composable
 private fun RootPage(state: AppState) {
+    val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
+    var grantConfirm by remember { mutableStateOf(false) }
+    var grantBusy by remember { mutableStateOf(false) }
+    var grantResults by remember { mutableStateOf<List<RootGrantResult>>(emptyList()) }
     LaunchedEffect(Unit) { if (state.root == null) state.root = Root.check(request = false) }
     val r = state.root
     val granted = r?.granted == true
@@ -435,6 +444,31 @@ private fun RootPage(state: AppState) {
             )
         }
     )
+    if (granted) {
+        PrimaryButton(
+            "用 Root 一键授予所需权限",
+            Ic.Shield,
+            { if (!grantBusy) grantConfirm = true },
+            Modifier.fillMaxWidth().padding(top = 12.dp),
+        )
+    }
+    if (grantResults.isNotEmpty()) {
+        GroupTitle("上次授予结果", k++)
+        GroupCard(k++) {
+            grantResults.forEachIndexed { i, result ->
+                ListRow(
+                    Row1(
+                        Ic.Shield,
+                        result.label,
+                        value = if (result.success) "成功" else "失败",
+                        sub = result.detail,
+                        valueColor = if (result.success) C.GoodText else C.Bad,
+                    ),
+                    divider = i < grantResults.lastIndex,
+                )
+            }
+        }
+    }
     GroupTitle("检测详情", k++)
     GroupCard(k++) {
         ListRow(Row1(Ic.Puzzle, "Root 管理器", r?.manager ?: "—"), true)
@@ -443,8 +477,79 @@ private fun RootPage(state: AppState) {
     }
     NoteCard(
         k++,
-        "Root 只用于「执行脚本」这类需要 Shell 权限的指令。点击申请后，Magisk / KernelSU / APatch 会弹出授权框，请选择允许。"
+        if (granted) {
+            "辅助授权只会执行固定命令，并在执行后逐项重新检查权限；不会自动运行，必须点击确认。"
+        } else {
+            "Root 只用于「执行脚本」这类需要 Shell 权限的指令。点击申请后，Magisk / KernelSU / APatch 会弹出授权框，请选择允许。"
+        }
     )
+    if (grantConfirm) {
+        RootGrantDialog(
+            count = RootGrants.specs(ctx).size,
+            busy = grantBusy,
+            onCancel = { if (!grantBusy) grantConfirm = false },
+            onConfirm = {
+                if (!grantBusy) {
+                    grantConfirm = false
+                    scope.launch {
+                        grantBusy = true
+                        grantResults = runCatching {
+                            RootGrants.grant(ctx, checkNotNull(r))
+                        }.getOrElse { error ->
+                            listOf(
+                                RootGrantResult(
+                                    key = "root_grants",
+                                    label = "Root 辅助授权",
+                                    success = false,
+                                    detail = error.message ?: "执行失败",
+                                )
+                            )
+                        }
+                        grantBusy = false
+                        // Force the trigger host to re-check blocked rules after the grants land.
+                        AppRuntime.of(ctx).state?.permissionsEpoch =
+                            (AppRuntime.of(ctx).state?.permissionsEpoch ?: 0) + 1
+                    }
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun RootGrantDialog(count: Int, busy: Boolean, onCancel: () -> Unit, onConfirm: () -> Unit) {
+    Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(
+            Modifier.fillMaxSize().background(C.ScrimSubtle),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                Modifier.width(330.dp).clip(RoundedRectangle(24.dp)).background(C.Card).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                T("用 Root 授予所需权限？", 18.sp, FontWeight.Bold)
+                T(
+                    "将逐项执行 $count 组固定命令（pm grant、appops、settings put、cmd notification 等），" +
+                        "每项执行后都会重新检查结果。此操作不会自动运行，也不会修改规则。",
+                    13.sp,
+                    color = C.OnSurfaceVar,
+                    lineHeight = 19.sp,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(
+                        Modifier.weight(1f).heightIn(min = 44.dp).clip(Capsule()).background(C.Tonal)
+                            .pressable { onCancel() },
+                        contentAlignment = Alignment.Center,
+                    ) { T("取消", 14.sp, FontWeight.SemiBold) }
+                    Box(
+                        Modifier.weight(1f).heightIn(min = 44.dp).clip(Capsule()).background(C.Primary)
+                            .pressable { if (!busy) onConfirm() },
+                        contentAlignment = Alignment.Center,
+                    ) { T(if (busy) "执行中…" else "开始授予", 14.sp, FontWeight.SemiBold, C.OnPrimary) }
+                }
+            }
+        }
+    }
 }
 
 // ================================================================ LSPosed

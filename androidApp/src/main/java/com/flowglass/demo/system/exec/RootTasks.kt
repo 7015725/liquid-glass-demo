@@ -1,7 +1,6 @@
 package com.flowglass.demo.system.exec
 
 import android.content.Context
-import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.RootInfo
 import com.flowglass.demo.ui.Cmd
 import com.flowglass.demo.ui.CommandItem
@@ -25,6 +24,11 @@ internal object RootTasks {
             "action.mobile_data" -> RootActions.mobileData(context, task.parameter, root)
             "action.wifi_switch" -> RadioTask.runRoot(context, "开关 WiFi", task.parameter, root)
             "action.bluetooth_switch" -> RadioTask.runRoot(context, "开关蓝牙", task.parameter, root)
+            "action.dnd_switch" -> RootActions.dnd(task.parameter, root)
+            "action.set_brightness" -> RootActions.brightness(task.parameter, root)
+            "action.screen_timeout" -> RootActions.screenTimeout(task.parameter, root)
+            "action.auto_rotate" -> RootActions.autoRotate(task.parameter, root)
+            "action.global_action" -> RootActions.globalAction(task.parameter, root)
             "action.launch_app" -> {
                 require(task.parameter.isNotBlank()) { "参数格式不正确：期望 应用包名或应用名称" }
                 LaunchableApps.launchRoot(context, task.parameter, root)
@@ -36,9 +40,10 @@ internal object RootTasks {
 
     private suspend fun rootShell(root: RootInfo, command: String): TaskOutcome {
         require(command.isNotBlank()) { "参数格式不正确：期望 非空 Shell 命令" }
-        val result = Root.runProcess(listOf(root.suPath, "-c", command))
+        val result = RootSessions.run(root, command)
         return when {
-            result.timedOut -> TaskOutcome(StepStatus.FAILURE, "Shell 执行超时（30 秒）\n${result.output}")
+            result.timedOut -> TaskOutcome(StepStatus.FAILURE, "Shell 执行超时（30 秒）；已清理 Root 会话\n${result.output}")
+            result.truncated -> TaskOutcome(StepStatus.FAILURE, "Shell 输出超过上限，结果不完整\n${result.output}")
             result.exitCode != 0 -> TaskOutcome(StepStatus.FAILURE, "Shell 退出码 ${result.exitCode}\n${result.output}")
             else -> TaskOutcome(StepStatus.SUCCESS, result.output.ifEmpty { "Shell 执行完成" }, result.output)
         }
