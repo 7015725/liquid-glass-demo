@@ -18,11 +18,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
+import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.SysTick
 import com.flowglass.demo.system.exec.LaunchableApp
 import com.flowglass.demo.system.exec.LaunchableApps
+import com.flowglass.demo.system.exec.RootApps
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun ApplicationParameterPicker(
@@ -36,6 +39,9 @@ internal fun ApplicationParameterPicker(
     var query by rememberSaveable(stateKey) { mutableStateOf("") }
     var apps by remember { mutableStateOf<List<LaunchableApp>?>(null) }
     var failed by remember { mutableStateOf(false) }
+    var rootMessage by remember { mutableStateOf<String?>(null) }
+    var rootBusy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     LaunchedEffect(context, tick) {
         failed = false
         try { apps = LaunchableApps.load(context) }
@@ -46,6 +52,23 @@ internal fun ApplicationParameterPicker(
     ParameterTextField(query, searchTag) { query = it }
     T("点选应用后保存包名；分身应用保存为 package@userId，返回不会清空原选择。", 12.sp, color = C.OnSurfaceVar)
     T("当前应用：${current.ifEmpty { "未选择" }}", 13.sp, color = C.OnSurfaceVar)
+    if (Root.findSu() != null) {
+        EditorPill(if (rootBusy) "Root 扫描中…" else "Root 扫描分身应用", "Root 扫描分身应用") {
+            if (!rootBusy) {
+                rootBusy = true
+                scope.launch {
+                    RootApps.scan(context)
+                        .onSuccess { found ->
+                            apps = (apps.orEmpty() + found).distinctBy { it.id }
+                            rootMessage = "Root 扫描到 ${found.size} 个应用；启动时若 LauncherApps 不可见会使用 Root。"
+                        }
+                        .onFailure { rootMessage = it.message ?: "Root 扫描失败" }
+                    rootBusy = false
+                }
+            }
+        }
+        rootMessage?.let { T(it, 12.sp, color = C.OnSurfaceVar) }
+    }
     val filtered = apps?.filter {
         it.label.contains(query.trim(), true) ||
             it.packageName.contains(query.trim(), true) ||

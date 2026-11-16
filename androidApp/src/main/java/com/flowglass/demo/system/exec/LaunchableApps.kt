@@ -187,6 +187,22 @@ object LaunchableApps {
             return "已启动应用：$requested"
         }
 
+        val direct = runCatching { launchWithLauncher(context, packageName, userId, requested) }
+        if (direct.isSuccess) return direct.getOrThrow()
+        val root = runCatching { RootApps.launch(context, packageName, userId) }
+        if (root.isSuccess) return "已启动应用：$requested（Root）"
+        throw IllegalStateException(
+            "LauncherApps 启动失败：${direct.exceptionOrNull()?.message ?: "未知原因"}；" +
+                "Root 启动失败：${root.exceptionOrNull()?.message ?: "未知原因"}",
+        )
+    }
+
+    private suspend fun launchWithLauncher(
+        context: Context,
+        packageName: String,
+        userId: Int,
+        requested: String,
+    ): String {
         val launcher = checkNotNull(context.getSystemService(LauncherApps::class.java)) { "启动器服务不可用" }
         val profile = runCatching { launcher.profiles }.getOrElse {
             throw IllegalStateException("无法枚举用户资料：${it.message ?: "权限不足"}")
