@@ -38,6 +38,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -528,7 +530,7 @@ fun RenameOverlay(state: AppState, backdrop: Backdrop) {
         state.renaming = null
     }
 
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().imePadding()) {
         Box(
             Modifier.fillMaxSize().graphicsLayer { alpha = progress.coerceIn(0f, 1f) }
                 .background(C.Scrim)
@@ -537,7 +539,7 @@ fun RenameOverlay(state: AppState, backdrop: Backdrop) {
         Column(
             Modifier
                 .align(Alignment.Center)
-                .imePadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 28.dp)
                 .graphicsLayer {
                     alpha = progress.coerceIn(0f, 1f)
@@ -573,7 +575,7 @@ fun RenameOverlay(state: AppState, backdrop: Backdrop) {
                     cursorBrush = SolidColor(C.Primary),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { confirm() }),
-                    modifier = Modifier.fillMaxWidth().focusRequester(focus)
+                    modifier = Modifier.fillMaxWidth().imeAutoScroll().focusRequester(focus)
                 )
             }
             Spacer(Modifier.height(18.dp))
@@ -684,7 +686,7 @@ fun SearchBarOverlay(state: AppState, backdrop: Backdrop, modifier: Modifier) {
                 textStyle = TextStyle(color = C.OnSurface, fontSize = 15.sp),
                 cursorBrush = SolidColor(C.Primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                modifier = Modifier.fillMaxWidth().focusRequester(focus)
+                modifier = Modifier.fillMaxWidth().imeAutoScroll().focusRequester(focus)
             )
         }
         Box(

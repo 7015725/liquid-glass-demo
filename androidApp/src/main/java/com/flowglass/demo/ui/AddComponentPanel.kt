@@ -119,7 +119,7 @@ private fun PickerSearch(query: String, onQuery: (String) -> Unit) {
                 textStyle = TextStyle(color = C.OnSurface, fontSize = 14.sp),
                 cursorBrush = SolidColor(C.Primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                modifier = Modifier.fillMaxWidth().testTag("component-search"),
+                modifier = Modifier.fillMaxWidth().testTag("component-search").imeAutoScroll(),
             )
         }
         if (query.isNotEmpty()) {

@@ -85,7 +85,7 @@ internal fun ApplicationParameterPicker(
     if (open) {
         Dialog(
             onDismissRequest = { open = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false),
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
         ) {
             ApplicationListPage(
                 current = current,

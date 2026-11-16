@@ -124,7 +124,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                     }
                     BasicTextField(
                         cmd.title, { state.setTitle(cmd.id, it) },
-                        Modifier.fillMaxWidth().testTag("editor-name")
+                        Modifier.fillMaxWidth().testTag("editor-name").imeAutoScroll()
                             .onFocusChanged { titleFocused = it.isFocused }
                             .alpha(if (titleFocused) 1f else 0f),
                         textStyle = TextStyle(color = C.OnSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold),
@@ -484,7 +484,7 @@ private fun LoopBlockSections(
                             state.setItemParameter(cmd.id, CommandSection.ACTIONS, block.id, "按次数|$times")
                         }
                     },
-                    Modifier.width(84.dp).testTag("loop-times-field")
+                    Modifier.width(84.dp).testTag("loop-times-field").imeAutoScroll()
                         .clip(RoundedRectangle(12.dp)).background(C.Tonal).padding(horizontal = 10.dp, vertical = 8.dp),
                     textStyle = TextStyle(color = C.OnSurface, fontSize = 15.sp),
                     singleLine = true,
@@ -541,7 +541,7 @@ private fun WaitBlockSections(
                         state.setItemParameter(cmd.id, CommandSection.ACTIONS, block.id, "$seconds 秒|$poll")
                     }
                 },
-                Modifier.width(84.dp).testTag("wait-timeout-field")
+                Modifier.width(84.dp).testTag("wait-timeout-field").imeAutoScroll()
                     .clip(RoundedRectangle(12.dp)).background(C.Tonal).padding(horizontal = 10.dp, vertical = 8.dp),
                 textStyle = TextStyle(color = C.OnSurface, fontSize = 15.sp),
                 singleLine = true,
@@ -687,7 +687,7 @@ private fun DescriptionPanel(state: AppState, cmd: Cmd, onDone: () -> Unit) {
     T("只显示你手写的描述；列表页仍保留自动摘要。", 12.sp, color = C.Muted, lineHeight = 17.sp)
     BasicTextField(
         text, { text = it.take(500) },
-        Modifier.fillMaxWidth().testTag("description-editor")
+        Modifier.fillMaxWidth().testTag("description-editor").imeAutoScroll()
             .clip(RoundedRectangle(14.dp)).background(C.Tonal).padding(12.dp),
         textStyle = TextStyle(color = C.OnSurface, fontSize = 14.sp, lineHeight = 20.sp),
         maxLines = 2,
@@ -814,7 +814,7 @@ private fun VariablePanel(state: AppState, cmd: Cmd) {
 private fun VariableRow(name: String, value: String, onName: (String) -> Unit, onValue: (String) -> Unit, onDelete: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         T(name, 13.sp, color = C.OnSurfaceVar, modifier = Modifier.weight(0.4f))
-        BasicTextField(value, onValue, Modifier.weight(0.6f).clip(RoundedRectangle(12.dp)).background(C.Card).padding(8.dp),
+        BasicTextField(value, onValue, Modifier.weight(0.6f).imeAutoScroll().clip(RoundedRectangle(12.dp)).background(C.Card).padding(8.dp),
             textStyle = TextStyle(color = C.OnSurface, fontSize = 13.sp), singleLine = true,
             cursorBrush = SolidColor(C.Primary),
             decorationBox = { inner -> Box { if (value.isEmpty()) T("值", 13.sp, color = C.Muted); inner() } })
