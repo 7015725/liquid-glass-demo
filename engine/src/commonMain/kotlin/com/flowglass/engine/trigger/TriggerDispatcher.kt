@@ -1,6 +1,7 @@
 package com.flowglass.engine.trigger
 
 import com.flowglass.engine.Clock
+import com.flowglass.engine.MatchMode
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -19,6 +20,13 @@ interface TriggerEnvironment {
 
 interface TriggerExecutor {
     fun isRunning(rule: TriggerRule): Boolean
+
+    /** Number of active runs for the rule; parallel mode uses this to enforce its cap. */
+    fun activeCount(rule: TriggerRule): Int = if (isRunning(rule)) 1 else 0
+
+    /** Cancels active runs for RESTART. Hosts that cannot cancel synchronously may keep the default. */
+    fun cancel(rule: TriggerRule) {}
+
     /** Starts the rule and returns false when the repeat policy dropped this trigger. */
     fun execute(rule: TriggerRule, binding: TriggerBinding, reason: String, variables: Map<String, Any?>): Boolean
 }
@@ -45,6 +53,7 @@ data class DispatchOutcome(
     val skips: List<TriggerSkip> = emptyList(),
     val debounced: Int = 0,
     val dropped: Int = 0,
+    val queued: Int = 0,
 )
 
 data class ConditionOutcome(val passed: Boolean, val failed: List<String> = emptyList()) {
@@ -81,6 +90,9 @@ object TriggerConditions {
     }
 }
 
+private const val MAX_PARALLEL_RUNS = 3
+private const val MAX_QUEUED_RUNS = 10
+
 /**
  * Event -> trigger match -> debounce -> condition -> execute.
  *
@@ -98,37 +110,48 @@ class TriggerDispatcher(
     private val lastFired = mutableMapOf<String, Long>()
     private val lastSkipLog = mutableMapOf<String, Long>()
     private val states = TriggerStateStore()
+    private val lastEvents = mutableMapOf<String, Long>()
+    private val queues = mutableMapOf<String, ArrayDeque<TriggerExecution>>()
 
     fun dispatch(event: TriggerEvent, rules: List<TriggerRule>): DispatchOutcome {
         val now = clock.nowEpochMs()
         val offset = environment.zoneOffsetMinutes(now)
         val enabled = rules.filter { it.enabled }
         val allBindings = enabled.flatMap { TriggerPlan.bindings(it) }
+        val keys = allBindings.map { it.key }.toSet()
+        val debounceKeys = keys + enabled.map { "${it.id}#all" }
+        states.removeMissing(keys)
+        lastFired.keys.retainAll(debounceKeys)
+        lastSkipLog.keys.retainAll(enabled.map { it.id }.toSet())
+        lastEvents.keys.retainAll(keys)
+        queues.keys.retainAll(enabled.map { it.id }.toSet())
+
         val bindings = allBindings.filter { it.source == event.source }
-        val matches = bindings.filter {
+        val matched = bindings.filter {
             TriggerMatcher.matches(it, event, states, environment.batteryPercent())
         }
-        // Drop state of bindings that disappeared (rule removed / trigger edited / disabled).
-        val keys = allBindings.map { it.key }.toSet()
-        states.removeMissing(keys)
-        lastFired.keys.retainAll(keys)
-        lastSkipLog.keys.retainAll(enabled.map { it.id }.toSet())
+        matched.forEach { lastEvents[it.key] = now }
 
         val executions = mutableListOf<TriggerExecution>()
         val skips = mutableListOf<TriggerSkip>()
         var debounced = 0
         var dropped = 0
+        var queued = 0
 
-        for ((_, matched) in matches.groupBy { it.rule.id }) {
-            val binding = matched.firstOrNull { allowsDebounce(it.key, now) }
-            if (binding == null) {
-                debounced += matched.size
-                continue
+        for (rule in enabled) {
+            val ruleBindings = allBindings.filter { it.rule.id == rule.id }
+            val eventBindings = ruleBindings.filter { it.source == event.source }
+            if (eventBindings.isEmpty()) continue // No trigger of this rule listens to this event.
+            val binding = if (rule.triggerMatch.mode == MatchMode.ALL) {
+                if (!allTriggersSatisfied(ruleBindings, rule.triggerMatch.windowSeconds, now)) continue
+                eventBindings.firstOrNull { candidate -> matched.any { it.key == candidate.key } }
+                    ?: eventBindings.first()
+            } else {
+                matched.firstOrNull { it.rule.id == rule.id } ?: continue
             }
-            lastFired[binding.key] = now
-            val rule = binding.rule
-            if (executor.isRunning(rule)) {
-                dropped++
+            val debounceKey = if (rule.triggerMatch.mode == MatchMode.ALL) "${rule.id}#all" else binding.key
+            if (!allowsDebounce(debounceKey, now)) {
+                debounced += ruleBindings.size
                 continue
             }
             val conditions = TriggerConditions.evaluate(rule.conditions, environment, now, offset, variablesOf(event))
@@ -145,13 +168,64 @@ class TriggerDispatcher(
             }
             val reason = reasonFor(binding)
             val variables = variablesFor(event, now, offset)
+            val active = executor.activeCount(rule)
+            when (rule.runMode) {
+                com.flowglass.engine.RunMode.DROP -> if (active > 0) {
+                    dropped++
+                    continue
+                }
+                com.flowglass.engine.RunMode.QUEUE -> if (active > 0) {
+                    val queue = queues.getOrPut(rule.id) { ArrayDeque() }
+                    if (queue.size >= MAX_QUEUED_RUNS) dropped++ else {
+                        queue.addLast(TriggerExecution(rule, binding, reason, variables))
+                        queued++
+                    }
+                    continue
+                }
+                com.flowglass.engine.RunMode.RESTART -> if (active > 0) executor.cancel(rule)
+                com.flowglass.engine.RunMode.PARALLEL -> if (active >= MAX_PARALLEL_RUNS) {
+                    dropped++
+                    continue
+                }
+            }
+            lastFired[debounceKey] = now
+            if (rule.triggerMatch.mode == MatchMode.ALL) {
+                // A conjunction is consumed by one execution; require fresh events next time.
+                ruleBindings.forEach { lastEvents.remove(it.key) }
+            }
             if (executor.execute(rule, binding, reason, variables)) {
                 executions += TriggerExecution(rule, binding, reason, variables)
             } else {
                 dropped++
             }
         }
-        return DispatchOutcome(executions, skips, debounced, dropped)
+        return DispatchOutcome(executions, skips, debounced, dropped, queued)
+    }
+
+    /**
+     * Called by the host when a run completes. A queued trigger starts immediately if the rule is
+     * idle; the queue is bounded so a burst cannot grow without limit.
+     */
+    fun onRunFinished(rule: TriggerRule) {
+        val queue = queues[rule.id] ?: return
+        while (queue.isNotEmpty() && executor.activeCount(rule) == 0) {
+            val next = queue.removeFirst()
+            if (executor.execute(next.rule, next.binding, next.reason, next.variables)) return
+        }
+        if (queue.isEmpty()) queues.remove(rule.id)
+    }
+
+    private fun allTriggersSatisfied(
+        bindings: List<TriggerBinding>,
+        windowSeconds: Int,
+        now: Long,
+    ): Boolean = bindings.all { binding ->
+        if (TriggerMatcher.isStateful(binding)) {
+            TriggerMatcher.matchesState(binding, environment)
+        } else {
+            val at = lastEvents[binding.key] ?: return@all false
+            now - at <= windowSeconds.coerceAtLeast(0) * 1_000L
+        }
     }
 
     /** Forget debounce/state history when the host re-registers after an explicit stop. */
@@ -159,14 +233,19 @@ class TriggerDispatcher(
         lastFired.clear()
         lastSkipLog.clear()
         states.clear()
+        lastEvents.clear()
+        queues.clear()
     }
 
     /** Drops state for rules that are no longer listening, so a re-enable starts from a baseline. */
     fun prune(rules: List<TriggerRule>) {
         val keys = rules.flatMap { TriggerPlan.bindings(it) }.map { it.key }.toSet()
         states.removeMissing(keys)
-        lastFired.keys.retainAll(keys)
+        lastFired.keys.retainAll(keys + rules.map { "${it.id}#all" })
         lastSkipLog.keys.retainAll(rules.map { it.id }.toSet())
+        lastEvents.keys.retainAll(keys)
+        val ruleIds = rules.map { it.id }.toSet()
+        queues.keys.retainAll(ruleIds)
     }
 
     private fun allowsDebounce(key: String, now: Long): Boolean {

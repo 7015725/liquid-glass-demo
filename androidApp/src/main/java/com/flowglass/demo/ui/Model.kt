@@ -35,6 +35,10 @@ data class Cmd(
     val pinned: Boolean = false,
     val lastRun: String = "从未",
     val descriptionEdited: Boolean = true,
+    /** TriggerMatch: ANY keeps the old behavior; ALL requires every trigger. */
+    val triggerMatch: com.flowglass.engine.MatchSpec =
+        com.flowglass.engine.MatchSpec(mode = com.flowglass.engine.MatchMode.ANY),
+    val runMode: com.flowglass.engine.RunMode = com.flowglass.engine.RunMode.DROP,
 ) {
     val meta: String
         get() = if (auto) "触发器 ${triggers.size} · 条件 ${conditions.size} · 任务 ${actions.allItems().size}"
@@ -633,8 +637,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
     val autoCmds = mutableStateListOf<Cmd>().apply { addAll(saved?.autoCmds.orEmpty().map { it.withRefreshedDescription() }) }
     val oneTaps = mutableStateListOf<Cmd>().apply { addAll(saved?.oneTaps.orEmpty().map { it.withRefreshedDescription() }) }
     var autoFilter by mutableIntStateOf(0)
-    private val executionTokens = mutableMapOf<Long, Any>()
-    private val executionJobs = mutableMapOf<Long, kotlinx.coroutines.Job>()
+    private val executionTokens = mutableMapOf<Long, MutableSet<Any>>()
+    private val executionJobs = mutableMapOf<Long, MutableList<kotlinx.coroutines.Job>>()
     val executing = mutableStateMapOf<Long, Int>() // id -> 1 running, 2 done, 3 failed
     val executionMessages = mutableStateMapOf<Long, String>()
     val logs = mutableStateListOf<RunLog>().apply { addAll(saved?.logs.orEmpty()) }
@@ -673,12 +677,22 @@ class AppState internal constructor(saved: PersistedAppState?) {
     /** Cancels a running execution; the job records no result, matching a manual stop. */
     fun stopExecution(cmdId: Long) {
         val cmd = find(cmdId) ?: return
-        executionJobs.remove(cmdId)?.cancel()
+        cancelExecution(cmdId)
         executing[cmdId] = 0
         executionMessages[cmdId] = "已手动停止"
         logs.add(0, RunLog(newId(), cmd.title, "手动停止", now(), false, cmd.ic, "已手动停止", emptyList(), skipped = true, at = nowEpochMs()))
         if (logs.size > 50) logs.removeAt(logs.lastIndex)
     }
+
+    /** Cancels every active run without adding a manual-stop log row (used by RESTART). */
+    fun cancelExecution(cmdId: Long) {
+        executionJobs.remove(cmdId)?.forEach { it.cancel() }
+        executionTokens.remove(cmdId)
+        executing.remove(cmdId)
+        executionMessages.remove(cmdId)
+    }
+
+    fun activeExecutionCount(cmdId: Long): Int = executionJobs[cmdId]?.size ?: 0
 
     // overlays
     var menu by mutableStateOf<MenuReq?>(null)
@@ -718,6 +732,12 @@ class AppState internal constructor(saved: PersistedAppState?) {
     }
 
     fun setEnabled(id: Long, on: Boolean) = update(id) { it.copy(enabled = on) }
+    fun setTriggerMatch(id: Long, mode: com.flowglass.engine.MatchMode) =
+        update(id) { it.copy(triggerMatch = it.triggerMatch.copy(mode = mode)) }
+    fun setTriggerWindow(id: Long, seconds: Int) =
+        update(id) { it.copy(triggerMatch = it.triggerMatch.copy(windowSeconds = seconds.coerceIn(1, 3600))) }
+    fun setRunMode(id: Long, mode: com.flowglass.engine.RunMode) =
+        update(id) { it.copy(runMode = mode) }
     fun togglePin(id: Long) = update(id) { it.copy(pinned = !it.pinned) }
     fun rename(id: Long, title: String) = update(id) { it.copy(title = title.ifBlank { it.title }) }
 
@@ -779,16 +799,49 @@ class AppState internal constructor(saved: PersistedAppState?) {
         reason: String = "手动执行",
         variables: Map<String, Any?> = emptyMap(),
     ): kotlinx.coroutines.Job? {
-        if (executing.containsKey(cmd.id)) return null
+        if (activeExecutionCount(cmd.id) > 0) return null
+        return launchExecution(cmd, scope, reason, variables, allowParallel = false)
+    }
+
+    /** Trigger-host entry point; queue policy is owned by TriggerDispatcher. */
+    fun executeWithPolicy(
+        cmd: Cmd,
+        scope: CoroutineScope,
+        reason: String,
+        variables: Map<String, Any?>,
+        mode: com.flowglass.engine.RunMode,
+    ): kotlinx.coroutines.Job? {
+        val active = activeExecutionCount(cmd.id)
+        return when (mode) {
+            com.flowglass.engine.RunMode.DROP -> if (active > 0) null
+                else launchExecution(cmd, scope, reason, variables, allowParallel = false)
+            com.flowglass.engine.RunMode.QUEUE -> if (active > 0) null
+                else launchExecution(cmd, scope, reason, variables, allowParallel = false)
+            com.flowglass.engine.RunMode.RESTART -> {
+                if (active > 0) cancelExecution(cmd.id)
+                launchExecution(cmd, scope, reason, variables, allowParallel = false)
+            }
+            com.flowglass.engine.RunMode.PARALLEL -> if (active >= 3) null
+                else launchExecution(cmd, scope, reason, variables, allowParallel = true)
+        }
+    }
+
+    private fun launchExecution(
+        cmd: Cmd,
+        scope: CoroutineScope,
+        reason: String,
+        variables: Map<String, Any?>,
+        allowParallel: Boolean = false,
+    ): kotlinx.coroutines.Job {
         val engine = executionEngine
         val token = Any()
-        executionTokens[cmd.id] = token
+        executionTokens.getOrPut(cmd.id) { mutableSetOf() }.add(token)
         executionMessages.remove(cmd.id)
         executing[cmd.id] = 1
         val job = com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch {
             try {
                 val result = try {
-                    engine?.run(cmd, reason, variables) ?: com.flowglass.demo.system.exec.RunResult(
+                    engine?.run(cmd, reason, variables, allowParallel) ?: com.flowglass.demo.system.exec.RunResult(
                         cmd.id, reason, listOf(com.flowglass.demo.system.exec.StepResult(
                             cmd.id, "执行环境检查", com.flowglass.demo.system.exec.StepStatus.FAILURE,
                             "执行环境未就绪", 0)), 0)
@@ -819,7 +872,9 @@ class AppState internal constructor(saved: PersistedAppState?) {
                 delay(2000)
             } finally {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.Main.immediate) {
-                    if (executionTokens[cmd.id] === token) {
+                    val tokens = executionTokens[cmd.id]
+                    tokens?.remove(token)
+                    if (tokens?.isEmpty() != false) {
                         executionTokens.remove(cmd.id)
                         executing.remove(cmd.id)
                         executionMessages.remove(cmd.id)
@@ -827,8 +882,11 @@ class AppState internal constructor(saved: PersistedAppState?) {
                 }
             }
         }
-        executionJobs[cmd.id] = job
-        job.invokeOnCompletion { if (executionJobs[cmd.id] === job) executionJobs.remove(cmd.id) }
+        executionJobs.getOrPut(cmd.id) { mutableListOf() }.add(job)
+        job.invokeOnCompletion {
+            executionJobs[cmd.id]?.remove(job)
+            if (executionJobs[cmd.id]?.isEmpty() == true) executionJobs.remove(cmd.id)
+        }
         return job
     }
 

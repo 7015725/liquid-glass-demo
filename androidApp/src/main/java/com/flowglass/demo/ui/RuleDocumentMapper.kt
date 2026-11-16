@@ -5,7 +5,6 @@ import com.flowglass.demo.system.exec.StepStatus as UiStepStatus
 import com.flowglass.engine.BuiltInComponents
 import com.flowglass.engine.ParameterCodec
 import com.flowglass.engine.RuleType
-import com.flowglass.engine.RunMode
 import com.flowglass.engine.MatchMode
 import com.flowglass.engine.OnError
 import com.flowglass.engine.ComponentKind
@@ -46,8 +45,8 @@ internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Bool
             description = command.desc,
             type = if (command.auto) RuleType.AUTO else RuleType.MANUAL,
             enabled = command.enabled,
-            runMode = oldRule?.runMode ?: RunMode.DROP,
-            triggerMatch = oldRule?.triggerMatch ?: com.flowglass.engine.MatchSpec(mode = MatchMode.ANY),
+            runMode = command.runMode,
+            triggerMatch = command.triggerMatch,
             conditionMatch = oldRule?.conditionMatch ?: com.flowglass.engine.MatchSpec(mode = MatchMode.ALL),
             locals = oldRule?.locals.orEmpty(),
             triggers = if (includeTriggersAndConditions) {
@@ -175,6 +174,8 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
             pinned = sidecar.pinned,
             lastRun = sidecar.lastRun,
             descriptionEdited = sidecar.descriptionEdited,
+            triggerMatch = rule.triggerMatch,
+            runMode = rule.runMode,
         )
         val all = (triggers + conditions + actions).allItems()
         normalizedPresentation[rule.id] = sidecar.copy(

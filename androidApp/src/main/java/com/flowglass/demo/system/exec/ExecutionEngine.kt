@@ -101,13 +101,20 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
         }
     }
 
-    suspend fun run(cmd: Cmd, reason: String, variables: Map<String, Any?> = emptyMap()): RunResult {
+    suspend fun run(
+        cmd: Cmd,
+        reason: String,
+        variables: Map<String, Any?> = emptyMap(),
+        allowParallel: Boolean = false,
+    ): RunResult {
         currentCoroutineContext().ensureActive()
-        if (!active.add(cmd.id)) return RunResult(cmd.id, reason, emptyList(), 0, ignored = true)
+        if (!allowParallel && !active.add(cmd.id)) {
+            return RunResult(cmd.id, reason, emptyList(), 0, ignored = true)
+        }
         try {
             return runInternal(cmd, reason, variables, null, null)
         } finally {
-            active.remove(cmd.id)
+            if (!allowParallel) active.remove(cmd.id)
         }
     }
 

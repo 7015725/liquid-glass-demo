@@ -1,6 +1,8 @@
 package com.flowglass.engine.trigger
 
 import com.flowglass.engine.Clock
+import com.flowglass.engine.MatchSpec
+import com.flowglass.engine.RunMode
 import kotlin.math.asin
 import kotlin.math.cos
 import kotlin.math.pow
@@ -69,6 +71,10 @@ data class TriggerRule(
     val conditions: List<TriggerComponent> = emptyList(),
     /** Android permission keys declared by the rule's triggers, conditions and actions. */
     val permissions: List<String> = emptyList(),
+    /** Rule-level trigger conjunction; defaults to the historical ANY behavior. */
+    val triggerMatch: MatchSpec = MatchSpec(),
+    /** Rule-level repeat policy for a trigger firing while a run is active. */
+    val runMode: RunMode = RunMode.DROP,
 )
 
 data class TriggerBinding(
@@ -215,6 +221,51 @@ object TriggerMatcher {
             else -> false
         }
     }
+
+    /** True when the trigger describes a current state instead of a transient event. */
+    fun isStateful(binding: TriggerBinding): Boolean = when (binding.component.typeId) {
+        TriggerTypes.WIFI,
+        TriggerTypes.CHARGING_LEGACY,
+        TriggerTypes.POWER_CONNECTED,
+        TriggerTypes.POWER_DISCONNECTED,
+        TriggerTypes.BATTERY_LEVEL,
+        TriggerTypes.BATTERY_LOW_LEGACY,
+        -> true
+        else -> false
+    }
+
+    /** Evaluates a state trigger against the live environment, without consuming an edge. */
+    fun matchesState(binding: TriggerBinding, environment: TriggerEnvironment): Boolean =
+        when (binding.component.typeId) {
+            TriggerTypes.WIFI -> {
+                val connected = environment.networkType() == NetworkType.WIFI
+                when (binding.component.params["state"]?.stringValue()) {
+                    "connected" -> connected
+                    "disconnected" -> !connected
+                    else -> false
+                }
+            }
+            TriggerTypes.CHARGING_LEGACY -> {
+                val charging = environment.isCharging()
+                when (binding.component.params["state"]?.stringValue()) {
+                    "charging" -> charging
+                    "stopped" -> !charging
+                    else -> false
+                }
+            }
+            TriggerTypes.POWER_CONNECTED -> environment.isCharging()
+            TriggerTypes.POWER_DISCONNECTED -> !environment.isCharging()
+            TriggerTypes.SCREEN_ON -> environment.isScreenOn()
+            TriggerTypes.SCREEN_OFF -> !environment.isScreenOn()
+            TriggerTypes.BATTERY_LEVEL, TriggerTypes.BATTERY_LOW_LEGACY -> {
+                val level = environment.batteryPercent() ?: return false
+                val threshold = binding.component.params["threshold"]?.intValueOrNull() ?: return false
+                val below = binding.component.typeId == TriggerTypes.BATTERY_LOW_LEGACY ||
+                    binding.component.params["direction"]?.stringValue() != "above"
+                if (below) level < threshold else level > threshold
+            }
+            else -> false
+        }
 
     private fun matchesWifi(
         binding: TriggerBinding,

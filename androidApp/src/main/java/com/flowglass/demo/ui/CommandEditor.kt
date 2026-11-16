@@ -220,8 +220,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                     }
                 }
                 if (section == CommandSection.TRIGGERS) {
-                    T("多个触发器按「任一满足」执行；正在执行时新的触发会被丢弃。",
-                        11.sp, color = C.Muted, lineHeight = 16.sp)
+                    TriggerPolicyControls(state, cmd)
                 }
                 if (section == CommandSection.CONDITIONS) {
                     T("多个条件需要全部满足才会执行。", 11.sp, color = C.Muted, lineHeight = 16.sp)
@@ -1483,3 +1482,72 @@ private fun ActionTreeRow(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TriggerPolicyControls(state: AppState, cmd: Cmd) {
+    val all = cmd.triggerMatch.mode == com.flowglass.engine.MatchMode.ALL
+    T("触发器匹配", 12.sp, FontWeight.SemiBold, C.OnSurfaceVar)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        PolicyChip("任一满足", !all, Modifier.weight(1f)) {
+            state.setTriggerMatch(cmd.id, com.flowglass.engine.MatchMode.ANY)
+        }
+        PolicyChip("全部满足", all, Modifier.weight(1f)) {
+            state.setTriggerMatch(cmd.id, com.flowglass.engine.MatchMode.ALL)
+        }
+    }
+    if (all) {
+        T("事件触发器的有效窗口", 11.sp, color = C.Muted)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(30 to "30 秒", 60 to "60 秒", 300 to "5 分钟").forEach { (seconds, label) ->
+                PolicyChip(label, cmd.triggerMatch.windowSeconds == seconds, Modifier.weight(1f)) {
+                    state.setTriggerWindow(cmd.id, seconds)
+                }
+            }
+        }
+    }
+    T("重复触发策略", 12.sp, FontWeight.SemiBold, C.OnSurfaceVar)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        com.flowglass.engine.RunMode.entries.forEach { mode ->
+            PolicyChip(
+                when (mode) {
+                    com.flowglass.engine.RunMode.DROP -> "丢弃"
+                    com.flowglass.engine.RunMode.QUEUE -> "排队"
+                    com.flowglass.engine.RunMode.RESTART -> "重启"
+                    com.flowglass.engine.RunMode.PARALLEL -> "并行"
+                },
+                cmd.runMode == mode,
+                Modifier.width(78.dp),
+            ) { state.setRunMode(cmd.id, mode) }
+        }
+    }
+    T(
+        if (all) "全部满足：状态型触发器按当前状态判断，事件型触发器需在窗口内都发生过。"
+        else "任一满足：任一触发器命中即可执行。",
+        11.sp, color = C.Muted, lineHeight = 16.sp,
+    )
+    T(
+        when (cmd.runMode) {
+            com.flowglass.engine.RunMode.DROP -> "正在执行时新的触发会被丢弃。"
+            com.flowglass.engine.RunMode.QUEUE -> "最多排队 10 次，当前运行结束后依次执行。"
+            com.flowglass.engine.RunMode.RESTART -> "新的触发会停止当前运行并重新开始。"
+            com.flowglass.engine.RunMode.PARALLEL -> "最多同时运行 3 个实例，超出后丢弃。"
+        },
+        11.sp, color = C.Muted, lineHeight = 16.sp,
+    )
+}
+
+@Composable
+private fun PolicyChip(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier.clip(Capsule()).background(if (selected) C.PrimarySoft else C.Tonal)
+            .pressable { onClick() }.padding(horizontal = 10.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        T(label, 12.sp, FontWeight.SemiBold, if (selected) C.Primary else C.OnSurfaceVar)
+    }
+}
