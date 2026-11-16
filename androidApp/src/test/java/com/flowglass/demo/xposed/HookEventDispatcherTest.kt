@@ -6,6 +6,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLooper
+import android.os.Handler
+import android.os.Looper
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -92,6 +95,19 @@ class HookEventDispatcherTest {
         assertTrue(methods.all { it.contains("Resumed") })
         assertTrue("realStartActivityLocked is not a foreground signal", "realStartActivityLocked" !in methods)
         assertTrue("onActivityAdded is not a foreground signal", "onActivityAdded" !in methods)
+    }
+
+    @Test
+    fun postedRunnableExceptionIsAlsoContained() {
+        val handler = Handler(Looper.getMainLooper())
+        var logged = ""
+        HookFailureGuard.post(handler, "posted callback", log = { logged = it }) {
+            throw SecurityException("not ready")
+        }
+
+        ShadowLooper.shadowMainLooper().idle()
+        assertTrue(logged.contains("posted callback failed"))
+        assertTrue(logged.contains("SecurityException"))
     }
 
     @Test

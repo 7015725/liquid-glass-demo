@@ -50,7 +50,9 @@ internal object SystemHook {
         val activityThread = XposedHelpers.findClass("android.app.ActivityThread", classLoader)
         XposedBridge.hookAllMethods(activityThread, "systemMain", object : XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam?) {
-                postToMain("register state receiver (systemMain)", classLoader)
+                safe("systemMain callback") {
+                    postToMain("register state receiver (systemMain)", classLoader)
+                }
             }
         })
         // Try immediately as well: on some LSPosed versions handleLoadPackage is already running
@@ -62,7 +64,9 @@ internal object SystemHook {
             val systemServer = XposedHelpers.findClass("com.android.server.SystemServer", classLoader)
             XposedBridge.hookAllMethods(systemServer, "startBootstrapServices", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam?) {
-                    postToMain("register state receiver (bootstrap)", classLoader)
+                    safe("bootstrap callback") {
+                        postToMain("register state receiver (bootstrap)", classLoader)
+                    }
                 }
             })
         }.onFailure { log("bootstrap hook unavailable: ${it.javaClass.simpleName}: ${it.message}") }
@@ -70,18 +74,22 @@ internal object SystemHook {
             val ams = XposedHelpers.findClass("com.android.server.am.ActivityManagerService", classLoader)
             XposedBridge.hookAllMethods(ams, "systemReady", object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam?) {
-                    postToMain("register state receiver (ams)", classLoader)
+                    safe("AMS systemReady callback") {
+                        postToMain("register state receiver (ams)", classLoader)
+                    }
                 }
             })
         }.onFailure { log("AMS systemReady hook unavailable: ${it.javaClass.simpleName}: ${it.message}") }
     }
 
-    /** Schedules on the main Looper; the posted Runnable itself is protected, not just post(). */
+    /** Schedules on the main Looper; both post() and the posted Runnable are protected. */
     private fun postToMain(where: String, classLoader: ClassLoader) {
-        safe("post $where") {
-            Handler(Looper.getMainLooper()).post {
-                safe(where) { registerStateReceiver(classLoader) }
-            }
+        HookFailureGuard.post(
+            handler = Handler(Looper.getMainLooper()),
+            where = where,
+            log = ::log,
+        ) {
+            registerStateReceiver(classLoader)
         }
     }
 

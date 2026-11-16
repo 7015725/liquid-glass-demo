@@ -70,6 +70,15 @@ internal object HookFailureGuard {
             }
         }
     }
+
+    /** Protect both the post() call and the Runnable that will execute on the target Looper. */
+    fun post(handler: Handler, where: String, log: (String) -> Unit, block: () -> Unit) {
+        run("post $where", log) {
+            handler.post {
+                run(where, log, block)
+            }
+        }
+    }
 }
 
 /**
