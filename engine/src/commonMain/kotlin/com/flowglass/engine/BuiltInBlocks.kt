@@ -74,7 +74,8 @@ object BuiltInBlocks {
             "action.run_rule", "执行另一条指令", "流程控制", ComponentKind.ACTION,
             listOf(
                 ParamSpec("rule", "目标指令", ParamType.TEXT, true, JsonPrimitive(""),
-                    hint = "填写目标指令的名称；保存时会检查调用成环。"),
+                    hint = "填写目标指令的名称；保存时会检查调用成环。",
+                    editor = ParamEditor.RULE, source = ParamSource.RULES),
                 ParamSpec("wait", "等待", ParamType.ENUM, false, JsonPrimitive("true"), options = listOf(
                     ParamOption("true", "等它执行完再继续"), ParamOption("false", "发起后立即继续"),
                 )),

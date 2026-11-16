@@ -25,10 +25,15 @@ import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.CancellationException
 
 @Composable
-internal fun ApplicationParameterPicker(item: CommandItem, onParameter: (String) -> Unit) {
+internal fun ApplicationParameterPicker(
+    current: String,
+    stateKey: Any?,
+    searchTag: String,
+    onParameter: (String) -> Unit,
+) {
     val context = LocalContext.current
     val tick = SysTick.tick
-    var query by rememberSaveable(item.id) { mutableStateOf("") }
+    var query by rememberSaveable(stateKey) { mutableStateOf("") }
     var apps by remember { mutableStateOf<List<LaunchableApp>?>(null) }
     var failed by remember { mutableStateOf(false) }
     LaunchedEffect(context, tick) {
@@ -38,9 +43,9 @@ internal fun ApplicationParameterPicker(item: CommandItem, onParameter: (String)
         catch (_: Exception) { failed = true }
     }
     T("搜索应用名称或包名", 14.sp, FontWeight.Medium)
-    ParameterTextField(query, "app-search") { query = it }
+    ParameterTextField(query, searchTag) { query = it }
     T("点选应用后保存包名；返回不会清空原选择。", 12.sp, color = C.OnSurfaceVar)
-    T("当前包名：${item.parameter.ifEmpty { "未选择" }}", 13.sp, color = C.OnSurfaceVar)
+    T("当前包名：${current.ifEmpty { "未选择" }}", 13.sp, color = C.OnSurfaceVar)
     val filtered = apps?.filter { it.label.contains(query.trim(), true) || it.packageName.contains(query.trim(), true) }
     when {
         failed -> T("读取应用列表失败，请重新打开后重试。", 13.sp, color = C.Bad)
@@ -49,8 +54,8 @@ internal fun ApplicationParameterPicker(item: CommandItem, onParameter: (String)
         else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 224.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             itemsIndexed(filtered, key = { _, app -> app.packageName }) { index, app ->
                 Row(Modifier.fillMaxWidth().staggerIn(index.coerceAtMost(8)).clip(RoundedRectangle(24.dp))
-                    .background(if (item.parameter == app.packageName) C.PrimarySoft else C.Card)
-                    .semantics { selected = item.parameter == app.packageName }
+                    .background(if (current == app.packageName) C.PrimarySoft else C.Card)
+                    .semantics { selected = current == app.packageName }
                     .editorAction("选择应用：${app.label}") { onParameter(app.packageName) }
                     .padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     val icon = remember(app.icon) { app.icon.toBitmap(96, 96).asImageBitmap() }
@@ -60,7 +65,7 @@ internal fun ApplicationParameterPicker(item: CommandItem, onParameter: (String)
                         T(app.label, 15.sp, FontWeight.Medium)
                         T(app.packageName, 12.sp, color = C.OnSurfaceVar)
                     }
-                    if (item.parameter == app.packageName) T("已选", 12.sp, color = C.Primary)
+                    if (current == app.packageName) T("已选", 12.sp, color = C.Primary)
                 }
             }
         }

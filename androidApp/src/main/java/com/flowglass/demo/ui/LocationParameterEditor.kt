@@ -83,7 +83,7 @@ private fun CurrentLocationButton(onResult: (Location?) -> Unit) {
     }
 }
 
-private fun currentLocation(context: Context, onResult: (Location?) -> Unit) {
+internal fun currentLocation(context: Context, onResult: (Location?) -> Unit) {
     if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
         context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
         onResult(null)
