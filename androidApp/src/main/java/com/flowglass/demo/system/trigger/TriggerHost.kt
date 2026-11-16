@@ -110,7 +110,11 @@ internal class TriggerHost(
     )
     private val engine = ExecutionRuntime.engine(context)
     private val executor = object : TriggerExecutor {
-        override fun isRunning(rule: TriggerRule): Boolean = engine.isRunning(rule.cmdId)
+        override fun isRunning(rule: TriggerRule): Boolean = state.activeExecutionCount(rule.cmdId) > 0
+
+        override fun activeCount(rule: TriggerRule): Int = state.activeExecutionCount(rule.cmdId)
+
+        override fun cancel(rule: TriggerRule) = state.cancelExecution(rule.cmdId)
 
         override fun execute(
             rule: TriggerRule,
@@ -119,8 +123,9 @@ internal class TriggerHost(
             variables: Map<String, Any?>,
         ): Boolean {
             val cmd = state.find(rule.cmdId) ?: return false
-            val job = state.execute(cmd, scope, reason, variables) ?: return false
+            val job = state.executeWithPolicy(cmd, scope, reason, variables, rule.runMode) ?: return false
             job.invokeOnCompletion {
+                dispatcher.onRunFinished(rule)
                 scope.launch {
                     withContext(Dispatchers.Main.immediate) {
                         AppRuntime.of(context).requestSave { state.snapshot() }
@@ -130,7 +135,7 @@ internal class TriggerHost(
             return true
         }
     }
-    private val dispatcher = TriggerDispatcher(
+    private val dispatcher: TriggerDispatcher = TriggerDispatcher(
         clock = Clock { System.currentTimeMillis() },
         environment = environment,
         executor = executor,
