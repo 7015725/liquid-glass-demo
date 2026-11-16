@@ -136,7 +136,7 @@ internal object SystemHook {
             if (lastIdentity.get() == identity) return
             lastIdentity.set(identity)
             val intent = Intent(SystemHookProtocol.ACTION_FOREGROUND)
-                .setPackage(SystemHookProtocol.APP_PACKAGE)
+                .setClassName(SystemHookProtocol.APP_PACKAGE, SystemHookProtocol.SYSTEM_RECEIVER)
                 .putExtra(SystemHookProtocol.EXTRA_PACKAGE, packageName)
                 .putExtra(SystemHookProtocol.EXTRA_USER, userId)
                 .putExtra(SystemHookProtocol.EXTRA_TIME, System.currentTimeMillis())
@@ -200,7 +200,7 @@ internal object SystemHook {
                 safe("heartbeat") {
                     context.sendBroadcast(
                         Intent(SystemHookProtocol.ACTION_HEARTBEAT)
-                            .setPackage(SystemHookProtocol.APP_PACKAGE)
+                            .setClassName(SystemHookProtocol.APP_PACKAGE, SystemHookProtocol.SYSTEM_RECEIVER)
                     )
                 }
                 if (enabled.get()) handler.postDelayed(this, HEARTBEAT_MS)
