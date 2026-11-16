@@ -33,7 +33,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.flowglass.engine.ParamEditor
 import com.flowglass.engine.ParamSpec
-import com.flowglass.engine.ParamType
 import com.flowglass.engine.ParameterCodec
 import com.flowglass.engine.resolvedEditor
 import com.kyant.shapes.Capsule
@@ -53,6 +52,7 @@ internal fun ParamField(
     tag: String,
     onValue: (String) -> Unit,
     targets: List<String> = emptyList(),
+    variables: List<String> = emptyList(),
 ) {
     when (spec.resolvedEditor()) {
         ParamEditor.SEGMENTED -> SegmentedField(spec, current, onValue)
@@ -66,11 +66,14 @@ internal fun ParamField(
         )
         ParamEditor.RULE -> RuleField(targets, current, tag, onValue)
         ParamEditor.LOCATION -> LocationField(current, tag, onValue)
-        ParamEditor.MULTILINE -> ParameterTextField(current, tag, onValue)
-        ParamEditor.TEXT -> ParameterTextField(current, tag, onValue)
-        ParamEditor.STEPPER -> NumberTextField(current, tag, onValue)
-        ParamEditor.TIME, ParamEditor.TIME_RANGE, ParamEditor.INT_RANGE,
-        ParamEditor.DURATION, ParamEditor.AUTO -> ParameterTextField(current, tag, onValue)
+        ParamEditor.MULTILINE -> VariableTextField(current, tag, variables, multiline = true, onValue)
+        ParamEditor.TEXT -> VariableTextField(current, tag, variables, multiline = false, onValue)
+        ParamEditor.STEPPER -> StepperField(spec, current, tag, onValue)
+        ParamEditor.TIME -> TimeField(current, tag, onValue)
+        ParamEditor.TIME_RANGE -> TimeRangeField(current, onValue)
+        ParamEditor.INT_RANGE -> IntegerRangeField(spec, current, tag, onValue)
+        ParamEditor.DURATION -> DurationField(current, tag, onValue)
+        ParamEditor.AUTO -> ParameterTextField(current, tag, onValue)
     }
 }
 
@@ -99,6 +102,23 @@ private fun WeekdayField(current: String, onValue: (String) -> Unit) {
     val selected = runCatching { ParameterCodec.weekdays(current) }
         .getOrElse { "1,2,3,4,5,6,7" }
         .split(',').mapNotNull { it.toIntOrNull() }.toSet()
+    FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        listOf("每天" to "1,2,3,4,5,6,7", "工作日" to "1,2,3,4,5", "周末" to "6,7").forEach { (label, days) ->
+            val selectedDays = days.split(',').mapNotNull { it.toIntOrNull() }.toSet()
+            val on = selected == selectedDays
+            Box(
+                Modifier.height(34.dp).clip(Capsule())
+                    .background(if (on) C.PrimarySoft else C.Card)
+                    .pressable(0.94f) { onValue(ParameterCodec.weekdayLabel(selectedDays.sorted().joinToString(","))) }
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) { T(label, 12.sp, color = if (on) C.Primary else C.OnSurfaceVar) }
+        }
+    }
     FlowRow(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(4.dp),

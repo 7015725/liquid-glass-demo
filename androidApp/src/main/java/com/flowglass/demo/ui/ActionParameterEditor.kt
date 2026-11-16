@@ -56,6 +56,7 @@ internal fun ActionParameterEditor(
     commandTitle: String = "",
     onAuthorization: (Int) -> Unit = {},
     targets: List<String> = emptyList(),
+    variables: List<String> = emptyList(),
     showDone: Boolean = true,
 ) {
     val meta = item.typeId?.let { id -> com.flowglass.engine.BuiltInComponents.registry().find(id) }
@@ -65,7 +66,7 @@ internal fun ActionParameterEditor(
     }
 
     if (meta.params.size > 1) {
-        MultiParameterEditor(meta, item, onParameter, onAuthorization, targets)
+        MultiParameterEditor(meta, item, onParameter, onAuthorization, targets, variables)
     } else {
         val spec = meta.params.single()
         ParamField(
@@ -74,6 +75,7 @@ internal fun ActionParameterEditor(
             tag = "item-parameter",
             onValue = onParameter,
             targets = targets,
+            variables = variables,
         )
         if (spec.hint.isNotBlank()) {
             T(spec.hint, 13.sp, color = C.OnSurfaceVar, lineHeight = 20.sp,
@@ -97,6 +99,7 @@ private fun MultiParameterEditor(
     onParameter: (String) -> Unit,
     onAuthorization: (Int) -> Unit,
     targets: List<String>,
+    variables: List<String>,
 ) {
     var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
@@ -134,6 +137,7 @@ private fun MultiParameterEditor(
                 tag = "param-${spec.key}",
                 onValue = { update(spec.key, it) },
                 targets = targets,
+                variables = variables,
             )
             if (spec.hint.isNotBlank()) T(spec.hint, 12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
         }
@@ -150,10 +154,10 @@ internal fun ParameterTextField(value: String, tag: String, onValue: (String) ->
 }
 
 @Composable
-internal fun PercentSlider(value: Float, onValueChange: (Float) -> Unit) {
+internal fun PercentSlider(value: Float, tag: String = "parameter-percent-slider", onValueChange: (Float) -> Unit) {
     val currentChange by rememberUpdatedState(onValueChange)
     val radius = with(LocalDensity.current) { 10.dp.toPx() }
-    Canvas(Modifier.fillMaxWidth().height(56.dp).testTag("parameter-percent-slider")
+    Canvas(Modifier.fillMaxWidth().height(56.dp).testTag(tag)
         .semantics {
             progressBarRangeInfo = ProgressBarRangeInfo(value, 0f..100f, 99)
             setProgress { currentChange(it.coerceIn(0f, 100f)); true }
