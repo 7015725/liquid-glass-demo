@@ -123,10 +123,12 @@ internal object RootGrants {
     }
 
     private fun enableAccessibility(component: String): String {
-        val value = quote(component)
+        // This value comes from ComponentName (package/class, no shell metacharacters). Do not
+        // single-quote it inside the double-quoted setting value: the quotes would be persisted
+        // into enabled_accessibility_services and the accessibility permission check would fail.
         return "cur=\$(settings get secure enabled_accessibility_services); " +
             "case \":\$cur:\" in *\":$component:\"*) ;; *) " +
-            "settings put secure enabled_accessibility_services \"\${cur:+\$cur:}$value\";; esac"
+            "settings put secure enabled_accessibility_services \"\${cur:+\$cur:}$component\";; esac"
     }
 
     /** Package and component names come from the manifest, but quote them anyway. */
