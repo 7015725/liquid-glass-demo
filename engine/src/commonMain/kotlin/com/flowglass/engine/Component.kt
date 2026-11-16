@@ -60,6 +60,8 @@ enum class ParamSource {
     LAUNCHER_APPS,
     RULES,
     CURRENT_LOCATION,
+    PAIRED_BLUETOOTH,
+    WIFI_NETWORKS,
 }
 
 /** Resolves the presentation control for a spec without changing its storage type. */

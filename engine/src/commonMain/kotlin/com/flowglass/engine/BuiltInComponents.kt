@@ -11,6 +11,7 @@ object BuiltInComponents {
         required: Boolean = false,
         options: List<ParamOption> = emptyList(),
         hint: String = "",
+        source: ParamSource = ParamSource.NONE,
     ) = ParamSpec(key, label, type, required, when (type) {
         ParamType.PERCENTAGE -> JsonPrimitive(default.removeSuffix("%").toInt())
         ParamType.TIME_RANGE -> kotlinx.serialization.json.buildJsonObject {
@@ -23,7 +24,8 @@ object BuiltInComponents {
     }, options, hint = hint,
         minValue = if (type == ParamType.INT_RANGE) 0 else null,
         maxValue = if (type == ParamType.INT_RANGE) 100 else null,
-        suffix = if (type == ParamType.INT_RANGE) "%" else "")
+        suffix = if (type == ParamType.INT_RANGE) "%" else "",
+        source = source)
 
     private val allWeekdays = "1,2,3,4,5,6,7"
 
@@ -59,14 +61,16 @@ object BuiltInComponents {
                 param("state", "状态", "connected", ParamType.ENUM, required = true, options = listOf(
                     ParamOption("connected", "已连接"), ParamOption("disconnected", "已断开"))),
                 param("ssid", "网络名称", "", ParamType.TEXT, required = false,
-                    hint = "留空匹配任意 WiFi。读取网络名称需要定位权限。"),
+                    hint = "留空匹配任意 WiFi。读取网络名称需要定位权限。",
+                    source = ParamSource.WIFI_NETWORKS),
             ), permissions = listOf("location")),
         ComponentMeta("trigger.bluetooth", "蓝牙连接/断开", "网络", ComponentKind.TRIGGER,
             listOf(
                 param("state", "状态", "connected", ParamType.ENUM, required = true, options = listOf(
                     ParamOption("connected", "已连接"), ParamOption("disconnected", "已断开"))),
                 param("name", "设备名称", "", ParamType.TEXT, required = false,
-                    hint = "留空匹配任意设备；填写后按名称包含匹配。"),
+                    hint = "留空匹配任意设备；填写后按名称包含匹配。",
+                    source = ParamSource.PAIRED_BLUETOOTH),
             ), permissions = listOf("bluetooth_connect")),
         ComponentMeta("trigger.notification", "收到通知", "通知", ComponentKind.TRIGGER,
             listOf(

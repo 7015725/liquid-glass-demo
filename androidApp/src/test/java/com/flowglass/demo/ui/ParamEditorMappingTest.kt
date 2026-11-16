@@ -48,4 +48,11 @@ class ParamEditorMappingTest {
         assertEquals(ParamEditor.LOCATION, location.resolvedEditor())
         assertEquals(ParamSource.CURRENT_LOCATION, location.source)
     }
+
+    @Test fun dynamicSourcesAreDeclaredOnTheSpecNotTheComponentId() {
+        val bluetooth = requireNotNull(registry.find("trigger.bluetooth")).params.single { it.key == "name" }
+        assertEquals(ParamSource.PAIRED_BLUETOOTH, bluetooth.source)
+        val wifi = requireNotNull(registry.find("trigger.wifi")).params.single { it.key == "ssid" }
+        assertEquals(ParamSource.WIFI_NETWORKS, wifi.source)
+    }
 }
