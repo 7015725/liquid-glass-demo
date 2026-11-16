@@ -11,9 +11,10 @@
 - `ALL`：规则的所有触发器都满足才执行。
   - **状态型触发器**按命中事件发生时的**当前状态**判断，不要求看到一次状态边沿：
     - WiFi：`connected` 表示当前网络为 WiFi；`disconnected` 表示当前不是 WiFi。
-    - 充电状态：`charging` / `stopped` 分别对应当前是否充电。
-    - 亮屏 / 熄屏：对应当前屏幕是否点亮。
+    - 充电状态：`trigger.power_connected` / `trigger.power_disconnected` 按当前是否充电判断；
+      旧版 `trigger.charging` 的 `charging` / `stopped` 也按当前充电状态判断。
     - 电量：按当前电量与阈值比较；旧版 `battery_low` 按“低于阈值”处理。
+    - 亮屏 / 熄屏属于**事件型**：ALL 模式要求它们在窗口内都发生过，不能同时按当前状态满足。
   - **事件型触发器**要求在有效窗口内都至少发生过一次。窗口来自
     `triggerMatch.windowSeconds`，默认 60 秒，编辑页提供 30 秒 / 60 秒 / 5 分钟快捷值。
   - 窗口从每次命中事件的时间戳计算；窗口外的旧事件不会参与匹配。

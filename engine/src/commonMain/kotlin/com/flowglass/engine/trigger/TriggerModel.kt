@@ -226,6 +226,8 @@ object TriggerMatcher {
     fun isStateful(binding: TriggerBinding): Boolean = when (binding.component.typeId) {
         TriggerTypes.WIFI,
         TriggerTypes.CHARGING_LEGACY,
+        TriggerTypes.POWER_CONNECTED,
+        TriggerTypes.POWER_DISCONNECTED,
         TriggerTypes.BATTERY_LEVEL,
         TriggerTypes.BATTERY_LOW_LEGACY,
         -> true
@@ -251,6 +253,8 @@ object TriggerMatcher {
                     else -> false
                 }
             }
+            TriggerTypes.POWER_CONNECTED -> environment.isCharging()
+            TriggerTypes.POWER_DISCONNECTED -> !environment.isCharging()
             TriggerTypes.SCREEN_ON -> environment.isScreenOn()
             TriggerTypes.SCREEN_OFF -> !environment.isScreenOn()
             TriggerTypes.BATTERY_LEVEL, TriggerTypes.BATTERY_LOW_LEGACY -> {
