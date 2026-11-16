@@ -1,5 +1,6 @@
 package com.flowglass.demo.ui
 
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -64,7 +65,12 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** Settings sub pages. 0 = main list. */
 object SettingsPage {
@@ -75,6 +81,7 @@ object SettingsPage {
     const val Permissions = 4
     const val Appearance = 5
     const val Layers = 6
+    const val Backup = 7
     fun title(p: Int) = when (p) {
         KeepAlive -> "App 保活"
         Root -> "Root 激活"
@@ -82,6 +89,7 @@ object SettingsPage {
         Permissions -> "权限声明管理"
         Appearance -> "外观"
         Layers -> "执行层级"
+        Backup -> "备份与恢复"
         else -> "设置"
     }
 }
@@ -100,6 +108,7 @@ fun SettingsHost(
         SettingsPage.Permissions -> PermissionsPage()
         SettingsPage.Appearance -> AppearancePage(themeMode, onThemeModeChange)
         SettingsPage.Layers -> LayersPage()
+        SettingsPage.Backup -> BackupRestorePage(state, themeMode, onThemeModeChange)
         else -> SettingsMain(state, themeMode)
     }
 }
@@ -304,6 +313,7 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
     GroupTitle("通用", k++)
     GroupCard(k++) {
         ListRow(Row1(Ic.Moon, "外观", themeMode.label, sub = themeMode.description) { state.settingsPage = SettingsPage.Appearance }, true)
+        ListRow(Row1(Ic.Copy, "备份与恢复", sub = "导入导出指令、备份全部数据") { state.settingsPage = SettingsPage.Backup }, true)
         ListRow(Row1(Ic.Bell, "通知提醒") {}, true)
         ListRow(Row1(Ic.Gauge, "运行模式", modes[state.mode], upDown = true) { state.mode = (state.mode + 1) % 3 }, true)
         ListRow(Row1(Ic.Moon, "夜间静默", "23:00", upDown = true) {}, false)
@@ -744,4 +754,140 @@ private fun PermissionsPage() {
         }
     }
     NoteCard(k++, "每项权限都只用于上面写明的用途，不收集、不上传任何数据。授权后返回本页会自动刷新状态。")
+}
+
+
+// ================================================================ backup & restore
+
+@Composable
+private fun BackupRestorePage(
+    state: AppState,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pending by remember { mutableStateOf<ParsedImport?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var exportText by remember { mutableStateOf<String?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        val text = exportText
+        exportText = null
+        if (uri != null && text != null) {
+            scope.launch {
+                val error = runCatching {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(text) }
+                            ?: error("无法打开目标文件")
+                    }
+                }.exceptionOrNull()
+                notice = if (error == null) "完整备份已导出" else "导出失败：${error.message.orEmpty()}"
+            }
+        }
+    }
+    fun open(uri: android.net.Uri, expected: ImportKind) {
+        scope.launch {
+            try {
+                val text = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                        ?: error("无法读取文件")
+                }
+                val parsed = parseImport(text, state)
+                require(parsed.kind == expected) {
+                    if (expected == ImportKind.BACKUP) "这不是完整备份文件" else "这是完整备份文件，请使用「从备份恢复」"
+                }
+                pending = parsed
+                notice = null
+            } catch (error: Exception) {
+                notice = "读取失败：${error.message.orEmpty()}"
+            }
+        }
+    }
+    val commandLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { open(it, ImportKind.COMMAND) }
+    }
+    val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { open(it, ImportKind.BACKUP) }
+    }
+
+    var k = 0
+    GroupTitle("备份与恢复", k++)
+    GroupCard(k++) {
+        ListRow(
+            Row1(Ic.Share, "导出完整备份", sub = "全部指令、全局变量和设置") {
+                runCatching { exportBackupJson(state, themeMode) }
+                    .onSuccess { text ->
+                        exportText = text
+                        val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
+                        exportLauncher.launch("flowglass-backup-$stamp.json")
+                    }
+                    .onFailure { notice = "导出失败：${it.message.orEmpty()}" }
+            },
+            true,
+        )
+        ListRow(
+            Row1(Ic.Copy, "从文件导入指令", sub = "导入前会预览内容，不会覆盖现有指令") {
+                commandLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+            },
+            true,
+        )
+        ListRow(
+            Row1(Ic.Copy, "从剪贴板导入", sub = "JSON 文本；导入前会预览") {
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                val text = clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
+                    ?.getItemAt(0)?.coerceToText(context)?.toString()
+                if (text.isNullOrBlank()) {
+                    notice = "剪贴板里没有可导入的文本"
+                } else {
+                    scope.launch {
+                        try {
+                            val parsed = parseImport(text, state)
+                            require(parsed.kind == ImportKind.COMMAND) { "剪贴板是完整备份，请使用「从备份恢复」" }
+                            pending = parsed
+                        } catch (error: Exception) {
+                            notice = "导入失败：${error.message.orEmpty()}"
+                        }
+                    }
+                }
+            },
+            true,
+        )
+        ListRow(
+            Row1(Ic.Refresh, "从备份恢复", sub = "恢复前自动备份当前数据") {
+                backupLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+            },
+            false,
+        )
+    }
+    NoteCard(k++, "导入的文件一律视为不可信，导入预览会列出触发器、条件和任务；含 Root Shell、HTTP 请求或执行另一条指令时会用红色提示。自动指令导入后默认关闭。恢复失败不会覆盖原数据。")
+    notice?.let { NoteCard(k++, it) }
+
+    pending?.let { parsed ->
+        ImportPreviewDialog(
+            preview = parsed.preview,
+            onDismiss = { pending = null },
+            onConfirm = {
+                try {
+                    if (parsed.kind == ImportKind.BACKUP) {
+                        val safety = restoreBackup(context, state, parsed)
+                        val theme = parsed.preview.themeMode
+                        if (theme != null) {
+                            AppearanceSettings.write(context, theme)
+                            onThemeModeChange(theme)
+                        }
+                        notice = "已恢复备份；原数据已保存到 ${safety.name}"
+                    } else {
+                        val count = parsed.preview.commands.size
+                        state.applyCommandImport(parsed)
+                        notice = "已导入 $count 条指令"
+                    }
+                    pending = null
+                } catch (error: Exception) {
+                    notice = "操作失败，原数据未改变：${error.message.orEmpty()}"
+                }
+            },
+        )
+    }
 }

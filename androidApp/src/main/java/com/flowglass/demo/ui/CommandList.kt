@@ -430,6 +430,7 @@ fun CommandMenuOverlay(state: AppState) {
     }
     val ctx = LocalContext.current
     val density = LocalDensity.current
+    var shareCmd by remember { mutableStateOf<Cmd?>(null) }
     val actions = listOf(
         MenuAction(Ic.Pin, if (cmd.pinned) "取消置顶" else "置顶"),
         MenuAction(Ic.Edit, "重命名"),
@@ -442,22 +443,7 @@ fun CommandMenuOverlay(state: AppState) {
         when (a.label) {
             "置顶", "取消置顶" -> state.togglePin(cmd.id)
             "重命名" -> state.renaming = cmd
-            "分享" -> {
-                val text = buildString {
-                    appendLine("【流光自动化】${cmd.title}")
-                    appendLine(cmd.desc)
-                    if (cmd.auto) {
-                        appendLine("触发器：${cmd.triggers.joinToString("、")}")
-                        if (cmd.conditions.isNotEmpty()) appendLine("条件：${cmd.conditions.joinToString("、")}")
-                    }
-                    append("任务：${cmd.actions.joinToString(" → ")}")
-                }
-                val send = Intent(Intent.ACTION_SEND).setType("text/plain")
-                    .putExtra(Intent.EXTRA_TEXT, text)
-                runCatching {
-                    ctx.startActivity(Intent.createChooser(send, "分享指令").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                }
-            }
+            "分享" -> shareCmd = cmd
             "创建副本" -> state.duplicate(cmd.id)
             "删除" -> state.delete(cmd.id)
         }
@@ -503,6 +489,9 @@ fun CommandMenuOverlay(state: AppState) {
             width = menuW,
             itemHeight = itemH,
         )
+    }
+    shareCmd?.let { command ->
+        ShareCommandDialog(state, command) { shareCmd = null }
     }
 }
 
