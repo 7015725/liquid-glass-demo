@@ -26,10 +26,8 @@ import org.robolectric.annotation.Config
 import java.time.Duration
 
 /**
- * Block conditions were visible but not editable/removable: the row had no click target and the
- * delete button searched only the rule's top-level condition list. These tests add three
- * conditions, open one in the parameter page, write the same value its chips write, delete one
- * through the row button, and round-trip the stored JSON.
+ * Block conditions must edit through the shared draft page: opening the page must not write the
+ * command, while tapping 完成 must. The row menu still deletes nested conditions directly.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -67,21 +65,22 @@ class ConditionEditingTest {
             pump(activity)
 
             click(activity, "编辑条件充电状态")
-            assertNotNull("点条件行必须打开参数面板", nodes(activity.window.decorView).singleOrNull {
-                it.config.getOrNull(SemanticsProperties.TestTag) == "editor-panel"
+            assertNotNull("点条件行必须打开独立参数页", nodes(activity.window.decorView).singleOrNull {
+                it.config.getOrNull(SemanticsProperties.TestTag) == "action-editor"
             })
-            assertTrue("参数面板应显示该条件", pageTexts(activity).any { it.contains("充电状态") })
+            assertTrue("参数页应显示该条件", pageTexts(activity).any { it.contains("充电状态") })
 
-            // The enum chips and this call both land in AppState.setItemParameter for nested conditions.
             val edited = requireNotNull(state.find(command.id)).actions.single().conditions.first()
             assertNotNull("条件必须在 actions 树内可递归找到",
                 requireNotNull(state.find(command.id)).actions.findItem(edited.id))
-            state.setItemParameter(command.id, CommandSection.CONDITIONS, edited.id, "未充电")
-            assertEquals("选择枚举值后必须写入条件参数（立即）", "未充电",
+            val original = edited.parameter
+            state.updateComponentDraft(edited.copy(parameter = "未充电"))
+            assertEquals("打开参数页时不得写入原指令", original,
+                requireNotNull(state.find(command.id)).actions.single().conditions.first().parameter)
+            click(activity, "完成")
+            assertEquals("完成必须一次性写入草稿", "未充电",
                 requireNotNull(state.find(command.id)).actions.single().conditions.first().parameter)
             pump(activity)
-
-            click(activity, "返回")
             val second = requireNotNull(state.find(command.id)).actions.single().conditions[1]
             // The row's ⋯ menu calls this same method; opening a Popup in Robolectric can stall
             // the frame pump, so the model boundary is asserted here and the menu is exercised on device.
@@ -109,6 +108,7 @@ class ConditionEditingTest {
             state.editing = null
             state.actionEditing = null
             state.actionEditingCmd = null
+            state.cancelComponentDraft()
             controller.pause().stop().destroy()
             shadowOf(Looper.getMainLooper()).idle()
         }

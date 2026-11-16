@@ -246,7 +246,6 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
     panel?.let { active ->
         EditorGlassPanel(backdrop, when (active) {
             is EditorPanel.Add -> "添加${active.section.label}"
-            is EditorPanel.Parameter -> "编辑参数"
             is EditorPanel.Move -> "移动到…"
             EditorPanel.Description -> "编辑描述"
             EditorPanel.Icons -> "选择图标"
@@ -270,26 +269,32 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                     val activeTier = if (state.root?.granted == true) com.flowglass.engine.Tier.ROOT
                         else com.flowglass.engine.Tier.NORMAL
                     ComponentPicker(active.section, activeTier) { option ->
-                        val addedConditionId = if (active.section == CommandSection.CONDITIONS) {
-                            addConditionFromBlockMenu(state, cmd.id, active.parentId, active.branch, option)
-                        } else {
-                            when {
-                                active.parentId == null -> state.addItem(cmd.id, active.section, option)
-                                else -> state.addChildItem(cmd.id, active.parentId, active.branch, option)
-                            }
-                            null
+                        panel = null
+                        val meta = option.typeId?.let {
+                            com.flowglass.engine.BuiltInComponents.registry().find(it)
                         }
-                        // A newly added condition is only half configured; jump straight to its
-                        // parameter page instead of making the user find the new row again.
-                        panel = addedConditionId?.let { EditorPanel.Parameter(CommandSection.CONDITIONS, it) }
+                        val block = meta?.block
+                        when {
+                            // Blocks keep their parameters on the block page; add and jump there.
+                            block == com.flowglass.engine.BlockKind.LOOP ||
+                                block == com.flowglass.engine.BlockKind.WAIT -> {
+                                val id = state.addComponentDirect(
+                                    cmd.id, active.section, option, active.parentId, active.branch,
+                                )
+                                state.openBlock(id)
+                            }
+                            // Parameterless components (if, break, toastless actions, ...) are
+                            // complete as soon as they are picked.
+                            meta == null || meta.params.isEmpty() -> {
+                                state.addComponentDirect(
+                                    cmd.id, active.section, option, active.parentId, active.branch,
+                                )
+                            }
+                            else -> state.startComponentDraft(
+                                cmd.id, active.section, option, active.parentId, active.branch,
+                            )
+                        }
                     }
-                }
-                is EditorPanel.Parameter -> state.itemById(cmd.id, active.itemId)?.let { item ->
-                    ActionParameterEditor(active.section, item,
-                        onParameter = { state.setItemParameter(cmd.id, active.section, item.id, it) },
-                        onDone = { panel = null }, commandTitle = cmd.title,
-                        targets = (state.autoCmds + state.oneTaps).map { it.title },
-                        onAuthorization = { destination -> panel = null; onAuthorization(destination) })
                 }
                 is EditorPanel.Move -> MoveToPanel(state, cmd, active.sourceId) { panel = null }
                 EditorPanel.Description -> DescriptionPanel(state, cmd) { panel = null }
@@ -571,7 +576,7 @@ private fun ConditionLine(
     Row(
         Modifier.fillMaxWidth().clip(RoundedRectangle(16.dp)).background(C.Tonal)
             .editorAction("编辑条件${condition.name}") {
-                onPanel(EditorPanel.Parameter(CommandSection.CONDITIONS, condition.id))
+                state.openComponentEditor(cmd.id, CommandSection.CONDITIONS, condition, item.id, branch)
             }
             .padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -586,7 +591,6 @@ private fun ConditionLine(
 internal sealed interface EditorPanel {
     data object Icons : EditorPanel
     data class Add(val section: CommandSection, val parentId: Long? = null, val branch: Int? = null) : EditorPanel
-    data class Parameter(val section: CommandSection, val itemId: Long) : EditorPanel
     data class Move(val sourceId: Long) : EditorPanel
     data object Description : EditorPanel
     data object Variables : EditorPanel
@@ -718,7 +722,7 @@ private fun ConfigItemRow(
         Modifier.fillMaxWidth().testTag("item-${item.id}").animatePlacement()
             .clip(RoundedRectangle(24.dp)).background(C.Tonal)
             .editorAction("编辑${item.name}") {
-                onPanel(EditorPanel.Parameter(section, item.id))
+                state.openComponentEditor(cmd.id, section, item)
             }
             .padding(12.dp),
     ) {
@@ -1014,7 +1018,7 @@ private fun ConditionRowMenu(
                 items = listOf(
                     MenuItemSpec("编辑", Ic.Edit) {
                         open = false
-                        onPanel(EditorPanel.Parameter(CommandSection.CONDITIONS, condition.id))
+                        state.openComponentEditor(cmd.id, CommandSection.CONDITIONS, condition, item.id, branch)
                     },
                     MenuItemSpec("删除", Ic.Trash, danger = true) {
                         open = false
@@ -1349,8 +1353,7 @@ private fun ActionTreeRow(
                 // hold, and a scroll gesture cancels the tap because the list consumes it.
                 .pointerInput(item.id) {
                     detectTapGestures(onTap = {
-                        state.actionEditingCmd = cmd.id
-                        state.actionEditing = item.id
+                        state.openComponentEditor(cmd.id, CommandSection.ACTIONS, item, parentId, branch)
                     })
                 }
                 .pointerInput(item.id) {
@@ -1364,8 +1367,7 @@ private fun ActionTreeRow(
                 .semantics {
                     contentDescription = "编辑${item.name}"
                     onClick(label = "编辑") {
-                        state.actionEditingCmd = cmd.id
-                        state.actionEditing = item.id
+                        state.openComponentEditor(cmd.id, CommandSection.ACTIONS, item, parentId, branch)
                         true
                     }
                 },
@@ -1401,7 +1403,7 @@ private fun ActionTreeRow(
                 Row(Modifier.fillMaxWidth().padding(start = 10.dp).clip(RoundedRectangle(20.dp))
                     .background(C.Card)
                     .editorAction("编辑条件${condition.name}") {
-                        onPanel(EditorPanel.Parameter(CommandSection.CONDITIONS, condition.id))
+                        state.openComponentEditor(cmd.id, CommandSection.CONDITIONS, condition, item.id, null)
                     }
                     .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically) {
@@ -1443,7 +1445,7 @@ private fun ActionTreeRow(
                     branch.conditions.forEachIndexed { conditionIndex, condition ->
                         Row(Modifier.fillMaxWidth().clip(RoundedRectangle(16.dp)).background(C.Card)
                             .editorAction("编辑条件${condition.name}") {
-                                onPanel(EditorPanel.Parameter(CommandSection.CONDITIONS, condition.id))
+                                state.openComponentEditor(cmd.id, CommandSection.CONDITIONS, condition, item.id, branchIndex)
                             }.padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             T(ActionSummary.conditionRowText(condition), 12.sp, color = C.OnSurfaceVar,

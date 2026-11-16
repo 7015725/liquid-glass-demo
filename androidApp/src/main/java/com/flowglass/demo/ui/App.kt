@@ -308,7 +308,11 @@ fun FlowGlassApp() {
             state.settingsPage = destination
             setTab(3)
         }
-        ActionEditorHost(state)
+        ComponentEditorHost(state) { destination ->
+            state.cancelComponentDraft()
+            state.settingsPage = destination
+            setTab(3)
+        }
         if (state.historyOpen) HistoryPanel(state) { state.historyOpen = false }
         PermissionPromptHost(state)
         PermissionResumeEffect(state)

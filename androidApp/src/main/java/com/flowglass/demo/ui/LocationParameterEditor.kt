@@ -38,6 +38,7 @@ internal fun LocationParameterEditor(
     item: CommandItem,
     onParameter: (String) -> Unit,
     onDone: () -> Unit,
+    showDone: Boolean = true,
 ) {
     var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
@@ -71,7 +72,7 @@ internal fun LocationParameterEditor(
     }
     locationMessage?.let { T(it, 12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp) }
     error?.let { T("参数无效：$it", 12.sp, color = C.Bad) }
-    EditorPill("完成", "完成", action = onDone)
+    if (showDone) EditorPill("完成", "完成", action = onDone)
 }
 
 @Composable
