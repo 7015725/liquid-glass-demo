@@ -44,9 +44,7 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.sp
@@ -86,6 +84,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
     val issues = state.validationItems(cmd)
     var panel by remember { mutableStateOf<EditorPanel?>(null) }
     var moreOpen by remember { mutableStateOf(false) }
+    val moreAnchor = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var titleFocused by remember { mutableStateOf(false) }
     val backdrop = rememberLayerBackdrop()
@@ -110,78 +109,71 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
         .statusBarsPadding().navigationBarsPadding().imePadding()
         .verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            EditorIconButton(Ic.Back, "返回") { back() }
-            Spacer(Modifier.width(8.dp))
-            Box(Modifier.weight(1f).heightIn(min = 48.dp)) {
+        DetailTopBar(
+            onBack = { back() },
+            title = {
                 // BasicTextField cannot ellipsize when unfocused; show a one-line preview and
                 // swap in the editable field only while it has focus.
-                if (!titleFocused) {
-                    T(
-                        cmd.title.ifEmpty { "指令名称" }, 20.sp, FontWeight.Bold,
-                        if (cmd.title.isEmpty()) C.Muted else C.OnSurface,
-                        modifier = Modifier.fillMaxWidth(), maxLines = 1,
+                Box(Modifier.fillMaxWidth()) {
+                    if (!titleFocused) {
+                        T(
+                            cmd.title.ifEmpty { "指令名称" }, 20.sp, FontWeight.Bold,
+                            if (cmd.title.isEmpty()) C.Muted else C.OnSurface,
+                            modifier = Modifier.fillMaxWidth(), maxLines = 1,
+                        )
+                    }
+                    BasicTextField(
+                        cmd.title, { state.setTitle(cmd.id, it) },
+                        Modifier.fillMaxWidth().testTag("editor-name")
+                            .onFocusChanged { titleFocused = it.isFocused }
+                            .alpha(if (titleFocused) 1f else 0f),
+                        textStyle = TextStyle(color = C.OnSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold),
+                        singleLine = true,
+                        cursorBrush = SolidColor(C.Primary),
+                        decorationBox = { inner -> Box { if (cmd.title.isEmpty() && titleFocused) T("指令名称", 20.sp, color = C.Muted, maxLines = 1); inner() } },
                     )
                 }
-                BasicTextField(
-                    cmd.title, { state.setTitle(cmd.id, it) },
-                    Modifier.fillMaxWidth().testTag("editor-name")
-                        .onFocusChanged { titleFocused = it.isFocused }
-                        .alpha(if (titleFocused) 1f else 0f),
-                    textStyle = TextStyle(color = C.OnSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold),
-                    singleLine = true,
-                    cursorBrush = SolidColor(C.Primary),
-                    decorationBox = { inner -> Box { if (cmd.title.isEmpty() && titleFocused) T("指令名称", 20.sp, color = C.Muted, maxLines = 1); inner() } },
+            },
+            trailing = {
+                EditorRunButton(
+                    exec,
+                    Modifier.testTag("editor-execute"),
+                    height = TopBarControlVisual,
+                    onClick = { state.execute(cmd, scope, if (cmd.auto) "手动测试" else "手动执行") },
+                    onStop = if (exec == 1) ({ state.stopExecution(cmd.id) }) else null,
                 )
-            }
-            Spacer(Modifier.width(8.dp))
-            EditorRunButton(
-                exec,
-                Modifier.testTag("editor-execute"),
-                onClick = { state.execute(cmd, scope, if (cmd.auto) "手动测试" else "手动执行") },
-                onStop = if (exec == 1) ({ state.stopExecution(cmd.id) }) else null,
-            )
-            Spacer(Modifier.width(4.dp))
-            Box {
-                EditorIconButton(Ic.More, "更多") { moreOpen = true }
-                if (moreOpen) {
-                    Popup(onDismissRequest = { moreOpen = false }, offset = IntOffset(-210, 52)) {
-                        Column(
-                            Modifier.width(200.dp).clip(RoundedRectangle(18.dp)).background(C.Card).padding(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            MenuEntry("编辑描述", enabled = true) {
-                                moreOpen = false
-                                panel = EditorPanel.Description
-                            }
-                            MenuEntry("变量", enabled = true) {
-                                moreOpen = false
-                                panel = EditorPanel.Variables
-                            }
-                            MenuEntry("换图标", enabled = true) {
-                                moreOpen = false
-                                panel = EditorPanel.Icons
-                            }
-                            MenuEntry("创建副本", enabled = true) {
-                                moreOpen = false
-                                state.duplicate(cmd.id)?.let { copyId ->
-                                    state.openEditor(copyId)
-                                    state.editorNotice = "已创建副本"
-                                }
-                            }
-                            MenuEntry("分享", enabled = true) {
-                                moreOpen = false
-                                shareCommand(context, cmd)
-                            }
-                            MenuEntry("删除指令", enabled = true) {
-                                moreOpen = false
-                                confirmDelete = true
-                            }
-                        }
+                Spacer(Modifier.width(4.dp))
+                Box {
+                    TopBarIconButton(
+                        Ic.More, "更多",
+                        modifier = Modifier.trackMenuAnchor(moreAnchor, moreOpen),
+                    ) { moreOpen = true }
+                    if (moreOpen) {
+                        AnchoredMenu(
+                            anchor = moreAnchor.value,
+                            onDismiss = { moreOpen = false },
+                            items = listOf(
+                                MenuItemSpec("编辑描述", Ic.Edit) { moreOpen = false; panel = EditorPanel.Description },
+                                MenuItemSpec("变量", Ic.Puzzle) { moreOpen = false; panel = EditorPanel.Variables },
+                                MenuItemSpec("换图标", Ic.Puzzle) { moreOpen = false; panel = EditorPanel.Icons },
+                                MenuItemSpec("创建副本", Ic.Copy) {
+                                    moreOpen = false
+                                    state.duplicate(cmd.id)?.let { copyId ->
+                                        state.openEditor(copyId)
+                                        state.editorNotice = "已创建副本"
+                                    }
+                                },
+                                MenuItemSpec("分享", Ic.Share) { moreOpen = false; shareCommand(context, cmd) },
+                                MenuItemSpec("删除指令", Ic.Trash, danger = true) {
+                                    moreOpen = false
+                                    confirmDelete = true
+                                },
+                            ),
+                        )
                     }
                 }
-            }
-        }
+            },
+        )
         if (cmd.descriptionEdited && cmd.desc.isNotBlank()) {
             T(cmd.desc, 13.sp, color = C.OnSurfaceVar, maxLines = 2, lineHeight = 18.sp)
         }
@@ -328,11 +320,10 @@ private fun BlockPage(
             .verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            EditorIconButton(Ic.Back, "返回上一级") { state.backBlock() }
-            Spacer(Modifier.width(8.dp))
-            T(block.name, 20.sp, FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1)
-        }
+        DetailTopBar(
+            onBack = { state.backBlock() },
+            title = { T(block.name, 20.sp, FontWeight.Bold, modifier = Modifier.fillMaxWidth(), maxLines = 1) },
+        )
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             crumbs.forEachIndexed { index, label ->
                 Box(
@@ -414,7 +405,7 @@ private fun StepSection(
     BlockAddButton(
         label = addLabel,
         tag = addTag,
-        entries = listOf("步骤" to { onPanel(EditorPanel.Add(CommandSection.ACTIONS, parentId, branch)) }),
+        entries = listOf(AddMenuEntry("步骤") { onPanel(EditorPanel.Add(CommandSection.ACTIONS, parentId, branch)) }),
     )
 }
 
@@ -591,25 +582,6 @@ private fun ConditionLine(
     }
 }
 
-private fun blockAddEntries(
-    state: AppState,
-    cmd: Cmd,
-    block: CommandItem,
-    kind: com.flowglass.engine.BlockKind?,
-    timesLoop: Boolean,
-    branch: Int?,
-    onPanel: (EditorPanel) -> Unit,
-): List<Pair<String, () -> Unit>> = buildList {
-    add("步骤" to { onPanel(EditorPanel.Add(CommandSection.ACTIONS, block.id, branch)) })
-    if (!timesLoop && branch == null) {
-        add("条件" to { onPanel(EditorPanel.Add(CommandSection.CONDITIONS, block.id, null)) })
-    }
-    if (branch == null && kind == com.flowglass.engine.BlockKind.IF &&
-        block.branches.none { it.conditions.isEmpty() }
-    ) {
-        add("否则" to { state.addBranch(cmd.id, block.id, withCondition = false) })
-    }
-}
 
 internal sealed interface EditorPanel {
     data object Icons : EditorPanel
@@ -740,6 +712,7 @@ private fun ConfigItemRow(
     onPanel: (EditorPanel) -> Unit,
 ) {
     var menuOpen by remember(item.id) { mutableStateOf(false) }
+    val menuAnchor = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     val itemMeta = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
     Column(
         Modifier.fillMaxWidth().testTag("item-${item.id}").animatePlacement()
@@ -757,27 +730,29 @@ private fun ConfigItemRow(
                 T(itemParameterLabel(section, item), 13.sp, color = C.OnSurfaceVar, maxLines = 1)
             }
             Box {
-                EditorIconButton(Ic.More, "更多操作${item.name}") { menuOpen = true }
+                EditorIconButton(
+                    Ic.More, "更多操作${item.name}",
+                    modifier = Modifier.trackMenuAnchor(menuAnchor, menuOpen),
+                ) { menuOpen = true }
                 if (menuOpen) {
-                    Popup(onDismissRequest = { menuOpen = false }, offset = IntOffset(-180, 0)) {
-                        Column(
-                            Modifier.width(160.dp).clip(RoundedRectangle(18.dp)).background(C.Card).padding(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            MenuEntry("上移", enabled = index > 0) {
+                    AnchoredMenu(
+                        anchor = menuAnchor.value,
+                        onDismiss = { menuOpen = false },
+                        items = listOf(
+                            MenuItemSpec("上移", Ic.ArrowUp, enabled = index > 0) {
                                 menuOpen = false
                                 state.moveItem(cmd.id, section, item.id, -1)
-                            }
-                            MenuEntry("下移", enabled = index < lastIndex) {
+                            },
+                            MenuItemSpec("下移", Ic.ArrowDown, enabled = index < lastIndex) {
                                 menuOpen = false
                                 state.moveItem(cmd.id, section, item.id, 1)
-                            }
-                            MenuEntry("删除", enabled = true) {
+                            },
+                            MenuItemSpec("删除", Ic.Trash, danger = true) {
                                 menuOpen = false
                                 state.removeItem(cmd.id, section, item.id)
-                            }
-                        }
-                    }
+                            },
+                        ),
+                    )
                 }
             }
         }
@@ -848,6 +823,7 @@ private fun VariableRow(name: String, value: String, onName: (String) -> Unit, o
 private fun EditorRunButton(
     exec: Int,
     modifier: Modifier = Modifier,
+    height: Dp = 44.dp,
     onClick: () -> Unit,
     onStop: (() -> Unit)?,
 ) {
@@ -868,7 +844,7 @@ private fun EditorRunButton(
     )
     val fg = if (exec == 2) C.GoodText else C.OnPrimary
     Box(
-        modifier.height(40.dp).clip(Capsule()).background(bg)
+        modifier.height(TopBarControlTouch)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
                 contentDescription = label
@@ -877,18 +853,23 @@ private fun EditorRunButton(
                     true
                 }
             }
-            .pressable(0.9f) { if (running) onStop?.invoke() else onClick() }
-            .padding(horizontal = 12.dp),
+            .pressable(0.9f) { if (running) onStop?.invoke() else onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            LineIcon(
-                if (running) Ic.Stop else if (exec == 3) Ic.Info else if (exec == 2) Ic.Refresh else Ic.Play,
-                fg, 16.dp,
-                modifier = if (!running && exec == 0) Modifier.testTag("editor-execute-play") else Modifier,
-            )
-            Spacer(Modifier.width(4.dp))
-            T(label, 13.sp, FontWeight.SemiBold, fg, maxLines = 1)
+        Box(
+            Modifier.height(height).clip(Capsule()).background(bg)
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LineIcon(
+                    if (running) Ic.Stop else if (exec == 3) Ic.Info else if (exec == 2) Ic.Refresh else Ic.Play,
+                    fg, 16.dp,
+                    modifier = if (!running && exec == 0) Modifier.testTag("editor-execute-play") else Modifier,
+                )
+                Spacer(Modifier.width(4.dp))
+                T(label, 13.sp, FontWeight.SemiBold, fg, maxLines = 1)
+            }
         }
     }
 }
@@ -975,32 +956,36 @@ private fun ActionRowMenu(
     onPanel: (EditorPanel) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
+    val anchor = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     Box {
-        EditorIconButton(Ic.More, "更多操作${item.name}", size = if (compact) 40.dp else 48.dp) { open = true }
+        EditorIconButton(
+            Ic.More, "更多操作${item.name}",
+            modifier = Modifier.trackMenuAnchor(anchor, open),
+            size = if (compact) 40.dp else 48.dp,
+        ) { open = true }
         if (open) {
-            Popup(onDismissRequest = { open = false }, offset = IntOffset(-360, 0)) {
-                Column(
-                    Modifier.width(200.dp).clip(RoundedRectangle(18.dp)).background(C.Card).padding(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    MenuEntry("上移", enabled = index > 0) {
+            AnchoredMenu(
+                anchor = anchor.value,
+                onDismiss = { open = false },
+                items = listOf(
+                    MenuItemSpec("上移", Ic.ArrowUp, enabled = index > 0) {
                         open = false
                         state.moveStepTo(cmd.id, parentId, branch, item.id, index - 1)
-                    }
-                    MenuEntry("下移", enabled = index < lastIndex) {
+                    },
+                    MenuItemSpec("下移", Ic.ArrowDown, enabled = index < lastIndex) {
                         open = false
                         state.moveStepTo(cmd.id, parentId, branch, item.id, index + 1)
-                    }
-                    MenuEntry("移动到…", enabled = true) {
+                    },
+                    MenuItemSpec("移动到…", Ic.UpDown) {
                         open = false
                         onPanel(EditorPanel.Move(item.id))
-                    }
-                    MenuEntry("删除", enabled = true) {
+                    },
+                    MenuItemSpec("删除", Ic.Trash, danger = true) {
                         open = false
                         state.removeActionItemWithUndo(cmd.id, item.id)
-                    }
-                }
-            }
+                    },
+                ),
+            )
         }
     }
 }
@@ -1016,30 +1001,30 @@ private fun ConditionRowMenu(
     onPanel: (EditorPanel) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
+    val anchor = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     Box {
-        EditorIconButton(Ic.More, "更多操作条件${conditionIndex + 1}") { open = true }
+        EditorIconButton(
+            Ic.More, "更多操作条件${conditionIndex + 1}",
+            modifier = Modifier.trackMenuAnchor(anchor, open),
+        ) { open = true }
         if (open) {
-            Popup(onDismissRequest = { open = false }, offset = IntOffset(-170, 0)) {
-                Column(
-                    Modifier.width(150.dp).clip(RoundedRectangle(18.dp)).background(C.Card).padding(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    MenuEntry("编辑", enabled = true) {
+            AnchoredMenu(
+                anchor = anchor.value,
+                onDismiss = { open = false },
+                items = listOf(
+                    MenuItemSpec("编辑", Ic.Edit) {
                         open = false
                         onPanel(EditorPanel.Parameter(CommandSection.CONDITIONS, condition.id))
-                    }
-                    MenuEntry("删除", enabled = true) {
+                    },
+                    MenuItemSpec("删除", Ic.Trash, danger = true) {
                         open = false
                         state.removeConditionItem(cmd.id, item.id, branch, condition.id)
-                    }
-                }
-            }
+                    },
+                ),
+            )
         }
     }
 }
-
-
-
 
 /** Shared by the block add menu and the component picker; returns the new condition id. */
 internal fun addConditionFromBlockMenu(
@@ -1062,63 +1047,36 @@ internal fun addConditionFromBlockMenu(
     }?.id
 }
 
-/** Pure menu model; tested without opening a Popup window. */
-internal fun blockAddMenuLabels(
-    block: com.flowglass.engine.BlockKind?,
-    timesLoop: Boolean,
-    branches: List<CommandBranch>,
-): List<String> {
-    if (block == com.flowglass.engine.BlockKind.WAIT) return listOf("条件")
-    return buildList {
-        add("步骤")
-        if (!timesLoop) add("条件")
-        if (block == com.flowglass.engine.BlockKind.IF && branches.none { it.conditions.isEmpty() }) add("否则")
-    }
-}
-
-internal fun branchAddMenuLabels(hasConditions: Boolean): List<String> = listOf("步骤")
-
 /** One compact add button at the end of a block or branch. The menu is the only place where
  * a block's allowed additions are listed, so narrow screens never have to fit four pills. */
 @Composable
 private fun BlockAddButton(
     label: String,
     tag: String,
-    entries: List<Pair<String, () -> Unit>>,
+    entries: List<AddMenuEntry>,
     modifier: Modifier = Modifier,
 ) {
     var open by remember { mutableStateOf(false) }
-    val lift = with(LocalDensity.current) { (entries.size * 44 + 60).dp.toPx().toInt() }
+    val anchor = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     Box(modifier) {
-        EditorPill("＋ 添加", label, Modifier.testTag(tag)) { open = true }
-        if (open) {
-            Popup(onDismissRequest = { open = false }, offset = IntOffset(0, -lift)) {
-                Column(
-                    Modifier.width(200.dp).clip(RoundedRectangle(18.dp)).background(C.Card).padding(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    entries.forEach { (text, action) ->
-                        MenuEntry(text, enabled = true) {
-                            open = false
-                            action()
-                        }
-                    }
-                }
-            }
+        EditorPill(
+            "＋ 添加", label,
+            Modifier.testTag(tag).trackMenuAnchor(anchor, open),
+        ) {
+            if (entries.size == 1) entries.single().action() else if (entries.size > 1) open = true
         }
-    }
-}
-
-@Composable
-private fun MenuEntry(label: String, enabled: Boolean, action: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedRectangle(12.dp))
-            .clickable(enabled = enabled, onClick = action)
-            .semantics { contentDescription = label }
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        T(label, 14.sp, color = if (enabled) C.OnSurface else C.Muted)
+        if (open && entries.size > 1) {
+            AnchoredMenu(
+                anchor = anchor.value,
+                onDismiss = { open = false },
+                items = entries.map { entry ->
+                    MenuItemSpec(entry.label) {
+                        open = false
+                        entry.action()
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -1497,13 +1455,14 @@ private fun ActionTreeRow(
                     BlockAddButton(
                         label = "向该分支添加内容",
                         tag = "branch-add-${item.id}-$branchIndex",
-                        entries = buildList {
-                            add("步骤" to {
-                                onPanel(EditorPanel.Add(CommandSection.ACTIONS, item.id, branchIndex))
-                            })
-                            if (!timesLoop) add("条件" to {
-                                onPanel(EditorPanel.Add(CommandSection.CONDITIONS, item.id, branchIndex))
-                            })
+                        entries = branchAddActions().map { add ->
+                            AddMenuEntry(add.label) {
+                                when (add.kind) {
+                                    AddActionKind.STEP -> onPanel(EditorPanel.Add(CommandSection.ACTIONS, item.id, branchIndex))
+                                    AddActionKind.CONDITION -> onPanel(EditorPanel.Add(CommandSection.CONDITIONS, item.id, branchIndex))
+                                    AddActionKind.ELSE -> Unit
+                                }
+                            }
                         },
                     )
                 }
@@ -1513,17 +1472,13 @@ private fun ActionTreeRow(
                     BlockAddButton(
                         label = "向${item.name}添加内容",
                         tag = "block-add-${item.id}",
-                        entries = buildList {
-                            if (block != com.flowglass.engine.BlockKind.WAIT) add("步骤" to {
-                                onPanel(EditorPanel.Add(CommandSection.ACTIONS, item.id))
-                            })
-                            if (!timesLoop) add("条件" to {
-                                onPanel(EditorPanel.Add(CommandSection.CONDITIONS, item.id))
-                            })
-                            if (block == com.flowglass.engine.BlockKind.IF &&
-                                item.branches.none { it.conditions.isEmpty() }
-                            ) {
-                                add("否则" to { state.addBranch(cmd.id, item.id, withCondition = false) })
+                        entries = blockAddActions(block, timesLoop, item.branches).map { add ->
+                            AddMenuEntry(add.label) {
+                                when (add.kind) {
+                                    AddActionKind.STEP -> onPanel(EditorPanel.Add(CommandSection.ACTIONS, item.id))
+                                    AddActionKind.CONDITION -> onPanel(EditorPanel.Add(CommandSection.CONDITIONS, item.id))
+                                    AddActionKind.ELSE -> state.addBranch(cmd.id, item.id, withCondition = false)
+                                }
                             }
                         },
                     )

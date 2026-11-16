@@ -318,7 +318,7 @@ fun FlowGlassApp() {
             state, backdrop,
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 92.dp)
         )
-        CommandMenuOverlay(state, backdrop)
+        CommandMenuOverlay(state)
         RenameOverlay(state, backdrop)
 
     }
@@ -359,24 +359,12 @@ private fun PageColumn(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Spacer(Modifier.height(statusTop + 8.dp))
-        Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (onBack != null) {
-                Box(
-                    Modifier.graphicsLayer { alpha = 1f - collapse() }
-                        .size(40.dp).clip(Capsule()).background(C.Card).pressable { onBack() },
-                    contentAlignment = Alignment.Center
-                ) { LineIcon(Ic.Back, C.OnSurface, 22.dp) }
-                Spacer(Modifier.width(10.dp))
-            }
-            T(
-                title, if (onBack != null) 28.sp else 32.sp, FontWeight.Bold,
-                modifier = Modifier.graphicsLayer {
-                    val c = collapse()
-                    alpha = 1f - c
-                    val sc = 1f - 0.25f * c
-                    scaleX = sc; scaleY = sc
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
-                }
+        if (onBack == null) {
+            LargePageHeader(title = title, collapse = collapse)
+        } else {
+            DetailTopBar(
+                onBack = onBack,
+                title = { T(title, 20.sp, FontWeight.Bold, maxLines = 1) },
             )
         }
         content()

@@ -63,16 +63,13 @@ private fun ActionEditorPage(state: AppState, cmd: Cmd, item: CommandItem) {
     BackHandler(enabled = true) { close() }
     Column(Modifier.fillMaxSize().background(C.Bg).testTag("action-editor")
         .statusBarsPadding().navigationBarsPadding().imePadding()
-        .verticalScroll(rememberScrollState()).padding(20.dp),
+        .verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            EditorIconButton(Ic.Back, "返回指令编辑") { close() }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                T(cmd.title, 18.sp, FontWeight.Bold)
-                T("动作参数", 12.sp, color = C.Muted)
-            }
-        }
+        DetailTopBar(
+            onBack = { close() },
+            title = { T(cmd.title, 20.sp, FontWeight.Bold, maxLines = 1) },
+            subtitle = "动作参数",
+        )
         ActionParameterEditor(
             section = CommandSection.ACTIONS,
             item = item,

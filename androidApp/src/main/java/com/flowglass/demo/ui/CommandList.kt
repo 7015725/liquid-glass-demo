@@ -404,9 +404,9 @@ fun Spinner(color: Color, size: androidx.compose.ui.unit.Dp) {
 
 private data class MenuAction(val ic: Ic, val label: String, val danger: Boolean = false)
 
-/** Liquid-glass dropdown that springs out of the long-press point. */
+/** Shared dropdown anchored to the long-press point, with the same surface as every other menu. */
 @Composable
-fun CommandMenuOverlay(state: AppState, backdrop: Backdrop) {
+fun CommandMenuOverlay(state: AppState) {
     val req = state.menu
     val progress = remember { Animatable(0f) }
     var shown by remember { mutableStateOf<MenuReq?>(null) }
@@ -435,6 +435,31 @@ fun CommandMenuOverlay(state: AppState, backdrop: Backdrop) {
         MenuAction(Ic.Copy, "创建副本"),
         MenuAction(Ic.Trash, "删除", danger = true),
     )
+    val items = actions.map { a -> MenuItemSpec(a.label, a.ic, danger = a.danger) {
+        state.menu = null
+        when (a.label) {
+            "置顶", "取消置顶" -> state.togglePin(cmd.id)
+            "重命名" -> state.renaming = cmd
+            "分享" -> {
+                val text = buildString {
+                    appendLine("【流光自动化】${cmd.title}")
+                    appendLine(cmd.desc)
+                    if (cmd.auto) {
+                        appendLine("触发器：${cmd.triggers.joinToString("、")}")
+                        if (cmd.conditions.isNotEmpty()) appendLine("条件：${cmd.conditions.joinToString("、")}")
+                    }
+                    append("任务：${cmd.actions.joinToString(" → ")}")
+                }
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_TEXT, text)
+                runCatching {
+                    ctx.startActivity(Intent.createChooser(send, "分享指令").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            }
+            "创建副本" -> state.duplicate(cmd.id)
+            "删除" -> state.delete(cmd.id)
+        }
+    } }
     val itemH = 50.dp
     val menuW = 208.dp
     val menuH = itemH * actions.size + 16.dp
@@ -445,10 +470,12 @@ fun CommandMenuOverlay(state: AppState, backdrop: Backdrop) {
         val mw = with(density) { menuW.toPx() }
         val mh = with(density) { menuH.toPx() }
         val margin = with(density) { 16.dp.toPx() }
-        val x = (r.anchor.x - mw * 0.3f).coerceIn(margin, w - mw - margin)
+        val maxX = (w - mw - margin).coerceAtLeast(margin)
+        val x = (r.anchor.x - mw * 0.3f).coerceIn(margin, maxX)
         val below = r.anchor.y + with(density) { 12.dp.toPx() }
         val openUp = below + mh > h - with(density) { 110.dp.toPx() }
-        val y = if (openUp) (r.anchor.y - mh - with(density) { 12.dp.toPx() }).coerceAtLeast(margin) else below
+        val maxY = (h - mh - margin).coerceAtLeast(margin)
+        val y = if (openUp) (r.anchor.y - mh - with(density) { 12.dp.toPx() }).coerceIn(margin, maxY) else below
         val originX = ((r.anchor.x - x) / mw).coerceIn(0f, 1f)
         val originY = if (openUp) 1f else 0f
 
@@ -459,8 +486,10 @@ fun CommandMenuOverlay(state: AppState, backdrop: Backdrop) {
                 .background(C.ScrimSubtle)
                 .pointerInput(Unit) { detectTapGestures { state.menu = null } }
         )
-        Column(
-            Modifier
+        MenuSurface(
+            items = items,
+            onDismiss = { state.menu = null },
+            modifier = Modifier
                 .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
                 .graphicsLayer {
                     val p = progress.value
@@ -468,67 +497,10 @@ fun CommandMenuOverlay(state: AppState, backdrop: Backdrop) {
                     val s = 0.6f + 0.4f * p
                     scaleX = s; scaleY = s
                     transformOrigin = TransformOrigin(originX, originY)
-                }
-                .width(menuW)
-                .drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { RoundedRectangle(26.dp) },
-                    effects = {
-                        themedVibrancy()
-                        blur(themedBlur(10.dp.toPx()))
-                        lens(themedLensX(16.dp.toPx()), themedLensY(28.dp.toPx()))
-                    },
-                    onDrawSurface = { drawRect(C.Glass) }
-                )
-                .padding(vertical = 8.dp)
-        ) {
-            actions.forEachIndexed { i, a ->
-                val fg = if (a.danger) C.Bad else C.OnSurface
-                Row(
-                    Modifier.fillMaxWidth().height(itemH)
-                        .graphicsLayer {
-                            // items cascade in
-                            val p = ((progress.value - i * 0.06f) / 0.7f).coerceIn(0f, 1f)
-                            alpha = p
-                            translationY = (1f - p) * -8.dp.toPx()
-                        }
-                        .pressable(0.96f) {
-                            state.menu = null
-                            when (a.label) {
-                                "置顶", "取消置顶" -> state.togglePin(cmd.id)
-                                "重命名" -> state.renaming = cmd
-                                "分享" -> {
-                                    val text = buildString {
-                                        appendLine("【流光自动化】${cmd.title}")
-                                        appendLine(cmd.desc)
-                                        if (cmd.auto) {
-                                            appendLine("触发器：${cmd.triggers.joinToString("、")}")
-                                            if (cmd.conditions.isNotEmpty()) appendLine("条件：${cmd.conditions.joinToString("、")}")
-                                        }
-                                        append("任务：${cmd.actions.joinToString(" → ")}")
-                                    }
-                                    val send = Intent(Intent.ACTION_SEND).setType("text/plain")
-                                        .putExtra(Intent.EXTRA_TEXT, text)
-                                    runCatching {
-                                        ctx.startActivity(Intent.createChooser(send, "分享指令").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                                    }
-                                }
-                                "创建副本" -> state.duplicate(cmd.id)
-                                "删除" -> state.delete(cmd.id)
-                            }
-                        }
-                        .padding(horizontal = 18.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    LineIcon(a.ic, fg, 20.dp)
-                    Spacer(Modifier.width(14.dp))
-                    T(a.label, 15.sp, FontWeight.Medium, fg)
-                }
-                if (i == actions.lastIndex - 1) {
-                    Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(1.dp).background(C.Divider))
-                }
-            }
-        }
+                },
+            width = menuW,
+            itemHeight = itemH,
+        )
     }
 }
 
