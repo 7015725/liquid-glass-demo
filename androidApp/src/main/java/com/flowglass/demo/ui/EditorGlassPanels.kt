@@ -52,10 +52,7 @@ internal fun EditorGlassPanel(backdrop: Backdrop, title: String, bottom: Boolean
                 themedVibrancy(); blur(themedBlur(20.dp.toPx())); lens(themedLensX(18.dp.toPx()), themedLensY(28.dp.toPx()))
             }, onDrawSurface = { drawRect(C.GlassStrong) })
             .pointerInput(Unit) { detectTapGestures { } }.padding(16.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                T(title, 21.sp, FontWeight.Bold, modifier = Modifier.weight(1f))
-                EditorIconButton(Ic.Back, "返回", action = onClose)
-            }
+            SheetTopBar(title, onClose)
             Spacer(Modifier.height(12.dp))
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
