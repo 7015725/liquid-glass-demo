@@ -47,6 +47,7 @@ class CommandTransferTest {
         assertEquals(1, preview.conditionCount)
         assertEquals(1, preview.actionCount)
         assertTrue(preview.sensitive.contains("执行 Shell(Root)"))
+        assertTrue(preview.rootRequired.contains("执行 Shell(Root)"))
     }
 
     @Test
@@ -74,7 +75,10 @@ class CommandTransferTest {
         state.engineGlobals = mapOf("greeting" to JsonPrimitive("hello"))
         state.mode = 2
         state.setEngineRunning(false)
-        val json = exportBackupJson(state, ThemeMode.DARK)
+        val json = exportBackupJson(
+            state, ThemeMode.DARK,
+            mapOf("keepalive.fgs" to "true", "system_hook.enabled" to "false"),
+        )
 
         val parsed = parseImport(json, state)
         assertEquals(ImportKind.BACKUP, parsed.kind)
@@ -82,6 +86,10 @@ class CommandTransferTest {
         assertEquals(JsonPrimitive("hello"), parsed.converted.engineGlobals["greeting"])
         assertEquals(2, parsed.converted.mode)
         assertFalse(parsed.converted.running)
+        assertEquals(
+            mapOf("keepalive.fgs" to "true", "system_hook.enabled" to "false"),
+            parsed.settings?.appSettings,
+        )
     }
 
     @Test

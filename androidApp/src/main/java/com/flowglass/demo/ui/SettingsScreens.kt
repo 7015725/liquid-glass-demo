@@ -817,7 +817,7 @@ private fun BackupRestorePage(
     GroupCard(k++) {
         ListRow(
             Row1(Ic.Share, "导出完整备份", sub = "全部指令、全局变量和设置") {
-                runCatching { exportBackupJson(state, themeMode) }
+                runCatching { exportBackupJson(state, themeMode, readBackupAppSettings(context)) }
                     .onSuccess { text ->
                         exportText = text
                         val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
@@ -861,7 +861,7 @@ private fun BackupRestorePage(
             false,
         )
     }
-    NoteCard(k++, "导入的文件一律视为不可信，导入预览会列出触发器、条件和任务；含 Root Shell、HTTP 请求或执行另一条指令时会用红色提示。自动指令导入后默认关闭。恢复失败不会覆盖原数据。")
+    NoteCard(k++, "导入的文件一律视为不可信，导入预览会列出触发器、条件和任务；含 Root Shell、HTTP 请求、执行另一条指令或脚本时会用红色提示，Root-only 动作会标注「需要 Root」。自动指令导入后默认关闭。备份包含 App 内设置，但不包含 Root 授权；恢复失败不会覆盖原数据。")
     notice?.let { NoteCard(k++, it) }
 
     pending?.let { parsed ->
@@ -877,6 +877,7 @@ private fun BackupRestorePage(
                             AppearanceSettings.write(context, theme)
                             onThemeModeChange(theme)
                         }
+                        parsed.settings?.let { applyBackupAppSettings(context, it.appSettings) }
                         notice = "已恢复备份；原数据已保存到 ${safety.name}"
                     } else {
                         val count = parsed.preview.commands.size

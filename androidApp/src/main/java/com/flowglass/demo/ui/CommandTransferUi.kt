@@ -156,6 +156,12 @@ internal fun ImportPreviewDialog(
                         previewLine("触发器", command.triggers)
                         previewLine("条件", command.conditions)
                         previewLine("任务", command.actions)
+                        if (command.rootRequired.isNotEmpty()) {
+                            T(
+                                "需要 Root：${command.rootRequired.joinToString("、")}",
+                                12.sp, color = C.Bad, lineHeight = 17.sp,
+                            )
+                        }
                         if (command.sensitive.isNotEmpty()) {
                             T(
                                 "敏感动作：${command.sensitive.joinToString("、")}",

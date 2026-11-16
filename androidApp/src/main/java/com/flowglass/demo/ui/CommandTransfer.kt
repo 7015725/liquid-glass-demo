@@ -19,6 +19,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
@@ -40,6 +41,8 @@ private val transferJson = Json {
 internal data class BackupSettings(
     /** ThemeMode.name; unknown values fall back to SYSTEM. */
     val themeMode: String = ThemeMode.SYSTEM.name,
+    /** App-local settings that are safe to restore; root authorization is never included. */
+    val appSettings: Map<String, String> = emptyMap(),
 )
 
 internal enum class ImportKind { COMMAND, BACKUP }
@@ -54,6 +57,8 @@ internal data class PreviewCommand(
     val conditions: List<String>,
     val actions: List<String>,
     val sensitive: List<String>,
+    /** Actions whose only implementation is the Root layer. */
+    val rootRequired: List<String> = emptyList(),
 )
 
 internal data class ImportPreview(
@@ -92,12 +97,16 @@ internal fun exportCommandJson(state: AppState, cmd: Cmd): String {
     )
 }
 
-internal fun exportBackupJson(state: AppState, themeMode: ThemeMode): String {
+internal fun exportBackupJson(
+    state: AppState,
+    themeMode: ThemeMode,
+    appSettings: Map<String, String> = emptyMap(),
+): String {
     val document = state.snapshot().toRuleDocument()
     RuleJson.encode(document)
     return transferJson.encodeToString(
         JsonElement.serializer(),
-        envelope(BACKUP_FILE_FORMAT, document, BackupSettings(themeMode.name)),
+        envelope(BACKUP_FILE_FORMAT, document, BackupSettings(themeMode.name, appSettings)),
     )
 }
 
@@ -107,7 +116,10 @@ private fun envelope(format: String, document: RuleDocument, settings: BackupSet
         put("formatVersion", TRANSFER_FORMAT_VERSION)
         put("exportedAt", System.currentTimeMillis())
         if (settings != null) {
-            put("settings", buildJsonObject { put("themeMode", settings.themeMode) })
+            put("settings", buildJsonObject {
+                put("themeMode", settings.themeMode)
+                settings.appSettings.forEach { (key, value) -> put(key, value) }
+            })
         }
         put("document", transferJson.parseToJsonElement(RuleJson.encode(document)))
     }
@@ -153,6 +165,9 @@ internal fun parseImport(text: String, state: AppState): ParsedImport {
                 BackupSettings(
                     themeMode = settings["themeMode"]?.jsonPrimitive?.contentOrNull
                         ?: ThemeMode.SYSTEM.name,
+                    appSettings = settings.entries
+                        .filter { it.key != "themeMode" && it.value is JsonPrimitive }
+                        .associate { (key, value) -> key to value.jsonPrimitive.content },
                 )
             }
             buildParsed(ImportKind.BACKUP, documentField(root), state, settings)
@@ -196,6 +211,7 @@ private fun buildParsed(
             conditions = cmd.conditions.map { it.display },
             actions = cmd.actions.allItems().map { it.display },
             sensitive = sensitiveActions(cmd),
+            rootRequired = rootOnlyActions(cmd),
         )
     }
     return ParsedImport(
@@ -337,10 +353,48 @@ private fun sensitiveActions(cmd: Cmd): List<String> {
     val registry = com.flowglass.engine.BuiltInComponents.registry()
     return cmd.actions.allItems().mapNotNull { item ->
         val meta = item.typeId?.let(registry::find) ?: return@mapNotNull null
-        val dangerous = item.typeId in setOf("action.root_shell", "action.http_request", "action.run_rule") ||
-            meta.minTier == com.flowglass.engine.Tier.ROOT
+        val dangerous = item.typeId in setOf(
+            "action.root_shell", "action.http_request", "action.run_rule", "action.script",
+        ) || meta.minTier == com.flowglass.engine.Tier.ROOT
         if (dangerous) meta.name else null
     }.distinct()
+}
+
+/** Root-only means there is no NORMAL implementation declared by the new layer framework. */
+private fun rootOnlyActions(cmd: Cmd): List<String> {
+    val registry = com.flowglass.engine.BuiltInComponents.registry()
+    return cmd.actions.allItems().mapNotNull { item ->
+        val meta = item.typeId?.let(registry::find) ?: return@mapNotNull null
+        val rootOnly = meta.supports.any { it.layer == com.flowglass.engine.ExecutionLayer.ROOT } &&
+            meta.supports.none { it.layer == com.flowglass.engine.ExecutionLayer.NORMAL }
+        if (rootOnly) meta.name else null
+    }.distinct()
+}
+
+/**
+ * App-local settings that are safe and useful to move with a backup. Root authorization is
+ * deliberately absent: it belongs to the device's root manager and must be granted again.
+ */
+internal fun readBackupAppSettings(context: Context): Map<String, String> {
+    val out = linkedMapOf<String, String>()
+    val keep = context.getSharedPreferences("keepalive", Context.MODE_PRIVATE)
+    for (key in listOf("fgs", "boot", "job")) {
+        if (keep.contains(key)) out["keepalive.$key"] = keep.getBoolean(key, false).toString()
+    }
+    out["system_hook.enabled"] =
+        com.flowglass.demo.system.SystemHookSettings.isEnabled(context).toString()
+    return out
+}
+
+internal fun applyBackupAppSettings(context: Context, settings: Map<String, String>) {
+    for (key in listOf("fgs", "boot", "job")) {
+        settings["keepalive.$key"]?.toBooleanStrictOrNull()?.let {
+            com.flowglass.demo.system.KeepAlive.set(context, key, it)
+        }
+    }
+    settings["system_hook.enabled"]?.toBooleanStrictOrNull()?.let {
+        com.flowglass.demo.system.SystemHookSettings.setEnabled(context, it)
+    }
 }
 
 internal fun uniqueCommandTitle(base: String, auto: Boolean, used: MutableSet<String>): String {
