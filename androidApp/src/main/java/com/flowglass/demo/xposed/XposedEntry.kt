@@ -9,6 +9,12 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 /** LSPosed entry: marks the module as active inside our own process. */
 class XposedEntry : IXposedHookLoadPackage {
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
+        if (lpparam.packageName == "android") {
+            // Defensive and read-only: every callback catches its own failures and the hook is
+            // disabled until the app sends the explicit state broadcast.
+            SystemHook.install(lpparam)
+            return
+        }
         if (lpparam.packageName != "com.flowglass.demo") return
         val cls = ModuleStatus::class.java.name
         XposedHelpers.findAndHookMethod(cls, lpparam.classLoader, "isActive", XC_MethodReplacement.returnConstant(true))

@@ -3,6 +3,7 @@ package com.flowglass.demo
 import android.app.Application
 import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.RunningNotification
+import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.system.trigger.TriggerService
 
 /**
@@ -15,6 +16,9 @@ class FlowApp : Application() {
         Root.install(this)
         // Upgrade path: old builds created keepalive/triggers channels; only "running" remains.
         RunningNotification.cleanupLegacyChannels(this)
+        // Re-send the persisted hook state after process/system restarts; the system hook starts
+        // disabled when its own process is recreated.
+        SystemHookSettings.broadcastState(this)
         // A reboot, an alarm or a plain launch all end here; the service itself decides whether
         // the engine switch and the enabled-rule set still justify listening.
         TriggerService.ensureStarted(this)

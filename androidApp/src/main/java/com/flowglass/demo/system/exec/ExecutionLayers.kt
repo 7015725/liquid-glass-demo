@@ -79,10 +79,10 @@ object LayerStatus {
     }
 
     /** Re-probes Root passively and reads the LSPosed module marker. Never requests Root. */
-    suspend fun refresh(requestRoot: Boolean = false): LayerStatusSnapshot {
+    suspend fun refresh(requestRoot: Boolean = false, systemHookReady: Boolean = false): LayerStatusSnapshot {
         updateRoot(Root.check(request = requestRoot))
         val active = runCatching { ModuleStatus.isActive() }.getOrDefault(false)
-        updateLsposed(active, systemHookReady = false)
+        updateLsposed(active, systemHookReady = systemHookReady)
         return snapshot
     }
 

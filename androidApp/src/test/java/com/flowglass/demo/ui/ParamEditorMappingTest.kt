@@ -59,7 +59,7 @@ class ParamEditorMappingTest {
 
     @Test fun foregroundApplicationScopeIsDeclaredByTheParameterNotTheComponentId() {
         val foreground = requireNotNull(registry.find("trigger.app_foreground")).params.single { it.key == "package" }
-        assertEquals(ApplicationScope.CURRENT_PROFILE, foreground.applicationScope)
+        assertEquals(ApplicationScope.ALL_PROFILES, foreground.applicationScope)
         assertEquals(ApplicationScope.ALL_PROFILES,
             requireNotNull(registry.find("trigger.notification")).params.single { it.key == "app" }.applicationScope)
         assertEquals(ApplicationScope.ALL_PROFILES,

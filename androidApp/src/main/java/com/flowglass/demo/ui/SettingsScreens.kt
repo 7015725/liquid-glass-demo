@@ -51,6 +51,7 @@ import com.flowglass.demo.system.PermItem
 import com.flowglass.demo.system.Perms
 import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.RootGrantResult
+import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.system.RootGrants
 import com.flowglass.demo.system.SysTick
 import com.flowglass.demo.system.exec.LayerState
@@ -277,7 +278,7 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
         state.root = if (state.root?.granted == true) state.root else info
         LayerStatus.updateRoot(info)
         val active = runCatching { ModuleStatus.isActive() }.getOrDefault(false)
-        LayerStatus.updateLsposed(active, systemHookReady = false)
+        LayerStatus.updateLsposed(active, systemHookReady = SystemHookSettings.isAlive(ctx))
     }
     val root = state.root
     val modes = listOf("省电", "均衡", "极速")
@@ -560,6 +561,8 @@ private fun LSPosedPage() {
     val t = tick()
     val active = remember(t) { ModuleStatus.isActive() }
     val version = remember(t) { ModuleStatus.frameworkVersion() }
+    var hookEnabled by remember { mutableStateOf(SystemHookSettings.isEnabled(ctx)) }
+    val hookAlive = remember(t) { SystemHookSettings.isAlive(ctx) }
     val managerInstalled = remember(t) {
         runCatching { ctx.packageManager.getPackageInfo("org.lsposed.manager", 0); true }.getOrDefault(false)
     }
@@ -568,7 +571,7 @@ private fun LSPosedPage() {
         k++, Ic.Puzzle, "模块状态",
         if (active) "已激活" else "未激活", active,
         if (active) "已激活" else "未激活", "",
-        if (active) listOf("Xposed API $version", "作用域：本应用") else listOf("需要 LSPosed 框架"),
+        if (active) listOf("Xposed API $version", "作用域：本应用 + 系统框架") else listOf("需要 LSPosed 框架"),
         action = {
             PrimaryButton("打开 LSPosed 管理器", Ic.Puzzle, {
                 val i = ctx.packageManager.getLaunchIntentForPackage("org.lsposed.manager")
@@ -581,7 +584,7 @@ private fun LSPosedPage() {
         val steps = listOf(
             Triple("刷入 LSPosed 框架", "通过 Magisk / KernelSU 安装 LSPosed 模块并重启", managerInstalled || active),
             Triple("在模块列表中启用", "打开 LSPosed 管理器 → 模块 → 流光自动化", active),
-            Triple("勾选作用域", "作用域勾选「流光自动化」本身", active),
+            Triple("勾选作用域", "作用域勾选「流光自动化」和「系统框架（android）」", active),
             Triple("重启本应用", "在多任务里划掉后重新打开，这里会显示已激活", active),
         )
         steps.forEachIndexed { i, (title, sub, done) ->
@@ -589,6 +592,30 @@ private fun LSPosedPage() {
         }
     }
     NoteCard(k++, "新版 LSPosed 的管理器可能没有桌面图标，可以从通知栏的 LSPosed 通知进入。")
+    GroupTitle("系统前台钩子", k++)
+    GroupCard(k++) { bd ->
+        ListRow(
+            Row1(
+                Ic.Puzzle,
+                "系统框架前台事件",
+                if (hookEnabled && hookAlive) "已启用；系统钩子心跳正常" else if (hookEnabled) "已启用；等待系统钩子心跳" else "已关闭；钩子不做任何事",
+            ),
+            true,
+        ) {
+            LiquidToggle({ hookEnabled }, {
+                hookEnabled = it
+                SystemHookSettings.setEnabled(ctx, it)
+            }, bd)
+        }
+    }
+    NoteCard(
+        k++,
+        if (hookEnabled) {
+            "系统钩子只观察前台切换并通过受保护广播回传，不修改系统行为。若出现异常，可在 LSPosed 管理器里关闭本模块或禁用系统框架作用域，再重启设备。"
+        } else {
+            "默认关闭。启用后需要 LSPosed 的系统框架作用域；关闭后已注册的钩子不再发送任何事件。"
+        },
+    )
 }
 
 private fun state_toast(ctx: Context) {
@@ -599,10 +626,11 @@ private fun state_toast(ctx: Context) {
 
 @Composable
 private fun LayersPage() {
+    val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var snapshot by remember { mutableStateOf(LayerStatus.current()) }
-    LaunchedEffect(Unit) { snapshot = LayerStatus.refresh(requestRoot = false) }
+    LaunchedEffect(Unit) { snapshot = LayerStatus.refresh(requestRoot = false, systemHookReady = SystemHookSettings.isAlive(ctx)) }
     var k = 0
     StatusCard(
         k++, Ic.Shield, "执行层级",
@@ -618,7 +646,7 @@ private fun LayersPage() {
             PrimaryButton("刷新状态", Ic.Refresh, {
                 if (!busy) scope.launch {
                     busy = true
-                    snapshot = LayerStatus.refresh(requestRoot = false)
+                    snapshot = LayerStatus.refresh(requestRoot = false, systemHookReady = SystemHookSettings.isAlive(ctx))
                     busy = false
                 }
             }, Modifier.fillMaxWidth())

@@ -13,6 +13,7 @@ import com.flowglass.demo.system.RunningNotification
 import com.flowglass.demo.system.exec.ExecutionRuntime
 import com.flowglass.demo.ui.AppRuntime
 import com.flowglass.demo.ui.snapshot
+import com.flowglass.demo.xposed.SystemHookProtocol
 import com.flowglass.engine.trigger.TriggerEvent
 import com.flowglass.engine.trigger.TriggerKinds
 import com.flowglass.engine.trigger.TriggerSource
@@ -58,6 +59,9 @@ class TriggerService : Service() {
             return START_NOT_STICKY
         }
         val allowLocationUpgrade = intent?.getBooleanExtra(EXTRA_ALLOW_LOCATION_UPGRADE, false) == true
+        if (intent?.action == ACTION_SYSTEM_HOOK_READY) {
+            host?.refreshAppSource()
+        }
         intent?.toTriggerEvent()?.let(::deliver)
         ensureHost()
         if (allowLocationUpgrade) requestLocationUpgradeIfEligible()
@@ -151,6 +155,8 @@ class TriggerService : Service() {
     companion object {
         const val ACTION_START = "com.flowglass.demo.trigger.START"
         const val ACTION_EVENT = "com.flowglass.demo.trigger.EVENT"
+        const val ACTION_SYSTEM_FOREGROUND = "com.flowglass.demo.trigger.SYSTEM_FOREGROUND"
+        const val ACTION_SYSTEM_HOOK_READY = "com.flowglass.demo.trigger.SYSTEM_HOOK_READY"
         const val ACTION_BOOT = "com.flowglass.demo.trigger.BOOT"
         const val ACTION_STOP = "com.flowglass.demo.trigger.STOP"
         private const val EXTRA_ALLOW_LOCATION_UPGRADE = "allow_location_upgrade"
@@ -224,6 +230,21 @@ private fun Intent.toTriggerEvent(): TriggerEvent? = when (action) {
     TriggerService.ACTION_BOOT -> TriggerEvent(
         TriggerKinds.BOOT_COMPLETED, TriggerSource.BOOT, System.currentTimeMillis(),
     )
+    TriggerService.ACTION_SYSTEM_HOOK_READY -> null
+    TriggerService.ACTION_SYSTEM_FOREGROUND -> {
+        val packageName = getStringExtra(SystemHookProtocol.EXTRA_PACKAGE) ?: return null
+        val userId = getIntExtra(SystemHookProtocol.EXTRA_USER, 0).coerceIn(0, 999_999)
+        val identity = if (userId == 0) packageName else "$packageName@$userId"
+        TriggerEvent(
+            kind = TriggerKinds.APP,
+            source = TriggerSource.APP,
+            atEpochMs = System.currentTimeMillis(),
+            data = mapOf(
+                "app" to identity,
+                "app.user" to userId.toString(),
+            ),
+        )
+    }
     TriggerService.ACTION_EVENT -> {
         val ruleId = getStringExtra("rule_id") ?: return null
         val index = getIntExtra("trigger_index", -1).takeIf { it >= 0 } ?: return null
