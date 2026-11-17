@@ -29,7 +29,9 @@ internal object SystemHook {
     private val lastIdentity = AtomicReference<String?>(null)
     @Volatile private var systemContext: Context? = null
     @Volatile private var receiverRegistered = false
+    @Volatile private var installedHooks = 0
     private var heartbeat: Runnable? = null
+    private val skipped = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private val dispatcher: SystemHookDispatcher by lazy {
         SystemHookDispatcher(
             capacity = EVENT_QUEUE_CAPACITY,
@@ -41,8 +43,10 @@ internal object SystemHook {
     fun install(lpparam: XC_LoadPackage.LoadPackageParam) {
         safe("install") {
             dispatcher.warmUp()
-            hookSystemContext(lpparam.classLoader)
+            // Install detection points before any receiver can request a heartbeat, so the first
+            // heartbeat always reports the real installed count (including zero).
             hookForegroundCandidates(lpparam.classLoader)
+            hookSystemContext(lpparam.classLoader)
         }
     }
 
@@ -120,46 +124,94 @@ internal object SystemHook {
     }
 
     private fun hookForegroundCandidates(classLoader: ClassLoader) {
-        val hook = object : XC_MethodHook() {
-            override fun afterHookedMethod(param: MethodHookParam?) {
-                safe("foreground event") { observe(param?.args) }
-            }
-        }
         var installed = 0
-        for ((className, methodName) in SystemHookCandidates.resumed) {
+        val active = mutableListOf<String>()
+        for (candidate in SystemHookCandidates.resumed) {
+            var classFound = false
             try {
-                val clazz = XposedHelpers.findClass(className, classLoader)
-                val methods = XposedBridge.hookAllMethods(clazz, methodName, hook)
-                if (methods.isNotEmpty()) installed += methods.size
+                val clazz = XposedHelpers.findClass(candidate.className, classLoader)
+                classFound = true
+                val methods = XposedBridge.hookAllMethods(clazz, candidate.methodName, foregroundHook(candidate))
+                val count = methods.size
+                if (count > 0) {
+                    installed += count
+                    active += "${candidate.label}($count)"
+                }
+                log("candidate ${candidate.label}: class=found hooks=$count")
             } catch (failure: Throwable) {
-                // Method names differ across Android versions; try the next candidate.
-                log("hook $className#$methodName unavailable: ${failure.javaClass.simpleName}: ${failure.message}")
+                log(
+                    "candidate ${candidate.label}: class=${if (classFound) "found" else "missing"} " +
+                        "hooks=0 (${failure.javaClass.simpleName}: ${failure.message})"
+                )
             }
         }
-        log("foreground hooks installed=$installed")
+        installedHooks = installed
+        log("foreground hooks installed=$installed active=${active.ifEmpty { listOf("none") }.joinToString(",")}")
+    }
+
+    private fun foregroundHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
+        override fun afterHookedMethod(param: MethodHookParam?) {
+            safe("foreground event ${candidate.label}") { observe(candidate, param) }
+        }
     }
 
     /**
      * Runs on the hooked system-server thread while WMS/AMS locks may be held. It must not send a
      * broadcast or call into ActivityManager here; only copy plain data into the bounded queue.
      */
-    private fun observe(arguments: Array<Any?>?) {
+    private fun observe(candidate: HookCandidate, param: XC_MethodHook.MethodHookParam?) {
         if (!enabled.get()) return
-        for (argument in arguments.orEmpty()) {
-            val packageName = packageOf(argument) ?: continue
-            if (!PACKAGE_PATTERN.matches(packageName)) continue
-            val userId = userOf(argument) ?: 0
-            val identity = if (userId == 0) packageName else "$packageName@$userId"
-            if (lastIdentity.get() == identity) return
-            lastIdentity.set(identity)
-            dispatcher.enqueue(
-                HookForegroundEvent(
-                    packageName = packageName,
-                    userId = userId,
-                    atEpochMs = System.currentTimeMillis(),
-                )
-            )
+        val arguments = param?.args ?: return
+        val record = when (candidate.source) {
+            HookEventSource.FIRST_ARGUMENT_ACTIVITY -> arguments.getOrNull(0)
+            HookEventSource.THIS_ACTIVITY_STATE -> {
+                if (!isResumedState(arguments.getOrNull(0))) return
+                param.thisObject
+            }
+        } ?: run {
+            logSkip(candidate, "activity record is null")
             return
+        }
+        val identity = readIdentity(record) ?: run {
+            logSkip(candidate, "packageName/mUserId unavailable")
+            return
+        }
+        val key = if (identity.userId == 0) identity.packageName else "${identity.packageName}@${identity.userId}"
+        if (lastIdentity.get() == key) return
+        lastIdentity.set(key)
+        dispatcher.enqueue(
+            HookForegroundEvent(
+                packageName = identity.packageName,
+                userId = identity.userId,
+                atEpochMs = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    private fun isResumedState(state: Any?): Boolean {
+        if (state == null) return false
+        val name = runCatching { XposedHelpers.callMethod(state, "name") as? String }.getOrNull()
+        return name == "RESUMED"
+    }
+
+    private fun readIdentity(record: Any?): HookIdentity? {
+        if (record == null) return null
+        val packageName = runCatching {
+            XposedHelpers.getObjectField(record, "packageName") as? String
+        }.getOrNull()
+        val userId = when (val raw = runCatching {
+            XposedHelpers.getObjectField(record, "mUserId")
+        }.getOrNull()) {
+            is Number -> raw.toInt()
+            else -> null
+        }
+        return HookIdentityReader.of(packageName, userId)
+    }
+
+    private fun logSkip(candidate: HookCandidate, reason: String) {
+        val key = "${candidate.label}:$reason"
+        if (skipped.putIfAbsent(key, true) == null) {
+            log("candidate ${candidate.label} skipped: $reason")
         }
     }
 
@@ -172,28 +224,6 @@ internal object SystemHook {
             .putExtra(SystemHookProtocol.EXTRA_USER, event.userId)
             .putExtra(SystemHookProtocol.EXTRA_TIME, event.atEpochMs)
         context.sendBroadcast(intent)
-    }
-
-    private fun packageOf(value: Any?): String? {
-        if (value == null) return null
-        for (name in listOf("getPackageName", "packageName", "mPackageName")) {
-            runCatching { XposedHelpers.callMethod(value, name) as? String }.getOrNull()?.let { return it }
-            runCatching { XposedHelpers.getObjectField(value, name) as? String }.getOrNull()?.let { return it }
-        }
-        return null
-    }
-
-    private fun userOf(value: Any?): Int? {
-        if (value == null) return null
-        for (name in listOf("getUserId", "userId", "mUserId")) {
-            val raw = runCatching { XposedHelpers.callMethod(value, name) }.getOrNull()
-                ?: runCatching { XposedHelpers.getObjectField(value, name) }.getOrNull()
-            when (raw) {
-                is Number -> return raw.toInt()
-                is String -> raw.toIntOrNull()?.let { return it }
-            }
-        }
-        return null
     }
 
     private val stateReceiver = object : BroadcastReceiver() {
@@ -235,6 +265,7 @@ internal object SystemHook {
         context.sendBroadcast(
             Intent(SystemHookProtocol.ACTION_HEARTBEAT)
                 .setClassName(SystemHookProtocol.APP_PACKAGE, SystemHookProtocol.SYSTEM_RECEIVER)
+                .putExtra(SystemHookProtocol.EXTRA_HOOKS, installedHooks)
         )
     }
 
@@ -247,11 +278,6 @@ internal object SystemHook {
         }
     }
 
-    /**
-     * Only methods that represent a real resumed-activity transition are hooked; the candidate
-     * list lives in [SystemHookCandidates] so the exclusion is structurally testable.
-     */
-    private val PACKAGE_PATTERN = Regex("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z0-9_]+)*")
     private const val HEARTBEAT_MS = 20_000L
     private const val EVENT_QUEUE_CAPACITY = 32
 }

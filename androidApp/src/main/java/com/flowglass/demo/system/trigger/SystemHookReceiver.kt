@@ -14,7 +14,8 @@ import com.flowglass.demo.xposed.SystemHookProtocol
 class SystemHookReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == SystemHookProtocol.ACTION_HEARTBEAT) {
-            SystemHookSettings.markHeartbeat(context)
+            val hookCount = intent.getIntExtra(SystemHookProtocol.EXTRA_HOOKS, -1)
+            SystemHookSettings.markHeartbeat(context, hookCount)
             TriggerService.start(context, TriggerService.ACTION_SYSTEM_HOOK_READY)
             return
         }

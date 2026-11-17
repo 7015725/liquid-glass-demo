@@ -44,19 +44,6 @@ internal class BoundedHookEventQueue(private val capacity: Int) {
 }
 
 /**
- * Candidate methods that represent a real resumed-activity transition. Background starts
- * (realStartActivityLocked/onActivityAdded) are intentionally excluded: they can create a
- * foreground event before the activity is actually resumed.
- */
-internal object SystemHookCandidates {
-    val resumed = listOf(
-        "com.android.server.wm.ActivityTaskManagerService" to "setResumedActivity",
-        "com.android.server.wm.ActivityTaskManagerService" to "updateResumedActivity",
-        "com.android.server.am.ActivityManagerService" to "setResumedActivity",
-    )
-}
-
-/**
  * Runs a system-server side callback without allowing any failure to escape. Logging is also
  * guarded because a broken Xposed logger must not turn a handled hook failure into a crash.
  */
