@@ -12,6 +12,7 @@ import com.flowglass.engine.ActionOutcome
 import com.flowglass.engine.BuiltInActions
 import com.flowglass.engine.BuiltInComponents
 import com.flowglass.engine.CancellationCheckpoint
+import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.system.trigger.SystemEventCache
 import com.flowglass.engine.ConditionEnvironment
 import com.flowglass.engine.ExecutionLayer
@@ -250,7 +251,12 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
                     // Refresh only when this component declares Root; normal-only actions never
                     // touch su. `request = false` reuses a remembered grant and never prompts.
                     if (meta.supports.any { it.layer == ExecutionLayer.ROOT }) {
-                        LayerStatus.refresh(requestRoot = false)
+                        // Do not let a passive root probe overwrite a READY LSPosed snapshot.
+                        // isAlive() is the same predicate used by the layer settings page.
+                        LayerStatus.refresh(
+                            requestRoot = false,
+                            systemHookReady = SystemHookSettings.isAlive(context),
+                        )
                     }
                     val selection = layerResolver.select(meta)
                     if (selection == null) {
