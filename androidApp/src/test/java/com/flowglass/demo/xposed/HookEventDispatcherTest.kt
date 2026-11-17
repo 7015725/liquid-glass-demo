@@ -164,6 +164,20 @@ class HookEventDispatcherTest {
     }
 
     @Test
+    fun mediaCandidatesUsePlaybackStateAndSessionSource() {
+        val byName = SystemHookCandidates.media.associateBy { it.methodName }
+        assertEquals(
+            HookEventSource.FIRST_ARGUMENT_MEDIA_SESSION_WITH_PLAYBACK_STATE,
+            byName.getValue("onSessionPlaybackStateChanged").source,
+        )
+        assertEquals(
+            HookEventSource.FIRST_ARGUMENT_MEDIA_SESSION,
+            byName.getValue("onSessionDied").source,
+        )
+        assertEquals(SystemHookFamily.MEDIA, byName.getValue("onSessionDied").family)
+    }
+
+    @Test
     fun identityRejectsMissingOrInvalidValues() {
         assertEquals(HookIdentity("com.example.app", 999), HookIdentityReader.of("com.example.app", 999))
         assertEquals(HookIdentity("com.example.app", 0), HookIdentityReader.of("com.example.app", 0))

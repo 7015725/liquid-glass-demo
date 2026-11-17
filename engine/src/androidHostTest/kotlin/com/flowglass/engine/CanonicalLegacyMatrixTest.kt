@@ -57,6 +57,7 @@ class CanonicalLegacyMatrixTest {
                     "action.script", // introduced in 0.8, no v0.5 form
                     "trigger.app_process", "trigger.app_crash", "condition.app_process_state",
                     "trigger.keyguard", // alpha8
+                    "trigger.media", // alpha9
                 )
         }
         assertEquals(expected.keys, legacyComponents.map { it.typeId }.toSet())

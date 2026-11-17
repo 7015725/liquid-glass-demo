@@ -23,7 +23,11 @@ internal object SystemHookSubscriptions {
             rules.asSequence()
                 .filter { it.enabled }
                 .flatMap { it.triggers.asSequence() }
-                .filter { it.typeId == TriggerTypes.APP_PROCESS || it.typeId == TriggerTypes.APP_CRASH }
+                .filter {
+                    it.typeId == TriggerTypes.APP_PROCESS ||
+                        it.typeId == TriggerTypes.APP_CRASH ||
+                        it.typeId == TriggerTypes.MEDIA
+                }
                 .mapNotNull { it.params["package"]?.toString()?.trim('"') }
                 .filter { it.isNotBlank() }
                 .toList()
@@ -34,6 +38,7 @@ internal object SystemHookSubscriptions {
         TriggerTypes.APP_PROCESS -> SystemHookFamily.PROCESS
         TriggerTypes.APP_CRASH -> SystemHookFamily.CRASH
         TriggerTypes.KEYGUARD -> SystemHookFamily.KEYGUARD
+        TriggerTypes.MEDIA -> SystemHookFamily.MEDIA
         else -> null
     }
 }

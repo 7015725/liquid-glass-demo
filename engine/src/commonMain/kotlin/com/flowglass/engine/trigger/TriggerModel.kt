@@ -34,6 +34,7 @@ object TriggerTypes {
     const val APP_PROCESS = "trigger.app_process"
     const val APP_CRASH = "trigger.app_crash"
     const val KEYGUARD = "trigger.keyguard"
+    const val MEDIA = "trigger.media"
     const val HEADSET = "trigger.headset"
     const val LOCATION_ENTER = "trigger.location_enter"
     const val LOCATION_EXIT = "trigger.location_exit"
@@ -51,6 +52,7 @@ object TriggerTypes {
         APP_FOREGROUND -> TriggerSource.APP
         APP_PROCESS, APP_CRASH -> TriggerSource.SYSTEM
         KEYGUARD -> TriggerSource.SYSTEM
+        MEDIA -> TriggerSource.SYSTEM
         HEADSET -> TriggerSource.HEADSET
         LOCATION_ENTER, LOCATION_EXIT -> TriggerSource.LOCATION
         else -> null
@@ -138,6 +140,9 @@ object TriggerKinds {
     const val APP_CRASH = "app_crash"
     const val APP_ANR = "app_anr"
     const val KEYGUARD = "keyguard"
+    const val MEDIA_PLAYING = "media_playing"
+    const val MEDIA_PAUSED = "media_paused"
+    const val MEDIA_STOPPED = "media_stopped"
     const val HEADSET = "headset"
     const val LOCATION = "location"
 }
@@ -231,6 +236,9 @@ object TriggerMatcher {
             TriggerKinds.APP_CRASH -> matchesCrashEvent(binding, event, "crash")
             TriggerKinds.APP_ANR -> matchesCrashEvent(binding, event, "anr")
             TriggerKinds.KEYGUARD -> matchesKeyguard(binding, event)
+            TriggerKinds.MEDIA_PLAYING -> matchesMedia(binding, event, "playing")
+            TriggerKinds.MEDIA_PAUSED -> matchesMedia(binding, event, "paused")
+            TriggerKinds.MEDIA_STOPPED -> matchesMedia(binding, event, "stopped")
             TriggerKinds.HEADSET -> matchesHeadset(binding, event, states)
             TriggerKinds.LOCATION -> matchesLocation(binding, event, states)
             else -> false
@@ -381,6 +389,13 @@ object TriggerMatcher {
         if (binding.component.typeId != TriggerTypes.KEYGUARD) return false
         val expected = binding.component.params["state"]?.stringValue() ?: return false
         return event.data["event"] == expected
+    }
+
+    private fun matchesMedia(binding: TriggerBinding, event: TriggerEvent, eventName: String): Boolean {
+        if (binding.component.typeId != TriggerTypes.MEDIA) return false
+        if (binding.component.params["state"]?.stringValue() != eventName) return false
+        val target = binding.component.params["package"]?.stringValue()?.trim().orEmpty()
+        return target.isNotEmpty() && sameApp(target, event.data["app"].orEmpty())
     }
 
     /** The main profile may be written as a bare package or with an explicit @0 suffix. */

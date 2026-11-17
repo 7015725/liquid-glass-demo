@@ -14,6 +14,12 @@ internal enum class HookEventSource {
     /** The first argument is a boolean (KeyguardController#setKeyguardShown). */
     FIRST_ARGUMENT_BOOLEAN,
 
+    /** The first argument is a MediaSessionRecordImpl, and the third is a PlaybackState. */
+    FIRST_ARGUMENT_MEDIA_SESSION_WITH_PLAYBACK_STATE,
+
+    /** The first argument is a MediaSessionRecordImpl (onSessionDied). */
+    FIRST_ARGUMENT_MEDIA_SESSION,
+
     /** The first argument is a ProcessRecord (AnrHelper#appNotResponding). */
     FIRST_ARGUMENT_PROCESS,
 
@@ -136,6 +142,30 @@ internal object SystemHookCandidates {
             source = HookEventSource.FIRST_ARGUMENT_BOOLEAN,
             family = SystemHookFamily.KEYGUARD,
             kind = SystemHookProtocol.EVENT_KEYGUARD_LOCKED,
+        ),
+    )
+
+    /**
+     * Media-session playback transitions. The playback state is argument #3 on AOSP 12–15;
+     * onSessionDied is the explicit stop edge and does not need a PlaybackState. Both are
+     * filtered by package/user before they enter the queue.
+     */
+    val media = listOf(
+        HookCandidate(
+            label = "media.onSessionPlaybackStateChanged",
+            className = "com.android.server.media.MediaSessionService",
+            methodName = "onSessionPlaybackStateChanged",
+            source = HookEventSource.FIRST_ARGUMENT_MEDIA_SESSION_WITH_PLAYBACK_STATE,
+            family = SystemHookFamily.MEDIA,
+            kind = SystemHookProtocol.EVENT_MEDIA_PLAYING,
+        ),
+        HookCandidate(
+            label = "media.onSessionDied",
+            className = "com.android.server.media.MediaSessionService",
+            methodName = "onSessionDied",
+            source = HookEventSource.FIRST_ARGUMENT_MEDIA_SESSION,
+            family = SystemHookFamily.MEDIA,
+            kind = SystemHookProtocol.EVENT_MEDIA_STOPPED,
         ),
     )
 }
