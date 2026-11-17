@@ -2,7 +2,10 @@ package com.flowglass.demo.system
 
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.edit
+import com.flowglass.demo.xposed.BroadcastRateLimiter
 import com.flowglass.demo.xposed.HookIdentityReader
 import com.flowglass.demo.xposed.SystemHookFamily
 import com.flowglass.demo.xposed.SystemHookProtocol
@@ -27,7 +30,13 @@ object SystemHookSettings {
     private const val KEY_SUBSCRIBED_FAMILIES = "subscribed_families"
     private const val KEY_WATCHED = "watched_packages"
     private const val HEARTBEAT_TTL_MS = 60_000L
+    private const val HEARTBEAT_MIN_WRITE_MS = 2_000L
     private const val MAX_WATCHED = 128
+    private const val SEND_MIN_INTERVAL_MS = 2_000L
+    private val sendLimiter = BroadcastRateLimiter(SEND_MIN_INTERVAL_MS)
+    private val retryHandler by lazy { Handler(Looper.getMainLooper()) }
+    private val retryLock = Any()
+    private var pendingStateRetry: Runnable? = null
 
     enum class Status {
         /** No ACTION_LOADED has ever reached this app process. */
@@ -97,24 +106,41 @@ object SystemHookSettings {
         hookCount: Int,
         availableFamilies: Int = SystemHookFamily.defaultMask,
     ) {
-        prefs(context).edit {
+        val store = prefs(context)
+        val families = availableFamilies and knownFamilyMask()
+        if (store.getBoolean(KEY_LOADED, false) &&
+            store.getInt(KEY_HOOKS, -1) == hookCount &&
+            store.getInt(KEY_AVAILABLE_FAMILIES, SystemHookFamily.defaultMask) == families
+        ) return
+        store.edit {
             putBoolean(KEY_LOADED, true)
             putInt(KEY_HOOKS, hookCount)
-            putInt(KEY_AVAILABLE_FAMILIES, availableFamilies and knownFamilyMask())
+            putInt(KEY_AVAILABLE_FAMILIES, families)
         }
     }
 
+    /** Returns true when this heartbeat changed the stored state and is worth acting on. */
     fun markHeartbeat(
         context: Context,
         hookCount: Int,
         availableFamilies: Int = SystemHookFamily.defaultMask,
-    ) {
-        prefs(context).edit {
+    ): Boolean {
+        val store = prefs(context)
+        val now = System.currentTimeMillis()
+        val families = availableFamilies and knownFamilyMask()
+        val last = store.getLong(KEY_HEARTBEAT, 0L)
+        if (store.getBoolean(KEY_LOADED, false) &&
+            store.getInt(KEY_HOOKS, -1) == hookCount &&
+            store.getInt(KEY_AVAILABLE_FAMILIES, SystemHookFamily.defaultMask) == families &&
+            now - last in 0 until HEARTBEAT_MIN_WRITE_MS
+        ) return false
+        store.edit {
             putBoolean(KEY_LOADED, true)
-            putLong(KEY_HEARTBEAT, System.currentTimeMillis())
+            putLong(KEY_HEARTBEAT, now)
             putInt(KEY_HOOKS, hookCount)
-            putInt(KEY_AVAILABLE_FAMILIES, availableFamilies and knownFamilyMask())
+            putInt(KEY_AVAILABLE_FAMILIES, families)
         }
+        return true
     }
 
     private fun heartbeatFresh(last: Long): Boolean =
@@ -166,7 +192,30 @@ object SystemHookSettings {
         val store = prefs(context)
         val mask = store.getInt(KEY_SUBSCRIBED_FAMILIES, SystemHookFamily.defaultMask) and knownFamilyMask()
         val watched = parseWatched(store.getString(KEY_WATCHED, "").orEmpty())
-        send(context, SystemHookProtocol.ACTION_STATE, mask, watched)
+        if (!send(context, SystemHookProtocol.ACTION_STATE, mask, watched)) {
+            scheduleStateRetry(context)
+        }
+    }
+
+    /**
+     * A hook that restarted while the app process stayed alive may announce LOADED in the same
+     * two-second window as our previous identical state. Dropping that reply would leave the new
+     * hook without the switch value, so retry once after the window instead of bypassing the
+     * limiter (which would reopen the flood path).
+     */
+    private fun scheduleStateRetry(context: Context) {
+        val appContext = context.applicationContext
+        synchronized(retryLock) {
+            if (pendingStateRetry != null) return
+            val task = object : Runnable {
+                override fun run() {
+                    synchronized(retryLock) { pendingStateRetry = null }
+                    broadcastState(appContext)
+                }
+            }
+            pendingStateRetry = task
+            retryHandler.postDelayed(task, SEND_MIN_INTERVAL_MS)
+        }
     }
 
     private fun send(
@@ -174,17 +223,35 @@ object SystemHookSettings {
         action: String,
         families: Int,
         watched: Collection<String>,
-    ) {
+    ): Boolean {
+        val enabled = isEnabled(context)
+        val loaded = isLoaded(context)
+        val normalizedWatched = watched.asSequence()
+            .mapNotNull { HookIdentityReader.fromKey(it)?.key }
+            .sorted()
+            .joinToString(",")
+        val key = "$action|$enabled|$loaded|$families|$normalizedWatched"
+        if (!sendLimiter.allow(key, System.currentTimeMillis())) return false
         runCatching {
             context.applicationContext.sendBroadcast(
                 Intent(action)
                     .setPackage("android")
-                    .putExtra(SystemHookProtocol.EXTRA_ENABLED, isEnabled(context))
-                    .putExtra(SystemHookProtocol.EXTRA_APP_KNOWS_LOADED, isLoaded(context))
+                    .putExtra(SystemHookProtocol.EXTRA_ENABLED, enabled)
+                    .putExtra(SystemHookProtocol.EXTRA_APP_KNOWS_LOADED, loaded)
                     .putExtra(SystemHookProtocol.EXTRA_FAMILIES, families)
-                    .putExtra(SystemHookProtocol.EXTRA_WATCHED, watched.joinToString(","))
+                    .putExtra(SystemHookProtocol.EXTRA_WATCHED, normalizedWatched)
             )
         }
+        return true
+    }
+
+    /** Test seam; production never needs to reset the rate limiter. */
+    internal fun resetBroadcastThrottle() {
+        val pending = synchronized(retryLock) {
+            pendingStateRetry.also { pendingStateRetry = null }
+        }
+        if (pending != null) retryHandler.removeCallbacks(pending)
+        sendLimiter.clear()
     }
 
     fun normalizeWatched(values: Collection<String>): Set<String> {

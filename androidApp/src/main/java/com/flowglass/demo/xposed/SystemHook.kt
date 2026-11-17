@@ -35,6 +35,9 @@ internal object SystemHook {
     private val lastProcessEvent = ConcurrentHashMap<String, Long>()
     private val lastMediaState = ConcurrentHashMap<String, String>()
     private val lastForegroundServiceState = ConcurrentHashMap<String, String>()
+    private val stateGate = ContentGate()
+    private val stateLogLimiter = BroadcastRateLimiter(STATE_LOG_MIN_INTERVAL_MS)
+    private val loadedLimiter = BroadcastRateLimiter(LOADED_MIN_INTERVAL_MS)
     private val installedCounts = ConcurrentHashMap<SystemHookFamily, Int>()
     private val sequence = AtomicLong(0L)
     @Volatile private var systemContext: Context? = null
@@ -44,7 +47,8 @@ internal object SystemHook {
     private const val MEDIA_STATE_STOPPED = 1
     private const val MEDIA_STATE_PAUSED = 2
     private const val MEDIA_STATE_PLAYING = 3
-    private var heartbeat: Runnable? = null
+    @Volatile private var heartbeat: Runnable? = null
+    private val heartbeatLock = Any()
     private val skipped = ConcurrentHashMap<String, Boolean>()
     private val dispatcher: SystemHookDispatcher by lazy {
         SystemHookDispatcher(
@@ -545,6 +549,8 @@ internal object SystemHook {
      */
     private fun sendLoaded(context: Context?) {
         val ctx = context ?: return
+        val key = "loaded:${installedHooks()}:${availableFamilyMask()}"
+        if (!loadedLimiter.allow(key, System.currentTimeMillis())) return
         safe("send loaded") {
             ctx.sendBroadcast(
                 Intent(SystemHookProtocol.ACTION_LOADED)
@@ -562,23 +568,36 @@ internal object SystemHook {
                 if (action != SystemHookProtocol.ACTION_STATE &&
                     action != SystemHookProtocol.ACTION_CONFIG
                 ) return@safe
-                enabled.set(intent.getBooleanExtra(SystemHookProtocol.EXTRA_ENABLED, false))
-                if (enabled.get()) lastKeyguard.set(null)
-                subscribedFamilies.set(
-                    intent.getIntExtra(SystemHookProtocol.EXTRA_FAMILIES, SystemHookFamily.defaultMask) and
-                        knownFamilyMask()
+                val now = System.currentTimeMillis()
+                val enabledValue = intent.getBooleanExtra(SystemHookProtocol.EXTRA_ENABLED, false)
+                val families = intent.getIntExtra(
+                    SystemHookProtocol.EXTRA_FAMILIES,
+                    SystemHookFamily.defaultMask,
+                ) and knownFamilyMask()
+                val watched = parseWatched(intent.getStringExtra(SystemHookProtocol.EXTRA_WATCHED))
+                val appKnowsLoaded = intent.getBooleanExtra(
+                    SystemHookProtocol.EXTRA_APP_KNOWS_LOADED,
+                    false,
                 )
-                watchedKeys.set(parseWatched(intent.getStringExtra(SystemHookProtocol.EXTRA_WATCHED)))
-                val appKnowsLoaded = intent.getBooleanExtra(SystemHookProtocol.EXTRA_APP_KNOWS_LOADED, false)
-                log(
-                    "enabled=${enabled.get()} families=0x${subscribedFamilies.get().toString(16)} " +
-                        "watched=${watchedKeys.get().size} appKnowsLoaded=$appKnowsLoaded"
-                )
-                // The app may have started before this receiver was registered. Its state
-                // broadcast then carries appKnowsLoaded=false; replay the loaded announcement
-                // once. Its acknowledgement carries true, so this cannot loop.
+                val stateKey = "$enabledValue|$families|${watched.sorted().joinToString(",")}|$appKnowsLoaded"
+                val changed = stateGate.allow(stateKey)
+                if (changed) {
+                    enabled.set(enabledValue)
+                    if (enabledValue) lastKeyguard.set(null)
+                    subscribedFamilies.set(families)
+                    watchedKeys.set(watched)
+                    if (stateLogLimiter.allow("state", now)) {
+                        log(
+                            "enabled=${enabled.get()} families=0x${subscribedFamilies.get().toString(16)} " +
+                                "watched=${watchedKeys.get().size} appKnowsLoaded=$appKnowsLoaded"
+                        )
+                    }
+                }
+                // A repeated identical STATE/CONFIG must not restart the heartbeat: doing that
+                // posts an immediate heartbeat, which makes the app refresh its config, which
+                // arrives right back here (the 2026-11 broadcast storm).
                 if (!appKnowsLoaded) sendLoaded(systemContext)
-                if (enabled.get()) startHeartbeat(systemContext) else stopHeartbeat()
+                if (enabledValue) startHeartbeat(systemContext) else stopHeartbeat()
             }
         }
     }
@@ -611,19 +630,27 @@ internal object SystemHook {
     }
 
     private fun startHeartbeat(context: Context?) {
-        if (context == null) return
-        stopHeartbeat()
-        val handler = Handler(Looper.getMainLooper())
-        val task = object : Runnable {
-            override fun run() {
-                safe("heartbeat") {
-                    sendHeartbeat(context)
-                    if (enabled.get()) handler.postDelayed(this, HEARTBEAT_MS)
+        if (context == null || !enabled.get()) {
+            stopHeartbeat()
+            return
+        }
+        // Do not reset an already-running heartbeat. Every STATE/CONFIG used to call
+        // stopHeartbeat() + an immediate sendHeartbeat(), so a config sent in response to a
+        // heartbeat produced another heartbeat and another config at broadcast speed.
+        synchronized(heartbeatLock) {
+            if (heartbeat != null) return
+            val handler = Handler(Looper.getMainLooper())
+            val task = object : Runnable {
+                override fun run() {
+                    safe("heartbeat") {
+                        sendHeartbeat(context)
+                        if (enabled.get()) handler.postDelayed(this, HEARTBEAT_MS)
+                    }
                 }
             }
+            heartbeat = task
+            safe("schedule heartbeat") { handler.post(task) }
         }
-        heartbeat = task
-        safe("schedule heartbeat") { handler.post(task) }
     }
 
     private fun sendHeartbeat(context: Context) {
@@ -636,15 +663,19 @@ internal object SystemHook {
     }
 
     private fun stopHeartbeat() {
-        val task = heartbeat
-        heartbeat = null
-        if (task == null) return
-        safe("stop heartbeat") {
-            Handler(Looper.getMainLooper()).removeCallbacks(task)
+        synchronized(heartbeatLock) {
+            val task = heartbeat
+            heartbeat = null
+            if (task == null) return
+            safe("stop heartbeat") {
+                Handler(Looper.getMainLooper()).removeCallbacks(task)
+            }
         }
     }
 
     private const val HEARTBEAT_MS = 20_000L
+    private const val STATE_LOG_MIN_INTERVAL_MS = 2_000L
+    private const val LOADED_MIN_INTERVAL_MS = 2_000L
     private const val EVENT_QUEUE_CAPACITY = 32
     private const val PROCESS_DEDUPE_MS = 750L
     private const val MAX_WATCHED = 128

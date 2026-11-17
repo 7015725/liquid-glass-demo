@@ -21,9 +21,10 @@ class SystemHookReceiver : BroadcastReceiver() {
                 SystemHookProtocol.EXTRA_AVAILABLE_FAMILIES,
                 com.flowglass.demo.xposed.SystemHookFamily.defaultMask,
             )
+            // Always answer LOADED so a restarted hook learns the current switch after the app
+            // process survived. SystemHookSettings.send() still drops the identical reply if it
+            // was already sent within two seconds, so repeated LOADED cannot flood.
             SystemHookSettings.markLoaded(context, hookCount, families)
-            // Reply immediately with the persisted switch value and subscription. The loaded flag
-            // in this reply acknowledges the announcement and stops the hook from sending it again.
             SystemHookSettings.broadcastState(context)
             return
         }
@@ -33,8 +34,9 @@ class SystemHookReceiver : BroadcastReceiver() {
                 SystemHookProtocol.EXTRA_AVAILABLE_FAMILIES,
                 com.flowglass.demo.xposed.SystemHookFamily.defaultMask,
             )
-            SystemHookSettings.markHeartbeat(context, hookCount, families)
-            TriggerService.start(context, TriggerService.ACTION_SYSTEM_HOOK_READY)
+            if (SystemHookSettings.markHeartbeat(context, hookCount, families)) {
+                TriggerService.start(context, TriggerService.ACTION_SYSTEM_HOOK_READY)
+            }
             return
         }
         if (intent.action == SystemHookProtocol.ACTION_EVENT) {
