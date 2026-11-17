@@ -120,6 +120,9 @@ internal object SystemHook {
         }
         receiverRegistered = true
         log("state receiver registered")
+        // Announce availability regardless of the switch. If the app started first, its earlier
+        // state broadcast was lost; this announcement makes it reply with the persisted switch.
+        sendLoaded(context)
         if (enabled.get()) startHeartbeat(context)
     }
 
@@ -226,12 +229,33 @@ internal object SystemHook {
         context.sendBroadcast(intent)
     }
 
+    /**
+     * Tell the app that the system hook is present. This is sent even when the switch is off, so
+     * the app can distinguish "hook never loaded" from "loaded but disabled". The app replies
+     * with its persisted state and an acknowledgement flag.
+     */
+    private fun sendLoaded(context: Context?) {
+        val ctx = context ?: return
+        safe("send loaded") {
+            ctx.sendBroadcast(
+                Intent(SystemHookProtocol.ACTION_LOADED)
+                    .setClassName(SystemHookProtocol.APP_PACKAGE, SystemHookProtocol.SYSTEM_RECEIVER)
+                    .putExtra(SystemHookProtocol.EXTRA_HOOKS, installedHooks)
+            )
+        }
+    }
+
     private val stateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             safe("state receiver") {
                 if (intent?.action != SystemHookProtocol.ACTION_STATE) return@safe
                 enabled.set(intent.getBooleanExtra(SystemHookProtocol.EXTRA_ENABLED, false))
-                log("enabled=${enabled.get()}")
+                val appKnowsLoaded = intent.getBooleanExtra(SystemHookProtocol.EXTRA_APP_KNOWS_LOADED, false)
+                log("enabled=${enabled.get()} appKnowsLoaded=$appKnowsLoaded")
+                // The app may have started before this receiver was registered. Its state
+                // broadcast then carries appKnowsLoaded=false; replay the loaded announcement
+                // once. Its acknowledgement carries true, so this cannot loop.
+                if (!appKnowsLoaded) sendLoaded(systemContext)
                 if (enabled.get()) startHeartbeat(systemContext) else stopHeartbeat()
             }
         }

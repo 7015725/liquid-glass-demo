@@ -134,6 +134,49 @@ fun ExecutionLayer.label(): String = when (this) {
     ExecutionLayer.XPOSED -> "LSPosed"
 }
 
+/**
+ * The highest usable layer for each execution path. Actions can use Root or Normal; triggers can
+ * use LSPosed, Root, or Normal. The headline deliberately reports them separately instead of
+ * claiming only the normal layer.
+ */
+data class LayerHeadline(
+    val action: ExecutionLayer?,
+    val event: ExecutionLayer?,
+) {
+    val actionLabel: String = action?.label() ?: "不可用"
+    val eventLabel: String = event?.label() ?: "不可用"
+    val normalOnly: Boolean = action == ExecutionLayer.NORMAL && event == ExecutionLayer.NORMAL
+    val ok: Boolean = action != null || event != null
+
+    val big: String = when {
+        normalOnly -> "普通"
+        action == null && event == null -> "不可用"
+        action == event -> action?.label() ?: "不可用"
+        else -> listOfNotNull(action?.label(), event?.label()).joinToString(" / ")
+    }
+
+    val unit: String = if (normalOnly) "层" else ""
+
+    val pill: String = if (normalOnly) "普通可用" else "动作：$actionLabel · 事件：$eventLabel"
+
+    companion object {
+        fun of(snapshot: LayerStatusSnapshot): LayerHeadline {
+            val action = when {
+                snapshot.stateOf(ExecutionLayer.ROOT) == LayerState.READY -> ExecutionLayer.ROOT
+                snapshot.stateOf(ExecutionLayer.NORMAL) == LayerState.READY -> ExecutionLayer.NORMAL
+                else -> null
+            }
+            val event = when {
+                snapshot.stateOf(ExecutionLayer.XPOSED) == LayerState.READY -> ExecutionLayer.XPOSED
+                snapshot.stateOf(ExecutionLayer.ROOT) == LayerState.READY -> ExecutionLayer.ROOT
+                snapshot.stateOf(ExecutionLayer.NORMAL) == LayerState.READY -> ExecutionLayer.NORMAL
+                else -> null
+            }
+            return LayerHeadline(action, event)
+        }
+    }
+}
+
 fun LayerState.label(): String = when (this) {
     LayerState.READY -> "可用"
     LayerState.DEGRADED -> "不可用（未就绪）"

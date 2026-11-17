@@ -137,6 +137,7 @@
             <intent-filter>
                 <action android:name="com.flowglass.demo.SYSTEM_FOREGROUND" />
                 <action android:name="com.flowglass.demo.SYSTEM_HOOK_HEARTBEAT" />
+                <action android:name="com.flowglass.demo.SYSTEM_HOOK_LOADED" />
             </intent-filter>
         </receiver>
 

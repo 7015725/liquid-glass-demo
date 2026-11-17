@@ -5,30 +5,68 @@ import org.junit.Test
 
 class SystemHookSettingsTest {
     @Test
-    fun heartbeatWithoutAnyInstalledHookIsNotReady() {
+    fun notLoadedIsDistinctFromLoadedButDisabled() {
         assertEquals(
-            SystemHookSettings.Status.NO_HOOKS,
-            SystemHookSettings.status(enabled = true, heartbeatFresh = true, hookCount = 0),
+            SystemHookSettings.Status.NOT_LOADED,
+            SystemHookSettings.status(
+                enabled = true,
+                loaded = false,
+                heartbeatFresh = false,
+                hookCount = -1,
+            ),
         )
         assertEquals(
-            SystemHookSettings.Status.NO_HOOKS,
-            SystemHookSettings.status(enabled = true, heartbeatFresh = true, hookCount = -1),
+            SystemHookSettings.Status.LOADED_DISABLED,
+            SystemHookSettings.status(
+                enabled = false,
+                loaded = true,
+                heartbeatFresh = false,
+                hookCount = 3,
+            ),
         )
     }
 
     @Test
-    fun readyRequiresHeartbeatAndInstalledHook() {
+    fun heartbeatWithoutAnyInstalledHookIsNotReady() {
+        assertEquals(
+            SystemHookSettings.Status.NO_HOOKS,
+            SystemHookSettings.status(
+                enabled = true,
+                loaded = true,
+                heartbeatFresh = true,
+                hookCount = 0,
+            ),
+        )
+        assertEquals(
+            SystemHookSettings.Status.NO_HOOKS,
+            SystemHookSettings.status(
+                enabled = true,
+                loaded = true,
+                heartbeatFresh = true,
+                hookCount = -1,
+            ),
+        )
+    }
+
+    @Test
+    fun readyRequiresLoadedEnabledHeartbeatAndInstalledHook() {
         assertEquals(
             SystemHookSettings.Status.READY,
-            SystemHookSettings.status(enabled = true, heartbeatFresh = true, hookCount = 3),
+            SystemHookSettings.status(
+                enabled = true,
+                loaded = true,
+                heartbeatFresh = true,
+                hookCount = 3,
+            ),
         )
         assertEquals(
-            SystemHookSettings.Status.WAITING,
-            SystemHookSettings.status(enabled = true, heartbeatFresh = false, hookCount = 3),
-        )
-        assertEquals(
-            SystemHookSettings.Status.DISABLED,
-            SystemHookSettings.status(enabled = false, heartbeatFresh = true, hookCount = 3),
+            SystemHookSettings.Status.LOADED_WAITING,
+            SystemHookSettings.status(
+                enabled = true,
+                loaded = true,
+                heartbeatFresh = false,
+                hookCount = 3,
+            ),
         )
     }
 }

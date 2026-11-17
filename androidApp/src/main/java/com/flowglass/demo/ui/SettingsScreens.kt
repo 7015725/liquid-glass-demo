@@ -55,6 +55,7 @@ import com.flowglass.demo.system.RootGrantResult
 import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.system.RootGrants
 import com.flowglass.demo.system.SysTick
+import com.flowglass.demo.system.exec.LayerHeadline
 import com.flowglass.demo.system.exec.LayerState
 import com.flowglass.demo.system.exec.LayerStatus
 import com.flowglass.demo.system.exec.label
@@ -304,8 +305,9 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
         ListRow(Row1(Ic.Puzzle, "LSPosed 激活", if (lsposed) "已激活" else "未激活", sub = "Xposed 模块增强",
             valueColor = if (lsposed) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.LSPosed }, true)
         val layers = LayerStatus.current()
-        ListRow(Row1(Ic.Shield, "执行层级", "普通可用",
-            sub = "Root：${layers.stateOf(ExecutionLayer.ROOT).label()} · LSPosed：${layers.stateOf(ExecutionLayer.XPOSED).label()}",
+        val layersHeadline = LayerHeadline.of(layers)
+        ListRow(Row1(Ic.Shield, "执行层级", layersHeadline.big,
+            sub = "动作：${layersHeadline.actionLabel} · 事件：${layersHeadline.eventLabel} · Root：${layers.stateOf(ExecutionLayer.ROOT).label()} · LSPosed：${layers.stateOf(ExecutionLayer.XPOSED).label()}",
             valueColor = C.GoodText) { state.settingsPage = SettingsPage.Layers }, true)
         ListRow(Row1(Ic.Lock, "权限声明管理", "$granted/${Perms.all.size}", sub = "查看每项权限的用途并授权",
             valueColor = if (granted == Perms.all.size) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Permissions }, false)
@@ -573,6 +575,16 @@ private fun LSPosedPage() {
     val version = remember(t) { ModuleStatus.frameworkVersion() }
     var hookEnabled by remember { mutableStateOf(SystemHookSettings.isEnabled(ctx)) }
     val hookStatus = remember(t) { SystemHookSettings.status(ctx) }
+    // Entering the page is also a state-sync opportunity: if the app process was already alive
+    // when the system hook loaded, this reply tells the hook the current switch value.
+    LaunchedEffect(Unit) { SystemHookSettings.broadcastState(ctx) }
+    val hookStatusText = when (hookStatus) {
+        SystemHookSettings.Status.NOT_LOADED -> "钩子未加载；请检查 LSPosed 作用域并重启"
+        SystemHookSettings.Status.LOADED_DISABLED -> "已加载但开关关闭"
+        SystemHookSettings.Status.LOADED_WAITING -> "已加载；等待系统钩子心跳"
+        SystemHookSettings.Status.NO_HOOKS -> "系统钩子已加载，但未找到可用的检测点"
+        SystemHookSettings.Status.READY -> "已加载且开启；系统钩子心跳正常"
+    }
     val managerInstalled = remember(t) {
         runCatching { ctx.packageManager.getPackageInfo("org.lsposed.manager", 0); true }.getOrDefault(false)
     }
@@ -608,10 +620,7 @@ private fun LSPosedPage() {
             Row1(
                 Ic.Puzzle,
                 "系统框架前台事件",
-                if (hookEnabled && hookStatus == SystemHookSettings.Status.READY) "已启用；系统钩子心跳正常"
-                else if (hookEnabled && hookStatus == SystemHookSettings.Status.NO_HOOKS) "系统钩子已加载，但未找到可用的检测点"
-                else if (hookEnabled) "已启用；等待系统钩子心跳"
-                else "已关闭；钩子不做任何事",
+                hookStatusText,
             ),
             true,
         ) {
@@ -643,24 +652,35 @@ private fun LayersPage() {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var snapshot by remember { mutableStateOf(LayerStatus.current()) }
-    LaunchedEffect(Unit) { snapshot = LayerStatus.refresh(requestRoot = false, systemHookReady = SystemHookSettings.isAlive(ctx)) }
+    val headline = LayerHeadline.of(snapshot)
+    LaunchedEffect(Unit) {
+        // Entering this page must not depend on FlowApp.onCreate: if the hook loaded while the
+        // process was already alive, this state broadcast lets it replay its loaded announcement.
+        SystemHookSettings.broadcastState(ctx)
+        snapshot = LayerStatus.refresh(requestRoot = false, systemHookReady = SystemHookSettings.isAlive(ctx))
+    }
     var k = 0
     StatusCard(
         k++, Ic.Shield, "执行层级",
-        if (snapshot.normal == LayerState.READY) "普通可用" else "不可用",
-        snapshot.normal == LayerState.READY,
-        "普通", "层",
+        headline.pill,
+        headline.ok,
+        headline.big, headline.unit,
         listOf(
+            "动作：${headline.actionLabel}",
+            "事件：${headline.eventLabel}",
             "Root ${snapshot.stateOf(ExecutionLayer.ROOT).label()}",
             "LSPosed ${snapshot.stateOf(ExecutionLayer.XPOSED).label()}",
         ),
         busy = busy,
         action = {
             PrimaryButton("刷新状态", Ic.Refresh, {
-                if (!busy) scope.launch {
-                    busy = true
-                    snapshot = LayerStatus.refresh(requestRoot = false, systemHookReady = SystemHookSettings.isAlive(ctx))
-                    busy = false
+                if (!busy) {
+                    SystemHookSettings.broadcastState(ctx)
+                    scope.launch {
+                        busy = true
+                        snapshot = LayerStatus.refresh(requestRoot = false, systemHookReady = SystemHookSettings.isAlive(ctx))
+                        busy = false
+                    }
                 }
             }, Modifier.fillMaxWidth())
         },

@@ -13,6 +13,14 @@ import com.flowglass.demo.xposed.SystemHookProtocol
  */
 class SystemHookReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == SystemHookProtocol.ACTION_LOADED) {
+            val hookCount = intent.getIntExtra(SystemHookProtocol.EXTRA_HOOKS, -1)
+            SystemHookSettings.markLoaded(context, hookCount)
+            // Reply immediately with the persisted switch value. The loaded flag in this reply
+            // acknowledges the announcement and stops the hook from sending it again.
+            SystemHookSettings.broadcastState(context)
+            return
+        }
         if (intent.action == SystemHookProtocol.ACTION_HEARTBEAT) {
             val hookCount = intent.getIntExtra(SystemHookProtocol.EXTRA_HOOKS, -1)
             SystemHookSettings.markHeartbeat(context, hookCount)
