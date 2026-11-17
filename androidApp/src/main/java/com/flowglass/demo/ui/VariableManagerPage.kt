@@ -1,16 +1,15 @@
 package com.flowglass.demo.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,24 +32,29 @@ import com.kyant.shapes.RoundedRectangle
 fun VariableManagerPage(state: AppState) {
     val options = VariableCatalog.forManager(state)
     var editing by remember { mutableStateOf<VariableOption?>(null) }
+    var creating by remember { mutableStateOf(false) }
 
-    LazyColumn(
-        Modifier.fillMaxSize().testTag("variable-manager"),
+    Column(
+        Modifier.fillMaxWidth().testTag("variable-manager").padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp),
     ) {
-        item {
-            T("变量", 24.sp, FontWeight.Bold)
-            T("内置变量由 App 提供，只读；局部变量属于一条指令；全局变量所有指令共用。插入时统一写 {名字}。",
-                12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                T("变量", 24.sp, FontWeight.Bold)
+                T("内置变量由 App 提供，只读；局部变量属于一条指令；全局变量所有指令共用。插入时统一写 {名字}。",
+                    12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
+            }
+            EditorPill("新建变量", "新建变量") { creating = true }
         }
         VariableScope.values().forEach { scope ->
             val rows = options.filter { it.scope == scope }
             if (rows.isNotEmpty()) {
-                item(key = "group-$scope") {
-                    T(VariableCatalog.scopeLabel(scope), 13.sp, FontWeight.SemiBold, color = C.Muted)
-                }
-                items(rows, key = { "${it.scope}-${it.ownerId}-${it.name}" }) { option ->
+                T(VariableCatalog.scopeLabel(scope), 13.sp, FontWeight.SemiBold, color = C.Muted)
+                rows.forEach { option ->
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedRectangle(20.dp)).background(C.Card)
                             .pressable { editing = option }.padding(14.dp),
@@ -82,6 +86,85 @@ fun VariableManagerPage(state: AppState) {
 
     editing?.let { option ->
         VariableDetailDialog(state, option, onDismiss = { editing = null })
+    }
+    if (creating) {
+        NewVariableDialog(state, onDismiss = { creating = false })
+    }
+}
+
+@Composable
+private fun NewVariableDialog(state: AppState, onDismiss: () -> Unit) {
+    var scope by remember { mutableStateOf(VariableScope.LOCAL) }
+    var name by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    var value by remember { mutableStateOf("") }
+    var type by remember { mutableStateOf(0) }
+    var commandIndex by remember { mutableStateOf(0) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val commands = state.allCommands()
+    val target = commands.getOrNull(commandIndex)
+    val typeKeys = listOf("text", "number", "boolean", "list")
+    val typeLabels = listOf("文本", "数字", "真假", "列表")
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 620.dp).clip(RoundedRectangle(24.dp))
+                    .background(C.Card).verticalScroll(rememberScrollState()).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                T("新建变量", 18.sp, FontWeight.SemiBold)
+                T("保存范围", 12.sp, color = C.OnSurfaceVar)
+                FilterChips(
+                    listOf("本指令", "所有指令"),
+                    if (scope == VariableScope.LOCAL) 0 else 1,
+                    onSelect = { scope = if (it == 0) VariableScope.LOCAL else VariableScope.GLOBAL },
+                )
+                if (scope == VariableScope.LOCAL) {
+                    T("所属指令", 12.sp, color = C.OnSurfaceVar)
+                    if (commands.isEmpty()) {
+                        T("还没有指令，请先创建一条指令。", 12.sp, color = C.Bad)
+                    } else {
+                        FilterChips(
+                            commands.map { it.title.ifBlank { "未命名指令" } },
+                            commandIndex.coerceIn(0, commands.lastIndex),
+                            onSelect = { commandIndex = it },
+                        )
+                    }
+                }
+                T("变量名", 12.sp, color = C.OnSurfaceVar)
+                ParameterTextField(name, "new-variable-name") { name = it }
+                T("备注", 12.sp, color = C.OnSurfaceVar)
+                ParameterTextField(note, "new-variable-note") { note = it }
+                T("类型", 12.sp, color = C.OnSurfaceVar)
+                FilterChips(typeLabels, type, onSelect = { type = it })
+                T("初始值", 12.sp, color = C.OnSurfaceVar)
+                ParameterTextField(value, "new-variable-value") { value = it }
+                error?.let { T(it, 12.sp, color = C.Bad) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    EditorPill("创建", "创建变量") {
+                        val invalid = VariableCatalog.validateName(
+                            state, name.trim(), target?.id, scope,
+                            ignoreOwner = if (scope == VariableScope.LOCAL) target?.id else null,
+                        ) ?: if (scope == VariableScope.LOCAL && target == null) "请先创建一条指令" else null
+                        if (invalid != null) {
+                            error = invalid
+                        } else {
+                            state.createVariable(
+                                scope = scope,
+                                commandId = if (scope == VariableScope.LOCAL) target?.id else null,
+                                name = name.trim(),
+                                type = typeKeys[type],
+                                note = note,
+                                value = value,
+                            )
+                            onDismiss()
+                        }
+                    }
+                    EditorPill("取消", "取消新建变量", action = onDismiss)
+                }
+            }
+        }
     }
 }
 

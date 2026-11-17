@@ -2,6 +2,10 @@ package com.flowglass.demo.ui
 
 import com.flowglass.demo.xposed.method.MethodHookCatalog
 import com.flowglass.demo.xposed.method.MethodHookStore
+import com.flowglass.engine.Rule
+import com.flowglass.engine.RulePresentation
+import com.flowglass.engine.RuleType
+import com.flowglass.engine.RuleUiMetadata
 import com.flowglass.engine.VariableScope
 import com.flowglass.engine.methodhook.MethodExtraction
 import com.flowglass.engine.methodhook.MethodExtractionSource
@@ -111,5 +115,43 @@ class VariableManagerTest {
     fun legacyNameIsRejectedByTheNewNameRule() {
         val state = stateWithAction("")
         assertTrue(VariableCatalog.validateName(state, "my.var", null, VariableScope.GLOBAL).orEmpty().contains("不能有空格和点"))
+    }
+
+    @Test
+    fun managerCanCreateGlobalVariableWithNoteAndType() {
+        val state = stateWithAction("")
+        state.createVariable(VariableScope.GLOBAL, null, "城市", "text", "出发城市", "北京")
+        assertEquals(JsonPrimitive("北京"), state.engineGlobals["城市"])
+        assertEquals("出发城市", state.engineGlobalMeta.getValue("城市").note)
+        assertEquals("text", state.engineGlobalMeta.getValue("城市").type)
+    }
+
+    @Test
+    fun managerCanCreateLocalVariableForACommand() {
+        val state = stateWithAction("")
+        state.engineRules = listOf(
+            Rule(id = "rule-1", name = "测试指令", type = RuleType.MANUAL, enabled = true),
+        )
+        state.engineUi = RuleUiMetadata(
+            presentation = mapOf("rule-1" to RulePresentation(legacyId = 1)),
+        )
+        state.createVariable(VariableScope.LOCAL, 1, "次数", "number", "运行次数", "3")
+        val local = state.localsOf(1).single()
+        assertEquals("次数", local.name)
+        assertEquals("number", local.type)
+        assertEquals("运行次数", local.note)
+        assertEquals("3", local.initial.toString().trim('"'))
+    }
+
+    @Test
+    fun deletingLocalVariableWorksAfterItsCommandWasRemoved() {
+        val state = stateWithAction("")
+        state.engineRules = listOf(
+            Rule(id = "rule-1", name = "测试指令", type = RuleType.MANUAL, enabled = true),
+        )
+        state.engineUi = RuleUiMetadata(presentation = mapOf("rule-1" to RulePresentation(legacyId = 1)))
+        state.createVariable(VariableScope.LOCAL, 1, "次数", "number", "运行次数", "3")
+        state.deleteVariable(null, "次数", VariableScope.LOCAL)
+        assertTrue(state.engineRules.single().locals.isEmpty())
     }
 }

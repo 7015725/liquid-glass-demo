@@ -133,6 +133,8 @@ private fun commandDocument(state: AppState, cmd: Cmd): RuleDocument {
         logs = emptyList(),
         presentation = if (ruleId != null && sidecar != null) mapOf(ruleId to sidecar) else emptyMap(),
     )
+    val knownGlobals = state.engineGlobals.keys + state.engineGlobalMeta.keys
+    val usedGlobals = usedGlobalNames(cmd, knownGlobals)
     return PersistedAppState(
         autoCmds = if (cmd.auto) listOf(cmd) else emptyList(),
         oneTaps = if (cmd.auto) emptyList() else listOf(cmd),
@@ -142,8 +144,18 @@ private fun commandDocument(state: AppState, cmd: Cmd): RuleDocument {
         engineRules = listOfNotNull(rule),
         engineUi = ui,
         engineGlobals = emptyMap(),
-        engineGlobalMeta = state.engineGlobalMeta,
+        engineGlobalMeta = state.engineGlobalMeta.filterKeys { it in usedGlobals },
     ).toRuleDocument()
+}
+
+/** A single-command export only declares globals that the command actually references. */
+private fun usedGlobalNames(cmd: Cmd, candidates: Set<String>): Set<String> {
+    val parameters = (cmd.triggers + cmd.conditions + cmd.actions).allItems().map { it.parameter }
+    return candidates.filterTo(linkedSetOf()) { name ->
+        parameters.any { text ->
+            text.contains("{$name}") || text.contains("%{global.$name}") || text.contains("%{$name}")
+        }
+    }
 }
 
 internal fun parseImport(text: String, state: AppState): ParsedImport {

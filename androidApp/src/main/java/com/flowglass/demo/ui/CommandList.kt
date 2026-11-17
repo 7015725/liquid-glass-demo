@@ -438,14 +438,21 @@ fun CommandMenuOverlay(state: AppState) {
         MenuAction(Ic.Copy, "创建副本"),
         MenuAction(Ic.Trash, "删除", danger = true),
     )
-    val items = actions.map { a -> MenuItemSpec(a.label, a.ic, danger = a.danger) {
-        state.menu = null
-        when (a.label) {
-            "置顶", "取消置顶" -> state.togglePin(cmd.id)
-            "重命名" -> state.renaming = cmd
-            "分享" -> shareCmd = cmd
-            "创建副本" -> state.duplicate(cmd.id)
-            "删除" -> state.delete(cmd.id)
+    val items = actions.map { a -> MenuItemSpec(
+        a.label, a.ic, danger = a.danger, dismissOnClick = a.label != "分享",
+    ) {
+        if (a.label == "分享") {
+            // Keep the overlay composed until the share dialog closes; otherwise
+            // `shown` becomes null and this dialog's state is discarded with it.
+            shareCmd = cmd
+        } else {
+            state.menu = null
+            when (a.label) {
+                "置顶", "取消置顶" -> state.togglePin(cmd.id)
+                "重命名" -> state.renaming = cmd
+                "创建副本" -> state.duplicate(cmd.id)
+                "删除" -> state.delete(cmd.id)
+            }
         }
     } }
     val itemH = 50.dp
@@ -491,7 +498,10 @@ fun CommandMenuOverlay(state: AppState) {
         )
     }
     shareCmd?.let { command ->
-        ShareCommandDialog(state, command) { shareCmd = null }
+        ShareCommandDialog(state, command) {
+            shareCmd = null
+            state.menu = null
+        }
     }
 }
 

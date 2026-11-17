@@ -72,24 +72,58 @@ class CommandTransferTest {
     @Test
     fun commandExportKeepsGlobalDeclarationsAndNotesButNotValues() {
         val state = AppState()
-        state.autoCmds.add(command())
+        val source = command().copy(
+            actions = listOf(
+                CommandItem(103L, "执行 Shell(Root)", "echo {token}", Ic.Terminal, "action.root_shell"),
+            ),
+        )
+        state.autoCmds.add(source)
         state.engineGlobals = mapOf("token" to JsonPrimitive("secret"))
         state.engineGlobalMeta = mapOf("token" to GlobalVariableMeta("text", "接口令牌"))
 
-        val parsed = parseImport(exportCommandJson(state, command()), state)
+        val parsed = parseImport(exportCommandJson(state, source), state)
 
         assertTrue(parsed.document.globals.isEmpty())
         assertEquals(GlobalVariableMeta("text", "接口令牌"), parsed.document.globalMeta["token"])
-        assertFalse(exportCommandJson(state, command()).contains("secret"))
+        assertFalse(exportCommandJson(state, source).contains("secret"))
+    }
+
+    @Test
+    fun commandExportOmitsGlobalsTheCommandDoesNotUse() {
+        val state = AppState()
+        val source = command().copy(
+            actions = listOf(
+                CommandItem(103L, "执行 Shell(Root)", "echo {used}", Ic.Terminal, "action.root_shell"),
+            ),
+        )
+        state.autoCmds.add(source)
+        state.engineGlobals = mapOf(
+            "used" to JsonPrimitive("1"),
+            "unused" to JsonPrimitive("2"),
+        )
+        state.engineGlobalMeta = mapOf(
+            "used" to GlobalVariableMeta("text", "使用"),
+            "unused" to GlobalVariableMeta("text", "未使用"),
+        )
+
+        val parsed = parseImport(exportCommandJson(state, source), state)
+
+        assertEquals(setOf("used"), parsed.document.globalMeta.keys)
+        assertFalse(exportCommandJson(state, source).contains("未使用"))
     }
 
     @Test
     fun commandImportMergesMissingGlobalMetadataWithoutValues() {
         val source = AppState()
-        source.autoCmds.add(command("带全局变量"))
+        val sourceCommand = command("带全局变量").copy(
+            actions = listOf(
+                CommandItem(103L, "执行 Shell(Root)", "echo {token}", Ic.Terminal, "action.root_shell"),
+            ),
+        )
+        source.autoCmds.add(sourceCommand)
         source.engineGlobals = mapOf("token" to JsonPrimitive("secret"))
         source.engineGlobalMeta = mapOf("token" to GlobalVariableMeta("text", "接口令牌"))
-        val parsed = parseImport(exportCommandJson(source, source.autoCmds.single()), AppState())
+        val parsed = parseImport(exportCommandJson(source, sourceCommand), AppState())
 
         val target = AppState()
         target.applyCommandImport(parsed)
