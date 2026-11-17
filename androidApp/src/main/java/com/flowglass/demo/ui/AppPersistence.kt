@@ -1,6 +1,8 @@
 package com.flowglass.demo.ui
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,6 +28,8 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.util.Collections
@@ -48,18 +52,69 @@ internal class AppRuntime private constructor(private val context: Context) {
     private val store = CommandStore(File(context.filesDir, "commands.json"))
     private val queue = StorageQueue()
     private val lock = Any()
+    private val parsed = StoreLoadCache(store::load)
     @Volatile private var appState: AppState? = null
+
+    /** Test seam: true only when the snapshot state was built on the Android main thread. */
+    @Volatile internal var stateCreatedOnMainThread = false
+
+    /** Number of physical store reads; callers racing on [load] must share one result. */
+    internal val storeLoadCount: Int get() = parsed.loadCount
 
     val state: AppState? get() = appState
 
-    /** Safe to call from any thread; the first caller parses the file, later callers reuse it. */
-    fun load(): AppState = synchronized(lock) {
+    /**
+     * Safe to call from any thread. Callers may arrive concurrently from the Activity and the
+     * trigger service: parsing is serialized and cached so migration writes happen only once.
+     * [StoreLoadCache.get] releases its lock before [onMainThread] waits for the main thread;
+     * holding it while waiting would deadlock when main itself calls [load].
+     *
+     * [AppState] contains Compose snapshot state and must be created on the main thread: a
+     * state created in a worker snapshot is invisible to the initial composition snapshot and
+     * throws "Reading a state that was created after the snapshot was taken".
+     */
+    fun load(): AppState {
         appState?.let { return it }
-        val loaded = store.load()
-        val created = loaded.appState()
-        created.bindExecutionContext(context)
-        appState = created
-        created
+        val loaded = parsed.get()
+        return onMainThread {
+            synchronized(lock) {
+                appState ?: loaded.appState().also { created ->
+                    created.bindExecutionContext(context)
+                    stateCreatedOnMainThread = true
+                    appState = created
+                }
+            }
+        }
+    }
+
+    /** Test-only reset; production ownership is the process-wide singleton. */
+    internal fun resetForTest() {
+        synchronized(lock) {
+            appState = null
+            stateCreatedOnMainThread = false
+        }
+        parsed.resetForTest()
+    }
+
+    private fun <T> onMainThread(block: () -> T): T {
+        val main = Looper.getMainLooper() ?: return block()
+        if (Looper.myLooper() == main) return block()
+        val value = AtomicReference<T>()
+        val failure = AtomicReference<Throwable>()
+        val done = CountDownLatch(1)
+        val posted = Handler(main).post {
+            try {
+                value.set(block())
+            } catch (throwable: Throwable) {
+                failure.set(throwable)
+            } finally {
+                done.countDown()
+            }
+        }
+        if (!posted) return block()
+        done.await()
+        failure.get()?.let { throw it }
+        return checkNotNull(value.get()) { "主线程未返回 AppState" }
     }
 
     fun requestSave(capture: () -> PersistedAppState) {
@@ -138,6 +193,29 @@ internal class StorageQueue(dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         return result
     }
     fun close() { requests.close() }
+}
+
+/**
+ * Serializes store reads and caches the parsed value. [load] may perform a migration and
+ * write `commands.json` / its backup, so two cold-start callers must never run it in parallel.
+ */
+internal class StoreLoadCache(private val load: () -> StoreLoad) {
+    private val lock = Any()
+    private var cached: StoreLoad? = null
+    var loadCount: Int = 0
+        private set
+
+    fun get(): StoreLoad = synchronized(lock) {
+        cached ?: load().also {
+            cached = it
+            loadCount += 1
+        }
+    }
+
+    fun resetForTest() = synchronized(lock) {
+        cached = null
+        loadCount = 0
+    }
 }
 
 internal class StoredStateSession(
