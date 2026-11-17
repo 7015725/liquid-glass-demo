@@ -24,7 +24,9 @@ object ParamTemplate {
         variables: Map<String, Any?>,
         expansion: ParamExpansion = ParamExpansion.PLAIN,
     ): String {
-        if (variables.isEmpty() || !text.contains("%{")) return text
+        // `{...}` is the new syntax; `%{...}` is kept for old documents. A doubled brace is
+        // collapsed to a literal brace even when no variables are present.
+        if (!text.contains('{')) return text
         return when (expansion) {
             ParamExpansion.PLAIN -> replace(text, variables, ::identity)
             ParamExpansion.SHELL_QUOTED -> expandShell(text, variables)
@@ -57,12 +59,18 @@ object ParamTemplate {
         val out = StringBuilder(text.length)
         var index = 0
         while (index < text.length) {
-            val end = tokenEnd(text, index)
-            if (end != null) {
-                val value = variables[text.substring(index + 2, end)]
-                if (value == null) out.append(text, index, end + 1)
+            val literal = literalBrace(text, index)
+            if (literal != null) {
+                out.append(literal.text)
+                index = literal.end
+                continue
+            }
+            val token = tokenAt(text, index)
+            if (token != null) {
+                val value = variables[token.name]
+                if (value == null) out.append(text, index, token.end + 1)
                 else out.append(transform(value.toString()))
-                index = end + 1
+                index = token.end + 1
             } else {
                 out.append(text[index])
                 index++
@@ -123,13 +131,18 @@ object ParamTemplate {
             val out = StringBuilder(line.length)
             var index = 0
             while (index < line.length) {
-                val end = tokenEnd(line, index)
-                if (end != null) {
-                    val name = line.substring(index + 2, end)
-                    val fg = fgName(name)
-                    if (fg == null) out.append(line, index, end + 1)
+                val literal = literalBrace(line, index)
+                if (literal != null) {
+                    out.append(literal.text)
+                    index = literal.end
+                    continue
+                }
+                val token = tokenAt(line, index)
+                if (token != null) {
+                    val fg = fgName(token.name)
+                    if (fg == null) out.append(line, index, token.end + 1)
                     else out.append("\${").append(fg).append('}')
-                    index = end + 1
+                    index = token.end + 1
                 } else {
                     out.append(line[index])
                     index++
@@ -202,13 +215,18 @@ object ParamTemplate {
         var parenDepth = 0
         var inBacktick = false
         while (index < text.length) {
-            val end = tokenEnd(text, index)
-            if (end != null) {
-                val name = text.substring(index + 2, end)
-                val fg = fgName(name)
-                if (fg == null) out.append(text, index, end + 1)
+            val literal = literalBrace(text, index)
+            if (literal != null) {
+                out.append(literal.text)
+                index = literal.end
+                continue
+            }
+            val token = tokenAt(text, index)
+            if (token != null) {
+                val fg = fgName(token.name)
+                if (fg == null) out.append(text, index, token.end + 1)
                 else out.append(reference(fg, quote))
-                index = end + 1
+                index = token.end + 1
                 continue
             }
             val char = text[index]
@@ -302,7 +320,7 @@ object ParamTemplate {
             out.append(char)
             index++
         }
-        if (names.isEmpty()) return text
+        if (names.isEmpty()) return out.toString()
         val prefix = StringBuilder()
         for ((name, fg) in names) {
             prefix.append(fg).append('=').append(shellQuote(variables.getValue(name).toString())).append('\n')
@@ -317,21 +335,50 @@ object ParamTemplate {
             previous == '&' || previous == '(' || previous == ')'
     }
 
-    private fun tokenEnd(text: String, start: Int): Int? {
-        if (start + 2 >= text.length || text[start] != '%' || text[start + 1] != '{') return null
-        var index = start + 2
-        while (index < text.length && text[index] != '}') {
-            val char = text[index]
-            if (char !in 'A'..'Z' && char !in 'a'..'z' && char !in '0'..'9' &&
-                char != '.' && char != '_' && char != '-'
-            ) {
-                return null
+    private fun tokenAt(text: String, start: Int): Token? {
+        if (start + 2 < text.length && text[start] == '%' && text[start + 1] == '{') {
+            var index = start + 2
+            while (index < text.length && text[index] != '}') {
+                val char = text[index]
+                if (char !in 'A'..'Z' && char !in 'a'..'z' && char !in '0'..'9' &&
+                    char != '.' && char != '_' && char != '-'
+                ) {
+                    return null
+                }
+                index++
             }
-            index++
+            if (index >= text.length || index == start + 2) return null
+            return Token(text.substring(start + 2, index), index)
         }
-        if (index >= text.length || index == start + 2) return null
-        return index
+        if (start + 1 < text.length && text[start] == '{' && text[start + 1] != '{') {
+            // `${VAR}` is shell parameter expansion, not one of our variables.
+            if (start > 0 && text[start - 1] == '$') return null
+            var index = start + 1
+            while (index < text.length && text[index] != '}') {
+                val char = text[index]
+                if (!char.isLetterOrDigit() && char != '_' && char != '-') return null
+                index++
+            }
+            if (index >= text.length || index == start + 1) return null
+            val name = text.substring(start + 1, index)
+            if (!VariableName.isValid(name)) return null
+            return Token(name, index)
+        }
+        return null
     }
+
+    /** `{{名字}}` is a literal `{名字}` and never expands. */
+    private fun literalBrace(text: String, start: Int): Literal? {
+        if (start + 3 >= text.length || text[start] != '{' || text[start + 1] != '{') return null
+        val close = text.indexOf("}}", start + 2)
+        if (close < 0) return null
+        val name = text.substring(start + 2, close)
+        if (!VariableName.isValid(name)) return null
+        return Literal("{$name}", close + 2)
+    }
+
+    private data class Token(val name: String, val end: Int)
+    private data class Literal(val text: String, val end: Int)
 
     private enum class ShellQuote { NONE, SINGLE, DOUBLE }
     private data class Heredoc(val delimiter: String, val quoted: Boolean, val stripTabs: Boolean)
