@@ -14,7 +14,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 /** One installable listener family. Several trigger types can share a source. */
-enum class TriggerSource { TIME, SCREEN, POWER, BATTERY, BOOT, WIFI, BLUETOOTH, NOTIFICATION, APP, HEADSET, LOCATION, SYSTEM }
+enum class TriggerSource { TIME, SCREEN, POWER, BATTERY, BOOT, WIFI, BLUETOOTH, NOTIFICATION, APP, HEADSET, LOCATION, SYSTEM, METHOD_HOOK }
 
 object TriggerTypes {
     const val TIME = "trigger.time"
@@ -39,6 +39,7 @@ object TriggerTypes {
     const val HEADSET = "trigger.headset"
     const val LOCATION_ENTER = "trigger.location_enter"
     const val LOCATION_EXIT = "trigger.location_exit"
+    const val METHOD_HOOK = "trigger.method_hook"
 
     /** Old rules keep their type id; only these two are mapped onto the new listeners. */
     fun sourceOf(typeId: String): TriggerSource? = when (typeId) {
@@ -57,6 +58,7 @@ object TriggerTypes {
         FOREGROUND_SERVICE -> TriggerSource.SYSTEM
         HEADSET -> TriggerSource.HEADSET
         LOCATION_ENTER, LOCATION_EXIT -> TriggerSource.LOCATION
+        METHOD_HOOK -> TriggerSource.METHOD_HOOK
         else -> null
     }
 
@@ -122,6 +124,11 @@ data class TriggerEvent(
     /** Exact-binding target used by a scheduled alarm so repeated identical times stay distinct. */
     val targetRuleId: String? = null,
     val targetTriggerIndex: Int? = null,
+    /**
+     * User-named method-hook values. They are inserted verbatim (no `event.` prefix), which is
+     * what makes `{订单号}` work while the legacy event keys stay available as `event.*`.
+     */
+    val methodHookVariables: Map<String, String> = emptyMap(),
 )
 
 object TriggerKinds {
@@ -149,6 +156,7 @@ object TriggerKinds {
     const val FOREGROUND_SERVICE_STOPPED = "foreground_service_stopped"
     const val HEADSET = "headset"
     const val LOCATION = "location"
+    const val METHOD_CALL = "method_call"
 }
 
 /** Recomputes the listener set and reports the delta; the host installs/removes only changes. */
@@ -249,6 +257,7 @@ object TriggerMatcher {
                 matchesForegroundService(binding, event, "stopped")
             TriggerKinds.HEADSET -> matchesHeadset(binding, event, states)
             TriggerKinds.LOCATION -> matchesLocation(binding, event, states)
+            TriggerKinds.METHOD_CALL -> matchesMethodHook(binding, event)
             else -> false
         }
     }
@@ -422,6 +431,13 @@ object TriggerMatcher {
         target == actual ||
             target.endsWith("@0") && target.removeSuffix("@0") == actual ||
             actual.endsWith("@0") && actual.removeSuffix("@0") == target
+
+    private fun matchesMethodHook(binding: TriggerBinding, event: TriggerEvent): Boolean {
+        if (binding.component.typeId != TriggerTypes.METHOD_HOOK) return false
+        val wanted = binding.component.params["hook"]?.stringValue()?.trim().orEmpty()
+        if (wanted.isEmpty()) return false
+        return event.data["hook.id"] == wanted
+    }
 
     private fun matchesHeadset(
         binding: TriggerBinding,

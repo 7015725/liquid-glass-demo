@@ -3,7 +3,9 @@ package com.flowglass.demo.xposed.method
 import android.util.AtomicFile
 import com.flowglass.engine.methodhook.MethodHookFile
 import com.flowglass.engine.methodhook.MethodHookJson
+import com.flowglass.engine.methodhook.MethodHookNames
 import com.flowglass.engine.methodhook.MethodHookSpec
+import com.flowglass.engine.methodhook.MethodHookValidation
 import java.io.File
 
 internal data class MethodHookLoad(
@@ -47,6 +49,12 @@ internal class MethodHookStore(private val file: File) {
 
     fun save(hooks: List<MethodHookSpec>) {
         check(loaded && !blocked) { "方法钩子配置尚未安全恢复，已停止写入" }
+        val names = mutableSetOf<String>()
+        for (hook in hooks) {
+            val error = MethodHookValidation.errors(hook, names).firstOrNull()
+            check(error == null) { "钩子 ${hook.id} 不合法：${error.orEmpty()}" }
+            hook.extractions.mapTo(names) { MethodHookNames.normalizeExtractionName(it.name) }
+        }
         val stream = atomic.startWrite()
         try {
             stream.write(MethodHookJson.encode(MethodHookFile(hooks = hooks)).toByteArray(Charsets.UTF_8))

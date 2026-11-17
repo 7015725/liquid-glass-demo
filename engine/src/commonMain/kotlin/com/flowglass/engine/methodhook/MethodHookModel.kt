@@ -23,7 +23,7 @@ data class MethodExtraction(
 @Serializable
 data class MethodHookSpec(
     val id: String,
-    val enabled: Boolean = true,
+    val enabled: Boolean = false,
     val packageName: String,
     val userId: Int = 0,
     val className: String,
@@ -165,7 +165,7 @@ object MethodHookNames {
 }
 
 object MethodHookValidation {
-    fun errors(spec: MethodHookSpec): List<String> = buildList {
+    fun errors(spec: MethodHookSpec, existingNames: Set<String> = emptySet()): List<String> = buildList {
         if (spec.id.isBlank()) add("钩子标识不能为空")
         if (!MethodHookNames.isValidPackage(spec.packageName)) add("目标包名不合法")
         if (spec.userId !in 0..999_999) add("用户 ID 必须在 0–999999")
@@ -199,6 +199,8 @@ object MethodHookValidation {
                 add("$label：名字只能用中文、字母、数字、_ 或 -，长度 1–64")
             } else if (name in MethodHookVariables.reserved) {
                 add("$label：名字「$name」是钩子内置变量，请换一个")
+            } else if (name in existingNames) {
+                add("$label：提取变量「$name」已被其他变量或钩子使用，变量名必须全局唯一")
             } else if (!names.add(name)) {
                 add("$label：提取变量「$name」重名")
             }

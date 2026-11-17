@@ -11,6 +11,7 @@ import com.flowglass.engine.methodhook.MethodHookVariables
 import com.flowglass.engine.methodhook.MethodResolution
 import com.flowglass.engine.methodhook.MethodSignature
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -33,6 +34,16 @@ class MethodHookModelTest {
         maxCallsPerMinute = maxCalls,
         burst = burst,
     )
+
+    @Test
+    fun newHooksAreDisabledByDefault() {
+        assertFalse(MethodHookSpec(
+            id = "h1",
+            packageName = "com.example.target",
+            className = "com.example.Target",
+            methodName = "submit",
+        ).enabled)
+    }
 
     @Test
     fun resolverRequiresAUniqueOverload() {
@@ -79,6 +90,9 @@ class MethodHookModelTest {
             extractions = valid.extractions + MethodExtraction(MethodHookVariables.APP, MethodExtractionSource.RESULT),
         )
         assertTrue(MethodHookValidation.errors(reserved).any { it.contains("内置变量") })
+
+        val sharedName = MethodHookValidation.errors(valid, existingNames = setOf("订单号"))
+        assertTrue(sharedName.any { it.contains("全局唯一") })
     }
 
     @Test

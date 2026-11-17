@@ -14,6 +14,7 @@ import com.flowglass.engine.trigger.TriggerSchedule
 import com.flowglass.engine.trigger.TriggerSkipRecorder
 import com.flowglass.engine.trigger.TriggerSource
 import com.flowglass.engine.trigger.TriggerSourceRegistry
+import com.flowglass.engine.trigger.TriggerTypes
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
@@ -148,6 +149,31 @@ class TriggerEngineTest {
         clock.now = 2_000
         assertEquals(1, d.dispatch(screenEvent(at = 2_000), listOf(r)).executions.size)
         assertEquals(2, executor.calls.size)
+    }
+
+    @Test
+    fun methodHookMatchesItsHookAndExposesRawVariables() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        val r = rule("hook", listOf(trigger(TriggerTypes.METHOD_HOOK, "hook" to "hook-1")))
+
+        val miss = d.dispatch(
+            TriggerEvent(TriggerKinds.METHOD_CALL, TriggerSource.METHOD_HOOK, 0,
+                data = mapOf("hook.id" to "hook-2"), methodHookVariables = mapOf("订单号" to "B")),
+            listOf(r),
+        )
+        assertEquals(0, miss.executions.size)
+
+        clock.now = 3_000
+        val hit = d.dispatch(
+            TriggerEvent(TriggerKinds.METHOD_CALL, TriggerSource.METHOD_HOOK, 3_000,
+                data = mapOf("hook.id" to "hook-1"), methodHookVariables = mapOf("订单号" to "A-1")),
+            listOf(r),
+        )
+        assertEquals(1, hit.executions.size)
+        assertEquals("A-1", hit.executions.single().variables["订单号"])
+        assertTrue(hit.executions.single().variables["event.time"] is String)
     }
 
     @Test

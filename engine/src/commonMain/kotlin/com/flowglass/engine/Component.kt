@@ -82,6 +82,7 @@ enum class ParamEditor {
     APPLICATION,
     RULE,
     LOCATION,
+    METHOD_HOOK,
 }
 
 /** Dynamic data source for an editor such as APPLICATION or RULE. */
@@ -93,6 +94,7 @@ enum class ParamSource {
     CURRENT_LOCATION,
     PAIRED_BLUETOOTH,
     WIFI_NETWORKS,
+    METHOD_HOOKS,
 }
 
 /**

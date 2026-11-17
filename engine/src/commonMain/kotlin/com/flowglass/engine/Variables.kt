@@ -1,5 +1,7 @@
 package com.flowglass.engine
 
+import com.flowglass.engine.methodhook.MethodHookVariables
+
 /** Which table a user-visible variable belongs to. */
 enum class VariableScope { BUILTIN, LOCAL, GLOBAL }
 
@@ -106,6 +108,18 @@ object BuiltInVariables {
             "位置事件的经度", source = "location"),
         VariableSpec("系统事件", VariableScope.BUILTIN, VariableType.TEXT,
             "系统钩子事件的类型", source = "system"),
+        VariableSpec(MethodHookVariables.APP, VariableScope.BUILTIN, VariableType.TEXT,
+            "方法钩子事件：目标应用包名", source = "method_hook"),
+        VariableSpec(MethodHookVariables.USER, VariableScope.BUILTIN, VariableType.NUMBER,
+            "方法钩子事件：目标应用的 Android 用户 ID", source = "method_hook"),
+        VariableSpec(MethodHookVariables.PROCESS, VariableScope.BUILTIN, VariableType.TEXT,
+            "方法钩子事件：实际触发进程名", source = "method_hook"),
+        VariableSpec(MethodHookVariables.METHOD, VariableScope.BUILTIN, VariableType.TEXT,
+            "方法钩子事件：类名#方法名", source = "method_hook"),
+        VariableSpec(MethodHookVariables.SIGNATURE, VariableScope.BUILTIN, VariableType.TEXT,
+            "方法钩子事件：收敛后的参数签名", source = "method_hook"),
+        VariableSpec(MethodHookVariables.ID, VariableScope.BUILTIN, VariableType.TEXT,
+            "方法钩子事件：设置页里的钩子标识", source = "method_hook"),
     )
 
     val byName: Map<String, VariableSpec> = all.associateBy { it.name }

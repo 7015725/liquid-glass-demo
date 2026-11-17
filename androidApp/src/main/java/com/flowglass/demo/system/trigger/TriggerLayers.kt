@@ -23,8 +23,10 @@ internal object TriggerLayers {
     fun requiresSystemHook(typeId: String): Boolean = typeId in xposedOnly
 
     fun hasImplementation(typeId: String, layer: ExecutionLayer): Boolean = when (layer) {
-        ExecutionLayer.NORMAL -> TriggerTypes.sourceOf(typeId) != null && typeId !in xposedOnly
-        ExecutionLayer.XPOSED -> typeId == TriggerTypes.APP_FOREGROUND || typeId in xposedOnly
+        ExecutionLayer.NORMAL ->
+            TriggerTypes.sourceOf(typeId) != null && typeId !in xposedOnly && typeId != TriggerTypes.METHOD_HOOK
+        ExecutionLayer.XPOSED ->
+            typeId == TriggerTypes.APP_FOREGROUND || typeId == TriggerTypes.METHOD_HOOK || typeId in xposedOnly
         ExecutionLayer.ROOT -> typeId == TriggerTypes.APP_FOREGROUND
     }
 

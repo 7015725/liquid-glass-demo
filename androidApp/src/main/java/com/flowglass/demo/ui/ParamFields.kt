@@ -54,10 +54,12 @@ internal fun ParamField(
     onValue: (String) -> Unit,
     targets: List<String> = emptyList(),
     variables: List<VariableOption> = emptyList(),
+    onOpenMethodHooks: () -> Unit = {},
 ) {
     when (spec.source) {
         ParamSource.PAIRED_BLUETOOTH -> BluetoothNameField(current, tag, onValue)
         ParamSource.WIFI_NETWORKS -> WifiNameField(current, tag, onValue)
+        ParamSource.METHOD_HOOKS -> MethodHookField(current, tag, onValue, onOpenMethodHooks)
         else -> when (spec.resolvedEditor()) {
             ParamEditor.SEGMENTED -> SegmentedField(spec, current, onValue)
             ParamEditor.SLIDER -> PercentageField(current, onValue)
@@ -72,6 +74,7 @@ internal fun ParamField(
             ParamEditor.LOCATION -> LocationField(current, tag, onValue)
             ParamEditor.MULTILINE -> VariableTextField(current, tag, variables, multiline = true, onValue)
             ParamEditor.TEXT -> VariableTextField(current, tag, variables, multiline = false, onValue)
+            ParamEditor.METHOD_HOOK -> MethodHookField(current, tag, onValue, onOpenMethodHooks)
             ParamEditor.STEPPER -> StepperField(spec, current, tag, onValue)
             ParamEditor.TIME -> TimeField(current, tag, onValue)
             ParamEditor.TIME_RANGE -> TimeRangeField(current, onValue)

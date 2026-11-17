@@ -19,6 +19,7 @@ import com.flowglass.demo.ui.AppRuntime
 import com.flowglass.demo.ui.AppState
 import com.flowglass.demo.ui.Cmd
 import com.flowglass.demo.ui.snapshot
+import com.flowglass.demo.xposed.method.MethodHookEventSink
 import com.flowglass.engine.Clock
 import com.flowglass.engine.trigger.TriggerBinding
 import com.flowglass.engine.trigger.TriggerDispatcher
@@ -36,6 +37,7 @@ import com.flowglass.engine.trigger.TriggerSourceRegistry
 import com.flowglass.engine.trigger.TriggerTypes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -175,12 +177,29 @@ internal class TriggerHost(
     private var alarmSignature: String? = null
     private var lastRules: List<TriggerRule> = emptyList()
 
+    /** Routes a verified target-process event into the normal trigger dispatcher. */
+    private val methodHookSink: (String, Map<String, String>) -> Unit = { hookId, variables ->
+        // The Binder callback arrives on a binder thread; keep the host's pending queue on main.
+        scope.launch(Dispatchers.Main.immediate) {
+            emit(
+                TriggerEvent(
+                    kind = TriggerKinds.METHOD_CALL,
+                    source = TriggerSource.METHOD_HOOK,
+                    atEpochMs = System.currentTimeMillis(),
+                    data = mapOf("hook.id" to hookId),
+                    methodHookVariables = variables,
+                )
+            )
+        }
+    }
+
     /** True while the host owns listeners and the event collector. */
     val isRunning: Boolean get() = started
 
     fun start() {
         if (started) return
         started = true
+        MethodHookEventSink.listener = methodHookSink
         // Seed the rule set before any event is dispatched; a boot/alarm start otherwise races
         // the first snapshotFlow emission and drops the event against an empty rule list.
         val initial = state.triggerInput()
@@ -242,6 +261,7 @@ internal class TriggerHost(
         }
         started = false
         collectorReady = false
+        MethodHookEventSink.listener = null
         pendingEvents.clear()
         collectJob?.cancel()
         collectJob = null
@@ -359,7 +379,7 @@ internal class TriggerHost(
             TriggerSource.LOCATION -> locationWatcher.start()
             // TIME is an AlarmManager schedule, BOOT is a manifest receiver; SYSTEM events are
             // emitted by the already-installed LSPosed hook and need no dynamic receiver.
-            TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM -> Unit
+            TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM, TriggerSource.METHOD_HOOK -> Unit
         }
     }
 
@@ -377,7 +397,7 @@ internal class TriggerHost(
             }
             TriggerSource.HEADSET -> headsetWatcher.stop()
             TriggerSource.LOCATION -> locationWatcher.stop()
-            TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM -> Unit
+            TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM, TriggerSource.METHOD_HOOK -> Unit
         }
     }
 

@@ -7,6 +7,7 @@ import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.system.trigger.TriggerService
 import com.flowglass.demo.ui.primeComposeStateOnMainThread
 import com.flowglass.demo.xposed.ModernModuleStatus
+import com.flowglass.demo.xposed.method.MethodHookCatalog
 import com.flowglass.demo.xposed.method.MethodHookConfigPublisher
 
 /**
@@ -26,6 +27,7 @@ class FlowApp : Application() {
             MethodHookConfigPublisher.publish(this)
         }
         MethodHookConfigPublisher.publish(this)
+        MethodHookCatalog.refresh(this)
         // Upgrade path: old builds created keepalive/triggers channels; only "running" remains.
         RunningNotification.cleanupLegacyChannels(this)
         // Re-send the persisted hook state after process/system restarts; the system hook starts

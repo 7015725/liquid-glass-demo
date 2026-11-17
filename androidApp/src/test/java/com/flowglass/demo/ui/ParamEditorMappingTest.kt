@@ -15,8 +15,8 @@ class ParamEditorMappingTest {
 
     @Test fun everyBuiltInParameterResolvesToAConcreteEditor() {
         val all = registry.all()
-        assertEquals("组件数量", 63, all.size)
-        assertEquals("参数数量", 86, all.sumOf { it.params.size })
+        assertEquals("组件数量", 64, all.size)
+        assertEquals("参数数量", 87, all.sumOf { it.params.size })
         all.forEach { meta ->
             meta.params.forEach { spec ->
                 assertNotEquals(
@@ -48,6 +48,12 @@ class ParamEditorMappingTest {
         val location = requireNotNull(registry.find("trigger.location_enter")).params.single { it.key == "location" }
         assertEquals(ParamEditor.LOCATION, location.resolvedEditor())
         assertEquals(ParamSource.CURRENT_LOCATION, location.source)
+    }
+
+    @Test fun methodHookTriggerUsesTheSavedHookPicker() {
+        val hook = requireNotNull(registry.find("trigger.method_hook")).params.single { it.key == "hook" }
+        assertEquals(ParamEditor.METHOD_HOOK, hook.resolvedEditor())
+        assertEquals(ParamSource.METHOD_HOOKS, hook.source)
     }
 
     @Test fun dynamicSourcesAreDeclaredOnTheSpecNotTheComponentId() {

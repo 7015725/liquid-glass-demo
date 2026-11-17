@@ -6,7 +6,7 @@
 
 - `MethodHookSpec`：目标 `packageName` + `userId`、`className`、`methodName`、可选 `paramCount` / `paramTypes`、提取项、每分钟上限与突发上限。
 - `MethodExtraction`：用户命名的变量（允许中文），来源只能是 `ARGUMENT`（带参数序号）或 `RESULT`；`path` 是点分隔的字段路径，空字符串表示对象本身。
-- 固定信息使用内置中文名：`钩子应用`、`钩子用户`、`钩子进程`、`钩子方法`、`钩子签名`、`钩子标识`。用户提取项不能与它们或彼此重名。
+- 固定信息使用内置中文名：`钩子应用`、`钩子用户`、`钩子进程`、`钩子方法`、`钩子签名`、`钩子标识`。用户提取项不能与它们、其他钩子的提取项，或已有局部/全局变量重名。
 - 文件独立于 `commands.json`：`MethodHookFile(formatVersion=1)`。未知字段忽略，版本不符或 JSON 损坏时**失败关闭**，保留原文件并停止写入，不用空配置覆盖用户数据。
 - 钩子 token 只存在 app-private `SharedPreferences`（`method_hook_secrets`），不进入 JSON、日志、备份或导出。PR-4 才把 token 交给目标进程做 HMAC。
 
