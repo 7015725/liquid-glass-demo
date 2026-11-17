@@ -75,7 +75,7 @@ internal fun ComponentPicker(
             withContext(Dispatchers.IO) {
                 LayerStatus.refresh(
                     requestRoot = false,
-                    systemHookReady = SystemHookSettings.status(context) == SystemHookSettings.Status.READY,
+                    systemHookReady = SystemHookSettings.isAlive(context),
                 )
             }
         } catch (cancelled: kotlinx.coroutines.CancellationException) {

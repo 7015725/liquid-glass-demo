@@ -145,8 +145,15 @@ object LayerStatus {
         )
     }
 
-    /** Re-probes Root passively and reads the LSPosed module marker. Never requests Root. */
-    suspend fun refresh(requestRoot: Boolean = false, systemHookReady: Boolean = false): LayerStatusSnapshot {
+    /**
+     * Re-probes Root passively and reads the LSPosed module marker. Never requests Root.
+     *
+     * [systemHookReady] deliberately has no default: a caller that forgets it would otherwise
+     * downgrade an active LSPosed module to DEGRADED. Use
+     * [com.flowglass.demo.system.SystemHookSettings.isAlive] as the single readiness check at
+     * every call site.
+     */
+    suspend fun refresh(requestRoot: Boolean, systemHookReady: Boolean): LayerStatusSnapshot {
         updateRoot(Root.check(request = requestRoot))
         val active = runCatching { ModuleStatus.isActive() }.getOrDefault(false)
         updateLsposed(active, systemHookReady = systemHookReady)
