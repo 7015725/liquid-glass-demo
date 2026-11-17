@@ -1,5 +1,7 @@
 package com.flowglass.engine.trigger
 
+import com.flowglass.engine.BuiltInVariables
+
 import com.flowglass.engine.Clock
 import com.flowglass.engine.MatchMode
 import kotlinx.serialization.json.JsonObject
@@ -157,7 +159,7 @@ class TriggerDispatcher(
                 debounced += ruleBindings.size
                 continue
             }
-            val conditions = TriggerConditions.evaluate(rule.conditions, environment, now, offset, variablesOf(event))
+            val conditions = TriggerConditions.evaluate(rule.conditions, environment, now, offset, variablesFor(event, now, offset))
             if (!conditions.passed) {
                 val detail = conditions.detail
                 val previous = lastSkipLog[rule.id]
@@ -259,18 +261,14 @@ class TriggerDispatcher(
     private fun reasonFor(binding: TriggerBinding): String = "触发：${binding.component.name}"
 
     private fun variablesFor(event: TriggerEvent, now: Long, offset: Int): Map<String, Any?> {
-        val variables = linkedMapOf<String, Any?>(
-            "event.time" to TriggerSchedule.localTime(event.atEpochMs, offset),
-        )
+        val localTime = TriggerSchedule.localTime(event.atEpochMs, offset)
+        val variables = linkedMapOf<String, Any?>("event.time" to localTime)
         event.data["battery"]?.toIntOrNull()?.let { variables["event.battery"] = it }
         for ((key, value) in event.data) {
             if (key == "zone_offset_minutes" || key == "battery") continue
             variables["event.$key"] = value
         }
+        variables.putAll(BuiltInVariables.eventValues(event.kind, event.data, localTime))
         return variables
     }
 }
-
-/** Event data is visible to conditions as event.time / event.battery / ... */
-private fun variablesOf(event: TriggerEvent): Map<String, Any?> =
-    event.data.mapKeys { (key, _) -> "event.$key" }

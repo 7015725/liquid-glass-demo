@@ -136,6 +136,7 @@ internal class RunScopes(
     globals: Map<String, Any?>,
 ) {
     val event: MutableMap<String, Any?> = linkedMapOf()
+    val builtins: MutableMap<String, Any?> = linkedMapOf()
     val run: MutableMap<String, Any?> = linkedMapOf()
     val ruleVars: MutableMap<String, Any?> = linkedMapOf()
     val global: MutableMap<String, Any?> = LinkedHashMap(globals)
@@ -145,14 +146,19 @@ internal class RunScopes(
     init {
         for (local in rule.locals) ruleVars[local.name] = local.initial.toPlainValue()
         for ((key, value) in initial) {
-            if (key.startsWith("event.")) event[key.removePrefix("event.")] = value else run[key] = value
+            when {
+                key.startsWith("event.") -> event[key.removePrefix("event.")] = value
+                BuiltInVariables.byName.containsKey(key) -> builtins[key] = value
+                else -> run[key] = value
+            }
         }
     }
 
     fun flattened(): Map<String, Any?> = buildMap {
+        putAll(builtins)
         event.forEach { (k, v) -> put("event.$k", v) }
-        ruleVars.forEach { (k, v) -> put("rule.$k", v) }
-        global.forEach { (k, v) -> put("global.$k", v) }
+        global.forEach { (k, v) -> put(k, v); put("global.$k", v) }
+        ruleVars.forEach { (k, v) -> put(k, v); put("rule.$k", v) }
         putAll(run)
         run.forEach { (k, v) -> put("run.$k", v) }
     }
@@ -385,8 +391,12 @@ class RuleExecutor(
         val duration = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(started.elapsedNow().inWholeNanoseconds.coerceAtLeast(0))
         steps += StepResult(node.type, result.status, result.detail, duration, path, result.layer)
         scopes.run[LAST_DETAIL] = result.detail
+        scopes.builtins["上一步结果"] = result.detail
         val outputKey = meta.outputs.firstOrNull()
-        if (outputKey != null && result.output != null) scopes.run[outputKey] = result.output
+        if (outputKey != null && result.output != null) {
+            scopes.run[outputKey] = result.output
+            BuiltInVariables.outputName(outputKey)?.let { scopes.builtins[it] = result.output }
+        }
         return SequenceOutcome(result.status, result.detail)
     }
 
