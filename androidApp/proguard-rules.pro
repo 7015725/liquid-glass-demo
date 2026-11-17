@@ -22,6 +22,12 @@
 # LSPosed module entry + status probe
 -keep class com.flowglass.demo.xposed.** { *; }
 -dontwarn de.robv.android.xposed.**
+-dontwarn io.github.libxposed.**
+
+# Modern API 101 entry is loaded by name from META-INF/xposed/java_init.list. Keep the class name
+# in the list intact; Java resources under META-INF are not Android resources.
+-keep,allowobfuscation class com.flowglass.demo.xposed.Api101Entry { public <init>(); }
+-adaptresourcefilecontents META-INF/xposed/java_init.list
 
 # Rhino loads interpreter classes reflectively; keep the engine intact in release builds.
 -keep class org.mozilla.javascript.** { *; }

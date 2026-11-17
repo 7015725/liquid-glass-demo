@@ -599,7 +599,12 @@ private fun LSPosedPage() {
         k++, Ic.Puzzle, "模块状态",
         if (active) "已激活" else "未激活", active,
         if (active) "已激活" else "未激活", "",
-        if (active) listOf("Xposed API $version", "作用域：本应用 + 系统框架") else listOf("需要 LSPosed 框架"),
+        if (active) {
+            listOf(
+                "Xposed API $version",
+                if (ModuleStatus.isModern()) "作用域：本应用 + 系统框架（system）" else "作用域：本应用 + 系统框架（android）",
+            )
+        } else listOf("需要 LSPosed 框架"),
         action = {
             PrimaryButton("打开 LSPosed 管理器", Ic.Puzzle, {
                 val i = ctx.packageManager.getLaunchIntentForPackage("org.lsposed.manager")
@@ -612,7 +617,7 @@ private fun LSPosedPage() {
         val steps = listOf(
             Triple("刷入 LSPosed 框架", "通过 Magisk / KernelSU 安装 LSPosed 模块并重启", managerInstalled || active),
             Triple("在模块列表中启用", "打开 LSPosed 管理器 → 模块 → 流光自动化", active),
-            Triple("勾选作用域", "作用域勾选「流光自动化」和「系统框架（android）」", active),
+            Triple("勾选作用域", if (ModuleStatus.isModern()) "作用域勾选「流光自动化」和「系统框架（system）」" else "作用域勾选「流光自动化」和「系统框架（android）」", active),
             Triple("重启本应用", "在多任务里划掉后重新打开，这里会显示已激活", active),
         )
         steps.forEachIndexed { i, (title, sub, done) ->

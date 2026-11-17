@@ -1,6 +1,8 @@
 [versions]
 agp = "9.3.2"
 kotlin = "2.4.10"
+libxposedApi = "101.0.1"
+libxposedService = "101.0.0"
 
 activity = "1.13.0"
 core = "1.19.0"
@@ -21,6 +23,8 @@ compose-ui = { group = "org.jetbrains.compose.ui", name = "ui", version.ref = "c
 compose-ui-graphics = { group = "org.jetbrains.compose.ui", name = "ui-graphics", version.ref = "compose" }
 kyant-shapes = { group = "io.github.kyant0", name = "shapes", version.ref = "kyantShapes" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
+libxposed-api = { group = "io.github.libxposed", name = "api", version.ref = "libxposedApi" }
+libxposed-service = { group = "io.github.libxposed", name = "service", version.ref = "libxposedService" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
