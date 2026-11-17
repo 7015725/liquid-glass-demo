@@ -5,6 +5,7 @@ import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.RunningNotification
 import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.system.trigger.TriggerService
+import com.flowglass.demo.ui.primeComposeStateOnMainThread
 
 /**
  * Installs the root-grant cache for every entry point, not just the Activity: a background
@@ -13,6 +14,9 @@ import com.flowglass.demo.system.trigger.TriggerService
 class FlowApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Object-level Compose state must be initialized on main before any service or
+        // broadcast receiver can touch it from a worker thread.
+        primeComposeStateOnMainThread()
         Root.install(this)
         // Upgrade path: old builds created keepalive/triggers channels; only "running" remains.
         RunningNotification.cleanupLegacyChannels(this)
