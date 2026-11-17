@@ -90,11 +90,37 @@ class HookEventDispatcherTest {
     }
 
     @Test
-    fun onlyResumedActivityMethodsAreHooked() {
-        val methods = SystemHookCandidates.resumed.map { it.second }.toSet()
-        assertTrue(methods.all { it.contains("Resumed") })
+    fun candidatesCoverResumedTransitionsAndExcludeBackgroundStarts() {
+        val methods = SystemHookCandidates.resumed.map { it.methodName }.toSet()
+        assertTrue("setResumedActivityUncheckLocked" in methods)
+        assertTrue("setLastResumedActivityUncheckLocked" in methods)
+        assertTrue("setResumedActivity" in methods)
+        assertTrue("setState" in methods)
         assertTrue("realStartActivityLocked is not a foreground signal", "realStartActivityLocked" !in methods)
         assertTrue("onActivityAdded is not a foreground signal", "onActivityAdded" !in methods)
+    }
+
+    @Test
+    fun candidateSourcesMatchTheirArgumentLayout() {
+        val stateCandidate = SystemHookCandidates.resumed.single {
+            it.source == HookEventSource.THIS_ACTIVITY_STATE
+        }
+        assertEquals("activityRecord.setState", stateCandidate.label)
+        assertEquals("ActivityRecord", stateCandidate.className.substringAfterLast('.'))
+        assertEquals(
+            HookEventSource.FIRST_ARGUMENT_ACTIVITY,
+            SystemHookCandidates.resumed.single { it.label == "taskFragment.setResumedActivity" }.source,
+        )
+    }
+
+    @Test
+    fun identityRejectsMissingOrInvalidValues() {
+        assertEquals(HookIdentity("com.example.app", 999), HookIdentityReader.of("com.example.app", 999))
+        assertEquals(HookIdentity("com.example.app", 0), HookIdentityReader.of("com.example.app", 0))
+        assertEquals(null, HookIdentityReader.of("com.example.app", null))
+        assertEquals(null, HookIdentityReader.of(null, 0))
+        assertEquals(null, HookIdentityReader.of("not a package", 0))
+        assertEquals(null, HookIdentityReader.of("com.example.app", -1))
     }
 
     @Test

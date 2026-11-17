@@ -14,6 +14,7 @@ object SystemHookProtocol {
     const val EXTRA_PACKAGE = "package"
     const val EXTRA_USER = "user"
     const val EXTRA_TIME = "time"
+    const val EXTRA_HOOKS = "hooks"
     const val PERMISSION = "com.flowglass.demo.permission.SYSTEM_HOOK"
     const val SYSTEM_RECEIVER = "com.flowglass.demo.system.trigger.SystemHookReceiver"
 }

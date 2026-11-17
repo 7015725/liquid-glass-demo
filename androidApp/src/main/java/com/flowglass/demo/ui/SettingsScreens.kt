@@ -572,7 +572,7 @@ private fun LSPosedPage() {
     val active = remember(t) { ModuleStatus.isActive() }
     val version = remember(t) { ModuleStatus.frameworkVersion() }
     var hookEnabled by remember { mutableStateOf(SystemHookSettings.isEnabled(ctx)) }
-    val hookAlive = remember(t) { SystemHookSettings.isAlive(ctx) }
+    val hookStatus = remember(t) { SystemHookSettings.status(ctx) }
     val managerInstalled = remember(t) {
         runCatching { ctx.packageManager.getPackageInfo("org.lsposed.manager", 0); true }.getOrDefault(false)
     }
@@ -608,7 +608,10 @@ private fun LSPosedPage() {
             Row1(
                 Ic.Puzzle,
                 "系统框架前台事件",
-                if (hookEnabled && hookAlive) "已启用；系统钩子心跳正常" else if (hookEnabled) "已启用；等待系统钩子心跳" else "已关闭；钩子不做任何事",
+                if (hookEnabled && hookStatus == SystemHookSettings.Status.READY) "已启用；系统钩子心跳正常"
+                else if (hookEnabled && hookStatus == SystemHookSettings.Status.NO_HOOKS) "系统钩子已加载，但未找到可用的检测点"
+                else if (hookEnabled) "已启用；等待系统钩子心跳"
+                else "已关闭；钩子不做任何事",
             ),
             true,
         ) {
