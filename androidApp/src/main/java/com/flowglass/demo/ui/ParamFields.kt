@@ -53,7 +53,7 @@ internal fun ParamField(
     tag: String,
     onValue: (String) -> Unit,
     targets: List<String> = emptyList(),
-    variables: List<String> = emptyList(),
+    variables: List<VariableOption> = emptyList(),
 ) {
     when (spec.source) {
         ParamSource.PAIRED_BLUETOOTH -> BluetoothNameField(current, tag, onValue)

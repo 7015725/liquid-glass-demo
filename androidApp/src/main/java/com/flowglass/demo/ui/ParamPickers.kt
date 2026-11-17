@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.flowglass.engine.ParamSpec
+import com.flowglass.engine.VariableScope
 import com.kyant.shapes.RoundedRectangle
 import kotlin.math.roundToInt
 
@@ -48,7 +49,7 @@ private val durationPresets = listOf("1 秒", "5 秒", "30 秒", "1 分钟")
 internal fun VariableTextField(
     value: String,
     tag: String,
-    variables: List<String>,
+    variables: List<VariableOption>,
     multiline: Boolean,
     onValue: (String) -> Unit,
 ) {
@@ -69,8 +70,8 @@ internal fun VariableTextField(
         EditorPill("插入变量", "插入变量", modifier = Modifier.padding(top = 6.dp)) { menu = true }
     }
     if (menu) {
-        VariableListDialog(variables, onDismiss = { menu = false }) { name ->
-            val snippet = "%{$name}"
+        VariableListDialog(variables, onDismiss = { menu = false }) { option ->
+            val snippet = "{" + option.name + "}"
             val start = field.selection.min.coerceIn(0, field.text.length)
             val end = field.selection.max.coerceIn(start, field.text.length)
             val next = field.text.substring(0, start) + snippet + field.text.substring(end)
@@ -82,7 +83,7 @@ internal fun VariableTextField(
 }
 
 @Composable
-private fun VariableListDialog(variables: List<String>, onDismiss: () -> Unit, onPick: (String) -> Unit) {
+private fun VariableListDialog(variables: List<VariableOption>, onDismiss: () -> Unit, onPick: (VariableOption) -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
             Column(
@@ -90,12 +91,29 @@ private fun VariableListDialog(variables: List<String>, onDismiss: () -> Unit, o
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 T("插入变量", 16.sp, FontWeight.SemiBold)
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(variables, key = { it }) { name ->
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedRectangle(14.dp)).background(C.Tonal)
-                                .pressable { onPick(name) }.padding(12.dp),
-                        ) { T("%{$name}", 13.sp, color = C.OnSurfaceVar) }
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    VariableScope.values().forEach { scope ->
+                        val rows = variables.filter { it.scope == scope }
+                        if (rows.isNotEmpty()) {
+                            item(key = "group-$scope") {
+                                T(VariableCatalog.scopeLabel(scope), 12.sp, FontWeight.SemiBold, color = C.Muted)
+                            }
+                            items(rows, key = { "${it.scope}-${it.ownerId}-${it.name}" }) { option ->
+                                Column(
+                                    Modifier.fillMaxWidth().clip(RoundedRectangle(14.dp)).background(C.Tonal)
+                                        .pressable { onPick(option) }.padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                                ) {
+                                    T("{${option.name}}", 13.sp, FontWeight.SemiBold)
+                                    val detail = buildString {
+                                        append(VariableCatalog.typeLabel(option.type))
+                                        if (option.ownerTitle.isNotBlank()) append(" · ${option.ownerTitle}")
+                                    }
+                                    T(detail, 11.sp, color = C.Muted)
+                                    if (option.note.isNotBlank()) T(option.note, 11.sp, color = C.OnSurfaceVar)
+                                }
+                            }
+                        }
                     }
                 }
                 EditorPill("取消", "取消插入变量", action = onDismiss)

@@ -178,20 +178,6 @@ internal fun shellReexecutionWarning(command: String): String? {
     return "提示：命令包含 eval 或 sh -c，并且引用了 %{变量}。变量值会被当作命令再次执行，请确认这是你的意图。"
 }
 
-/** Names offered by the parameter-field variable inserter; values are resolved at run time. */
-private fun parameterVariables(state: AppState, cmd: Cmd): List<String> = buildList {
-    add("last")
-    add("shell.stdout")
-    add("shell.stderr")
-    add("http.body")
-    add("http.status")
-    add("event.time")
-    add("event.app")
-    add("event.battery")
-    add("event.notification.app")
-    add("event.notification.title")
-    add("event.notification.text")
-    add("run.value")
-    state.localsOf(cmd.id).forEach { add("rule.${it.name}") }
-    state.engineGlobals.keys.forEach { add("global.$it") }
-}.distinct()
+/** Names offered by the parameter-field variable inserter; new UI only inserts `{名字}`. */
+private fun parameterVariables(state: AppState, cmd: Cmd): List<VariableOption> =
+    VariableCatalog.forEditor(state, cmd.id)

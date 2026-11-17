@@ -84,6 +84,7 @@ object SettingsPage {
     const val Appearance = 5
     const val Layers = 6
     const val Backup = 7
+    const val Variables = 8
     fun title(p: Int) = when (p) {
         KeepAlive -> "App 保活"
         Root -> "Root 激活"
@@ -92,6 +93,7 @@ object SettingsPage {
         Appearance -> "外观"
         Layers -> "执行层级"
         Backup -> "备份与恢复"
+        Variables -> "变量"
         else -> "设置"
     }
 }
@@ -111,6 +113,7 @@ fun SettingsHost(
         SettingsPage.Appearance -> AppearancePage(themeMode, onThemeModeChange)
         SettingsPage.Layers -> LayersPage()
         SettingsPage.Backup -> BackupRestorePage(state, themeMode, onThemeModeChange)
+        SettingsPage.Variables -> VariableManagerPage(state)
         else -> SettingsMain(state, themeMode)
     }
 }
@@ -316,6 +319,7 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
     GroupTitle("通用", k++)
     GroupCard(k++) {
         ListRow(Row1(Ic.Moon, "外观", themeMode.label, sub = themeMode.description) { state.settingsPage = SettingsPage.Appearance }, true)
+        ListRow(Row1(Ic.Copy, "变量", sub = "内置、局部、全局变量与备注") { state.settingsPage = SettingsPage.Variables }, true)
         ListRow(Row1(Ic.Copy, "备份与恢复", sub = "导入导出指令、备份全部数据") { state.settingsPage = SettingsPage.Backup }, true)
         ListRow(Row1(Ic.Bell, "通知提醒") {}, true)
         ListRow(Row1(Ic.Gauge, "运行模式", modes[state.mode], upDown = true) { state.mode = (state.mode + 1) % 3 }, true)
