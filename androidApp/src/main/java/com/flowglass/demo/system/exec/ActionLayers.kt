@@ -25,7 +25,7 @@ internal object ActionLayers {
         "action.wifi_switch", "action.bluetooth_switch", "action.launch_app",
         "action.root_shell", "action.airplane_mode", "action.mobile_data",
         "action.dnd_switch", "action.set_brightness", "action.screen_timeout",
-        "action.auto_rotate", "action.global_action",
+        "action.auto_rotate", "action.global_action", "action.force_stop",
     )
 
     fun hasImplementation(typeId: String, layer: ExecutionLayer): Boolean = when (layer) {

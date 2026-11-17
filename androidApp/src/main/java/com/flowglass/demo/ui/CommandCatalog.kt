@@ -206,7 +206,8 @@ object CommandCatalog {
         "trigger.charging", "action.wifi_switch", "trigger.wifi", "trigger.wifi_changed",
         "condition.network_type" -> Ic.Wifi
         "trigger.bluetooth_connected", "trigger.bluetooth", "trigger.headset", "action.bluetooth_switch" -> Ic.Bluetooth
-        "trigger.application_started", "trigger.app_foreground", "action.launch_app" -> Ic.Grid
+        "trigger.application_started", "trigger.app_foreground", "action.launch_app",
+        "action.force_stop" -> Ic.Grid
         "condition.dnd_state", "action.dnd_switch", "action.ringer_mode" -> Ic.Moon
         "action.set_brightness", "action.set_volume" -> Ic.Gauge
         "action.copy_clipboard" -> Ic.Copy

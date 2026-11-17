@@ -34,7 +34,26 @@ internal object RootTasks {
                 LaunchableApps.launchRoot(context, task.parameter, root)
                 TaskOutcome(StepStatus.SUCCESS, "已启动应用：${task.parameter}（Root）")
             }
+            "action.force_stop" -> forceStop(context, task.parameter, root)
             else -> TaskOutcome(StepStatus.FAILURE, "该动作没有 Root 实现")
+        }
+    }
+
+    private suspend fun forceStop(context: Context, raw: String, root: RootInfo): TaskOutcome {
+        val target = ForceStopGuard.parse(raw, ForceStopGuard.launcherPackages(context))
+        val result = RootSessions.run(root, target.command)
+        return when {
+            result.timedOut -> TaskOutcome(StepStatus.FAILURE, "强制停止超时（30 秒）\n${result.output}")
+            result.truncated -> TaskOutcome(StepStatus.FAILURE, "强制停止输出超过上限\n${result.output}")
+            result.exitCode != 0 -> TaskOutcome(
+                StepStatus.FAILURE,
+                "强制停止失败：退出码 ${result.exitCode}\n${result.output}",
+            )
+            else -> TaskOutcome(
+                StepStatus.SUCCESS,
+                "已强制停止：${target.packageName}@${target.userId}",
+                result.output,
+            )
         }
     }
 
