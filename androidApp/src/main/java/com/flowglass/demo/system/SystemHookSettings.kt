@@ -100,19 +100,18 @@ object SystemHookSettings {
         context: Context,
         hookCount: Int,
         availableFamilies: Int = SystemHookFamily.defaultMask,
-    ): Boolean {
+    ) {
         val store = prefs(context)
         val families = availableFamilies and knownFamilyMask()
         if (store.getBoolean(KEY_LOADED, false) &&
             store.getInt(KEY_HOOKS, -1) == hookCount &&
             store.getInt(KEY_AVAILABLE_FAMILIES, SystemHookFamily.defaultMask) == families
-        ) return false
+        ) return
         store.edit {
             putBoolean(KEY_LOADED, true)
             putInt(KEY_HOOKS, hookCount)
             putInt(KEY_AVAILABLE_FAMILIES, families)
         }
-        return true
     }
 
     /** Returns true when this heartbeat changed the stored state and is worth acting on. */
