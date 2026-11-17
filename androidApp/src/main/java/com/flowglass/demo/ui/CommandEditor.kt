@@ -49,7 +49,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.sp
 import com.flowglass.demo.liquid.LiquidToggle
+import com.flowglass.demo.system.exec.ComponentAvailability
+import com.flowglass.demo.system.exec.LayerStatus
+import com.flowglass.demo.system.exec.componentAvailability
 import com.flowglass.demo.system.trigger.listenState
+import com.flowglass.engine.ExecutionLayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.ui.state.ToggleableState
@@ -265,12 +269,27 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                     }
                 }
                 is EditorPanel.Add -> {
-                    val activeTier = if (state.root?.granted == true) com.flowglass.engine.Tier.ROOT
-                        else com.flowglass.engine.Tier.NORMAL
-                    ComponentPicker(active.section, activeTier) { option ->
+                    ComponentPicker(
+                        section = active.section,
+                        onLocked = { required ->
+                            panel = null
+                            val page = when {
+                                ExecutionLayer.XPOSED in required -> SettingsPage.LSPosed
+                                ExecutionLayer.ROOT in required -> SettingsPage.Root
+                                else -> SettingsPage.Layers
+                            }
+                            onAuthorization(page)
+                        },
+                    ) { option ->
                         panel = null
                         val meta = option.typeId?.let {
                             com.flowglass.engine.BuiltInComponents.registry().find(it)
+                        }
+                        if (meta != null &&
+                            componentAvailability(meta, LayerStatus.current()) is ComponentAvailability.AvailableWithHint
+                        ) {
+                            state.editorNotice =
+                                "系统框架前台事件未就绪：请到设置 → LSPosed 激活页打开「系统框架前台事件」并重启手机。"
                         }
                         val block = meta?.block
                         when {

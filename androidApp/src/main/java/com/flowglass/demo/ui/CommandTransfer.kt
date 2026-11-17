@@ -358,9 +358,12 @@ private fun sensitiveActions(cmd: Cmd): List<String> {
     val registry = com.flowglass.engine.BuiltInComponents.registry()
     return cmd.actions.allItems().mapNotNull { item ->
         val meta = item.typeId?.let(registry::find) ?: return@mapNotNull null
+        val rootOnly = meta.supports.any {
+            it.layer == com.flowglass.engine.ExecutionLayer.ROOT
+        } && meta.supports.none { it.layer == com.flowglass.engine.ExecutionLayer.NORMAL }
         val dangerous = item.typeId in setOf(
             "action.root_shell", "action.http_request", "action.run_rule", "action.script",
-        ) || meta.minTier == com.flowglass.engine.Tier.ROOT
+        ) || rootOnly
         if (dangerous) meta.name else null
     }.distinct()
 }

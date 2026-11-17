@@ -163,7 +163,10 @@ data class CommandOption(
     val category: Int = 0,
     val typeId: String? = null,
     val categoryName: String = "设备",
+    /** Presentation badge only; availability must use [supports], never this ordinal. */
     val minTier: com.flowglass.engine.Tier = com.flowglass.engine.Tier.NORMAL,
+    /** Layers declared by [com.flowglass.engine.ComponentMeta]; picker availability uses these. */
+    val supports: List<com.flowglass.engine.LayerSupport> = emptyList(),
     /** Present in the catalog for discoverability but not selectable in this stage. */
     val comingSoon: Boolean = false,
     /** Metadata description, or the parameter labels when it has none. */
@@ -182,7 +185,7 @@ internal val Tier.badgeLabel: String
         Tier.NORMAL -> ""
         Tier.SHIZUKU -> "需 Shizuku"
         Tier.ROOT -> "需 Root"
-        Tier.XPOSED -> "需 Xposed"
+        Tier.XPOSED -> "需 LSPosed"
     }
 
 /**
@@ -280,6 +283,7 @@ object CommandCatalog {
                 typeId = meta.typeId,
                 categoryName = meta.category,
                 minTier = meta.minTier,
+                supports = meta.supports,
                 comingSoon = meta.comingSoon,
                 detail = meta.description.ifBlank { meta.params.joinToString(" · ") { it.label } },
                 permissions = meta.permissions,

@@ -7,8 +7,10 @@ import com.flowglass.engine.ComponentKind
 import com.flowglass.engine.ComponentMeta
 import com.flowglass.engine.ExecutionLayer
 import com.flowglass.engine.LayerSupport
+import com.flowglass.engine.trigger.TriggerTypes
 
-/** Availability of one implementation layer. A degraded layer is never selected. */
+/** Availability of one implementation layer. The resolver only selects READY; the picker may
+ * allow a DEGRADED LSPosed module with a hint because its module is already active. */
 enum class LayerState {
     READY,
     DEGRADED,
@@ -31,6 +33,71 @@ data class LayerStatusSnapshot(
         ExecutionLayer.ROOT -> root
         ExecutionLayer.XPOSED -> lsposed
     }
+}
+
+/**
+ * Whether the component picker should allow a component. [AvailableWithHint] is selectable but
+ * tells the user that the selected layer is active yet its system hooks are not ready.
+ * [Locked] remembers which layers the user has to activate so the row can open the matching
+ * authorization page instead of doing nothing.
+ */
+sealed interface ComponentAvailability {
+    data object Available : ComponentAvailability
+    data class AvailableWithHint(val hint: String) : ComponentAvailability
+    data class Locked(
+        val requiredLayers: Set<ExecutionLayer>,
+        val reason: String,
+    ) : ComponentAvailability
+}
+
+/**
+ * Picker-level availability. This deliberately does not compare [com.flowglass.engine.Tier]
+ * ordinals: Root and LSPosed are independent capabilities, and a linear tier makes one of them
+ * shadow the other. A component is selectable when any layer it declares is usable.
+ *
+ * NORMAL always stays selectable; missing runtime permissions are reported by the editor. ROOT
+ * needs a granted root session. LSPosed is available for method hooks as soon as the module is
+ * active (DEGRADED means active without a fresh system-hook heartbeat), while system-event
+ * triggers stay selectable in that state with a hint.
+ */
+fun componentAvailability(
+    meta: ComponentMeta,
+    snapshot: LayerStatusSnapshot,
+): ComponentAvailability = componentAvailability(meta.typeId, meta.supports, snapshot)
+
+fun componentAvailability(
+    typeId: String?,
+    supports: List<LayerSupport>,
+    snapshot: LayerStatusSnapshot,
+): ComponentAvailability {
+    val layers = supports.map { it.layer }.toSet()
+    if (ExecutionLayer.NORMAL in layers) return ComponentAvailability.Available
+    if (layers.isEmpty()) {
+        return ComponentAvailability.Locked(emptySet(), "没有声明执行层")
+    }
+    if (layers.any { snapshot.stateOf(it) == LayerState.READY }) {
+        return ComponentAvailability.Available
+    }
+
+    val lsposed = snapshot.stateOf(ExecutionLayer.XPOSED)
+    // Method hooks only require the module to be active; the system-hook heartbeat is not used.
+    if (typeId == TriggerTypes.METHOD_HOOK && lsposed != LayerState.UNAVAILABLE) {
+        return ComponentAvailability.Available
+    }
+    // A system-event trigger can still be configured while the hook is loaded but not ready.
+    if (ExecutionLayer.XPOSED in layers && lsposed == LayerState.DEGRADED) {
+        return ComponentAvailability.AvailableWithHint("系统钩子未就绪")
+    }
+
+    val required = layers.filter { it != ExecutionLayer.NORMAL }.toSet()
+    return ComponentAvailability.Locked(required, requiredLayersLabel(required))
+}
+
+private fun requiredLayersLabel(layers: Set<ExecutionLayer>): String {
+    val labels = listOf(ExecutionLayer.XPOSED, ExecutionLayer.ROOT, ExecutionLayer.NORMAL)
+        .filter { it in layers }
+        .joinToString(" 或 ") { it.label() }
+    return if (labels.isEmpty()) "没有可用执行层" else "需 $labels"
 }
 
 data class LayerSelection(
