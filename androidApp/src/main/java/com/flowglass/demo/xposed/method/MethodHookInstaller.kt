@@ -1,5 +1,6 @@
 package com.flowglass.demo.xposed.method
 
+import com.flowglass.engine.methodhook.MethodHookNames
 import com.flowglass.engine.methodhook.MethodHookRuntimeConfig
 import com.flowglass.engine.methodhook.MethodHookRuntimeJson
 import com.flowglass.engine.methodhook.MethodHookRuntimeHook
@@ -117,7 +118,7 @@ internal object MethodHookInstaller {
                                 args.getOrNull(extraction.argIndex ?: -1)
                             com.flowglass.engine.methodhook.MethodExtractionSource.RESULT -> result
                         }
-                        variables[extraction.name] =
+                        variables[MethodHookNames.normalizeExtractionName(extraction.name)] =
                             MethodValueReader.read(source, extraction.path).orEmpty()
                     }
                     emitter.emit(spec, TYPE_EVENT, variables, null, null)

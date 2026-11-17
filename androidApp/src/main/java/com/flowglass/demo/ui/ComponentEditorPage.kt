@@ -119,6 +119,7 @@ private fun ComponentEditorPage(
             },
             targets = (state.autoCmds + state.oneTaps).map { it.title },
             variables = parameterVariables(state, cmd),
+            onOpenMethodHooks = { onAuthorization(SettingsPage.MethodHooks) },
             showDone = false,
         )
     }

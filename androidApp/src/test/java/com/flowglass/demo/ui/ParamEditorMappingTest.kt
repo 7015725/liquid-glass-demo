@@ -50,6 +50,12 @@ class ParamEditorMappingTest {
         assertEquals(ParamSource.CURRENT_LOCATION, location.source)
     }
 
+    @Test fun methodHookTriggerUsesTheSavedHookPicker() {
+        val hook = requireNotNull(registry.find("trigger.method_hook")).params.single { it.key == "hook" }
+        assertEquals(ParamEditor.METHOD_HOOK, hook.resolvedEditor())
+        assertEquals(ParamSource.METHOD_HOOKS, hook.source)
+    }
+
     @Test fun dynamicSourcesAreDeclaredOnTheSpecNotTheComponentId() {
         val bluetooth = requireNotNull(registry.find("trigger.bluetooth")).params.single { it.key == "name" }
         assertEquals(ParamSource.PAIRED_BLUETOOTH, bluetooth.source)

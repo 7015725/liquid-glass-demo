@@ -57,6 +57,7 @@ internal fun ActionParameterEditor(
     onAuthorization: (Int) -> Unit = {},
     targets: List<String> = emptyList(),
     variables: List<VariableOption> = emptyList(),
+    onOpenMethodHooks: () -> Unit = {},
     showDone: Boolean = true,
 ) {
     val meta = item.typeId?.let { id -> com.flowglass.engine.BuiltInComponents.registry().find(id) }
@@ -80,6 +81,7 @@ internal fun ActionParameterEditor(
             onValue = onParameter,
             targets = targets,
             variables = variables,
+            onOpenMethodHooks = onOpenMethodHooks,
         )
         if (spec.hint.isNotBlank()) {
             T(spec.hint, 13.sp, color = C.OnSurfaceVar, lineHeight = 20.sp,

@@ -65,6 +65,7 @@ import com.flowglass.demo.system.exec.label
 import com.flowglass.engine.ExecutionLayer
 import com.flowglass.demo.xposed.ModuleStatus
 import com.flowglass.demo.xposed.method.MethodHookConfigPublisher
+import com.flowglass.demo.xposed.method.MethodHookCatalog
 import com.flowglass.demo.xposed.method.MethodHookSecrets
 import com.flowglass.demo.xposed.method.MethodHookStatusRegistry
 import com.flowglass.demo.xposed.method.MethodHookStore
@@ -129,7 +130,7 @@ fun SettingsHost(
         SettingsPage.Layers -> LayersPage()
         SettingsPage.Backup -> BackupRestorePage(state, themeMode, onThemeModeChange)
         SettingsPage.Variables -> VariableManagerPage(state)
-        SettingsPage.MethodHooks -> MethodHooksPage()
+        SettingsPage.MethodHooks -> MethodHooksPage(state)
         else -> SettingsMain(state, themeMode)
     }
 }
@@ -762,7 +763,7 @@ private fun MethodExtractionDraft.toModel(): MethodExtraction? {
 }
 
 @Composable
-private fun MethodHooksPage() {
+private fun MethodHooksPage(state: AppState) {
     val ctx = LocalContext.current
     val store = remember { MethodHookStore(File(ctx.filesDir, "method-hooks.json")) }
     var loaded by remember { mutableStateOf(store.load()) }
@@ -773,6 +774,8 @@ private fun MethodHooksPage() {
     val t = tick()
     val statuses = remember(t) { MethodHookStatusRegistry.snapshot() }
     var k = 0
+
+    LaunchedEffect(Unit) { MethodHookCatalog.refresh(ctx) }
 
     StatusCard(
         k++, Ic.Bolt, "方法钩子",
@@ -840,16 +843,27 @@ private fun MethodHooksPage() {
     if (creating || editing != null) {
         MethodHookEditorDialog(
             initial = editing,
-            existingNames = hooks.filterNot { it.id == editing?.id }
-                .flatMap { it.extractions }
-                .map { MethodHookNames.normalizeExtractionName(it.name) }
-                .toSet(),
+            existingNames = run {
+                // The dialog must validate against the same catalogue the variable manager shows;
+                // refresh synchronously so an immediate first open does not miss the last save.
+                MethodHookCatalog.refresh(ctx)
+                VariableCatalog.forManager(state)
+                    .map { it.name }
+                    .toSet()
+                    .minus(
+                        editing?.extractions
+                            ?.map { MethodHookNames.normalizeExtractionName(it.name) }
+                            ?.toSet()
+                            .orEmpty(),
+                    )
+            },
             onDismiss = { creating = false; editing = null },
             onSave = { spec ->
                 val next = hooks.filterNot { it.id == spec.id } + spec
                 try {
                     store.save(next)
                     hooks = next
+                    MethodHookCatalog.refresh(ctx)
                     MethodHookConfigPublisher.publish(ctx)
                     if (!spec.enabled) MethodHookSecrets(ctx).remove(spec.id)
                     loaded = store.load()
@@ -869,6 +883,7 @@ private fun MethodHooksPage() {
                         MethodHookConfigPublisher.publish(ctx)
                     }
                     hooks = next
+                    MethodHookCatalog.refresh(ctx)
                     loaded = store.load()
                     notice = "已删除 ${old.id}。"
                     creating = false

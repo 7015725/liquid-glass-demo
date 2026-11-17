@@ -200,7 +200,7 @@ object MethodHookValidation {
             } else if (name in MethodHookVariables.reserved) {
                 add("$label：名字「$name」是钩子内置变量，请换一个")
             } else if (name in existingNames) {
-                add("$label：提取变量「$name」已被其他钩子使用，变量名必须全局唯一")
+                add("$label：提取变量「$name」已被其他变量或钩子使用，变量名必须全局唯一")
             } else if (!names.add(name)) {
                 add("$label：提取变量「$name」重名")
             }

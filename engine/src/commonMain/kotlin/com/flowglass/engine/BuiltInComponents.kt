@@ -12,6 +12,7 @@ object BuiltInComponents {
         options: List<ParamOption> = emptyList(),
         hint: String = "",
         source: ParamSource = ParamSource.NONE,
+        editor: ParamEditor = ParamEditor.AUTO,
         applicationScope: ApplicationScope = ApplicationScope.ALL_PROFILES,
     ) = ParamSpec(key, label, type, required, when (type) {
         ParamType.PERCENTAGE -> JsonPrimitive(default.removeSuffix("%").toInt())
@@ -27,6 +28,7 @@ object BuiltInComponents {
         maxValue = if (type == ParamType.INT_RANGE) 100 else null,
         suffix = if (type == ParamType.INT_RANGE) "%" else "",
         source = source,
+        editor = editor,
         applicationScope = applicationScope)
 
     private val allWeekdays = "1,2,3,4,5,6,7"
@@ -158,8 +160,9 @@ object BuiltInComponents {
         ),
         ComponentMeta("trigger.method_hook", "方法钩子", "应用", ComponentKind.TRIGGER,
             listOf(
-                param("hook", "钩子标识", "", ParamType.TEXT, required = true,
-                    hint = "在「设置 → 方法钩子」创建后填入标识；规则中可直接写 {订单号} 等提取变量。"),
+                param("hook", "方法钩子", "", ParamType.TEXT, required = true,
+                    hint = "选择已创建的方法钩子；规则中可直接写 {订单号} 等提取变量。",
+                    source = ParamSource.METHOD_HOOKS, editor = ParamEditor.METHOD_HOOK),
             ), supports = listOf(LayerSupport(ExecutionLayer.XPOSED)),
             minTier = Tier.XPOSED,
             description = "目标应用的方法被调用时触发；只读观察参数/返回值，不修改目标方法。",

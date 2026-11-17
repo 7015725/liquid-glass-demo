@@ -1,9 +1,12 @@
 package com.flowglass.demo.ui
 
+import com.flowglass.demo.xposed.method.MethodHookCatalog
 import com.flowglass.engine.BuiltInVariables
 import com.flowglass.engine.VariableName
 import com.flowglass.engine.VariableScope
 import com.flowglass.engine.VariableType
+import com.flowglass.engine.methodhook.MethodExtractionSource
+import com.flowglass.engine.methodhook.MethodHookNames
 
 /** One row offered by the variable picker and the management page. */
 data class VariableOption(
@@ -70,6 +73,9 @@ object VariableCatalog {
     ): String? {
         VariableName.error(name)?.let { return it }
         if (BuiltInVariables.byName.containsKey(name)) return "名字已被占用：$name 是内置变量"
+        if (MethodHookCatalog.variableNames().contains(name)) {
+            return "名字已被占用：$name 是方法钩子提供的内置变量"
+        }
         val clash = forManager(state).firstOrNull {
             it.name == name && it.scope != VariableScope.BUILTIN &&
                 !(it.name == ignoreName && it.scope == scope && it.ownerId == ignoreOwner)
@@ -109,17 +115,41 @@ object VariableCatalog {
 
     fun token(name: String): String = "{$name}"
 
-    private fun builtins(state: AppState): List<VariableOption> = BuiltInVariables.all.map { spec ->
-        VariableOption(
-            name = spec.name,
-            scope = VariableScope.BUILTIN,
-            type = spec.type,
-            note = spec.description,
-            value = "运行时提供",
-            references = references(state, spec.name, VariableScope.BUILTIN, null),
-            legacyKey = spec.legacyKey,
-        )
-    }
+    private fun builtins(state: AppState): List<VariableOption> =
+        BuiltInVariables.all.map { spec ->
+            VariableOption(
+                name = spec.name,
+                scope = VariableScope.BUILTIN,
+                type = spec.type,
+                note = spec.description,
+                value = "运行时提供",
+                references = references(state, spec.name, VariableScope.BUILTIN, null),
+                legacyKey = spec.legacyKey,
+            )
+        } + MethodHookCatalog.all().flatMap { hook ->
+            hook.extractions.map { extraction ->
+                val name = MethodHookNames.normalizeExtractionName(extraction.name)
+                val where = when (extraction.source) {
+                    MethodExtractionSource.ARGUMENT -> "参数 ${extraction.argIndex ?: "?"}"
+                    MethodExtractionSource.RESULT -> "返回值"
+                }
+                val path = extraction.path.trim()
+                VariableOption(
+                    name = name,
+                    scope = VariableScope.BUILTIN,
+                    type = VariableType.TEXT,
+                    note = buildString {
+                        append("方法钩子「${MethodHookCatalog.displayName(hook)}」")
+                        append("：$where")
+                        if (path.isNotEmpty()) append(" · $path")
+                        if (!hook.enabled) append("（钩子未启用）")
+                    },
+                    value = "运行时提供",
+                    references = references(state, name, VariableScope.BUILTIN, null),
+                    ownerTitle = MethodHookCatalog.displayName(hook),
+                )
+            }
+        }
 
     private fun globals(state: AppState): List<VariableOption> = state.engineGlobals.map { (name, value) ->
         val meta = state.engineGlobalMeta[name]
