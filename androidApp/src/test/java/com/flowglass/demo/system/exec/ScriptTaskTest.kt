@@ -23,6 +23,7 @@ class ScriptTaskTest {
         return object : ScriptVariableAccess {
             override fun read(name: String): Any? = map[name]
             override fun write(name: String, value: Any?) { map[name] = value }
+            override fun names(): Set<String> = map.keys
         } to map
     }
 
@@ -88,6 +89,67 @@ class ScriptTaskTest {
 
         assertFalse(result.detail, result.status == StepStatus.SUCCESS)
         assertTrue(result.detail, result.detail.contains("脚本"))
+    }
+
+    @Test
+    fun newSyntaxBindsAChineseNameAsDataAndNeverExecutesIt() {
+        val (access, map) = variables()
+        val dangerous = "a'b\"c$(touch /tmp/pwned)`id`"
+        map["名字"] = dangerous
+        val result = ScriptTask.run(
+            RuntimeEnvironment.getApplication(),
+            command(task("var value = {名字}; value;")),
+            task("var value = {名字}; value;"),
+            access,
+        )
+
+        assertTrue(result.detail, result.status == StepStatus.SUCCESS)
+        assertEquals(dangerous, result.output)
+    }
+
+    @Test
+    fun injectedBindingsAreReadOnly() {
+        val (access, map) = variables()
+        map["名字"] = "original"
+        val result = ScriptTask.run(
+            RuntimeEnvironment.getApplication(),
+            command(task("var before = {名字}; {名字} = 'changed'; before;")),
+            task("var before = {名字}; {名字} = 'changed'; before;"),
+            access,
+        )
+
+        assertTrue(result.detail, result.status == StepStatus.SUCCESS)
+        assertEquals("original", result.output)
+        assertEquals("original", map["名字"])
+    }
+
+    @Test
+    fun jsonBracesAreNotMistakenForVariables() {
+        val result = ScriptTask.run(
+            RuntimeEnvironment.getApplication(),
+            command(task("var obj = {a: 1}; obj.a;")),
+            task("var obj = {a: 1}; obj.a;"),
+            null,
+        )
+
+        assertTrue(result.detail, result.status == StepStatus.SUCCESS)
+        assertEquals("1", result.output)
+    }
+
+    @Test
+    fun setAndGetUseChineseNames() {
+        val (access, map) = variables()
+        map["名字"] = "小明"
+        val result = ScriptTask.run(
+            RuntimeEnvironment.getApplication(),
+            command(task("set('结果', get('名字') + '！'); get('结果');")),
+            task("set('结果', get('名字') + '！'); get('结果');"),
+            access,
+        )
+
+        assertTrue(result.detail, result.status == StepStatus.SUCCESS)
+        assertEquals("小明！", result.output)
+        assertEquals("小明！", map["结果"])
     }
 
     @Test

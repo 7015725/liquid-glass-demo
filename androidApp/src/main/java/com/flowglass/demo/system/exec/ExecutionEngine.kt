@@ -79,6 +79,9 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
     /** Rule/global variable write-back; `ruleId` owns the rule-scope keys. */
     var variableWriter: ((String, Map<String, Any?>, Map<String, Any?>) -> Unit)? = null
 
+    /** Metadata for variables created or type-changed by a run. */
+    var variableDefinitionWriter: ((String, List<com.flowglass.engine.VariableDefinition>, List<com.flowglass.engine.VariableDefinition>) -> Unit)? = null
+
     private val caller = object : RuleCaller {
         override suspend fun call(
             ruleId: String,
@@ -211,9 +214,20 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
         return head + failures + marker + steps.takeLast(tailCount)
     }
 
-    private fun sinkFor(rule: Rule): VariableSink = VariableSink { ruleWrites, globalWrites ->
-        if (ruleWrites.isNotEmpty() || globalWrites.isNotEmpty()) {
-            variableWriter?.invoke(rule.id, ruleWrites, globalWrites)
+    private fun sinkFor(targetRule: Rule): VariableSink = object : VariableSink {
+        override fun persist(ruleWrites: Map<String, Any?>, globalWrites: Map<String, Any?>) {
+            if (ruleWrites.isNotEmpty() || globalWrites.isNotEmpty()) {
+                variableWriter?.invoke(targetRule.id, ruleWrites, globalWrites)
+            }
+        }
+
+        override fun persistDefinitions(
+            rule: List<com.flowglass.engine.VariableDefinition>,
+            global: List<com.flowglass.engine.VariableDefinition>,
+        ) {
+            if (rule.isNotEmpty() || global.isNotEmpty()) {
+                variableDefinitionWriter?.invoke(targetRule.id, rule, global)
+            }
         }
     }
 

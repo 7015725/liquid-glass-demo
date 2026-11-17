@@ -41,7 +41,7 @@ class CanonicalDisplayTest {
             "飞行模式：开启", "移动数据：开启",
             // v0.7 blocks.
             "如果", "循环：按次数|3", "等待直到：30 秒|1 秒", "跳出循环", "停止任务：按成功结束|",
-            "设置变量：|赋值|", "执行另一条指令：|等它执行完再继续")
+            "设置变量：|文本||设为|本指令|关闭", "执行另一条指令：|等它执行完再继续")
         val metas = BuiltInComponents.all
         fun components(kind: ComponentKind) = metas.filter { it.kind == kind }.map { RuleComponent(it.typeId, it.params.associate { p -> p.key to p.defaultValue }) }
         val state = RuleDocument(rules = listOf(com.flowglass.engine.Rule("golden", name = "显示",

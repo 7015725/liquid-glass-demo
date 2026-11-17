@@ -32,6 +32,7 @@ object ParamTemplate {
             ParamExpansion.SHELL_QUOTED -> expandShell(text, variables)
             ParamExpansion.URL_ENCODED -> replace(text, variables, ::percentEncode)
             ParamExpansion.HTTP_REQUEST -> expandHttpRequest(text, variables)
+            ParamExpansion.SCRIPT -> text
         }
     }
 

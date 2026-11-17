@@ -18,6 +18,15 @@ data class VariableSpec(
     val source: String = "",
 )
 
+/** A variable created or type-changed during a run; the host persists its metadata. */
+data class VariableDefinition(
+    val name: String,
+    val scope: VariableScope,
+    val type: VariableType,
+    val resetEachRun: Boolean = false,
+    val initial: Any? = null,
+)
+
 /**
  * Naming rules for user-defined variables. These are deliberately independent from the legacy
  * `%{...}` scanner so old names keep working while the new UI only offers `{名字}`.
