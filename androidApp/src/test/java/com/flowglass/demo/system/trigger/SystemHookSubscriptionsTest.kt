@@ -49,6 +49,16 @@ class SystemHookSubscriptionsTest {
     }
 
     @Test
+    fun mediaUsesTheMediaFamilyAndItsPackageAllowlist() {
+        val rules = listOf(rule(
+            "media",
+            "trigger.media" to mapOf("state" to "playing", "package" to "com.music.app@10"),
+        ))
+        assertEquals(SystemHookFamily.MEDIA.mask, SystemHookSubscriptions.requiredFamilies(rules))
+        assertEquals(setOf("com.music.app@10"), SystemHookSubscriptions.watchedPackages(rules))
+    }
+
+    @Test
     fun emptyRulesRequestNothingAndInvalidPackagesAreRejected() {
         assertEquals(0, SystemHookSubscriptions.requiredFamilies(emptyList()))
         assertEquals(emptySet<String>(), SystemHookSubscriptions.watchedPackages(emptyList()))

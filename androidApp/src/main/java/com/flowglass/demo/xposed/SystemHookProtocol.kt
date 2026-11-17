@@ -33,6 +33,9 @@ object SystemHookProtocol {
     const val EVENT_APP_ANR = "app_anr"
     const val EVENT_KEYGUARD_LOCKED = "keyguard_locked"
     const val EVENT_KEYGUARD_UNLOCKED = "keyguard_unlocked"
+    const val EVENT_MEDIA_PLAYING = "media_playing"
+    const val EVENT_MEDIA_PAUSED = "media_paused"
+    const val EVENT_MEDIA_STOPPED = "media_stopped"
 
     const val PERMISSION = "com.flowglass.demo.permission.SYSTEM_HOOK"
     const val SYSTEM_RECEIVER = "com.flowglass.demo.system.trigger.SystemHookReceiver"

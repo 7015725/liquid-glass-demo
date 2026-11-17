@@ -523,6 +523,26 @@ class TriggerEngineTest {
     }
 
     @Test
+    fun mediaTriggerMatchesPackageAndPlaybackState() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        val playing = rule("playing", listOf(TriggerComponent(
+            "trigger.media", "media",
+            mapOf("state" to JsonPrimitive("playing"), "package" to JsonPrimitive("com.music.app")),
+        )))
+        val rules = listOf(playing)
+        fun event(kind: String, app: String) = TriggerEvent(
+            kind, TriggerSource.SYSTEM, clock.now, mapOf("app" to app, "event" to "media"),
+        )
+
+        assertEquals(listOf("playing"), d.dispatch(event(TriggerKinds.MEDIA_PLAYING, "com.music.app@0"), rules)
+            .executions.map { it.rule.id })
+        assertEquals(0, d.dispatch(event(TriggerKinds.MEDIA_PAUSED, "com.music.app"), rules).executions.size)
+        assertEquals(0, d.dispatch(event(TriggerKinds.MEDIA_PLAYING, "com.other.app"), rules).executions.size)
+    }
+
+    @Test
     fun appProcessConditionUsesCachedStateAndFailsClosedWhenUnknown() {
         val env = FakeEnvironment(processRunning = null)
         val clock = FakeClock(0)

@@ -90,11 +90,14 @@ class SystemHookReceiver : BroadcastReceiver() {
 
     private companion object {
         val PACKAGE_PATTERN = Regex("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z0-9_]+)*")
-        val SUPPORTED_EVENTS = setOf(
+        private val SUPPORTED_EVENTS = setOf(
             SystemHookProtocol.EVENT_PROCESS_STARTED,
             SystemHookProtocol.EVENT_PROCESS_ENDED,
             SystemHookProtocol.EVENT_APP_CRASH,
             SystemHookProtocol.EVENT_APP_ANR,
+            SystemHookProtocol.EVENT_MEDIA_PLAYING,
+            SystemHookProtocol.EVENT_MEDIA_PAUSED,
+            SystemHookProtocol.EVENT_MEDIA_STOPPED,
         )
     }
 }

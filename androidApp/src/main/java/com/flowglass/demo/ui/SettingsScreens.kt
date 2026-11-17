@@ -675,6 +675,15 @@ private fun LSPosedPage() {
         )
         ListRow(
             Row1(
+                Ic.Play,
+                "媒体播放状态",
+                familyValue(SystemHookFamily.MEDIA),
+                sub = "trigger.media · 只观察播放/暂停/停止，不控制播放",
+            ),
+            true,
+        )
+        ListRow(
+            Row1(
                 Ic.Search,
                 "应用进程状态条件",
                 if (SystemHookSettings.isLoaded(ctx)) "依赖上面的进程事件" else "钩子未加载",
@@ -687,7 +696,7 @@ private fun LSPosedPage() {
     NoteCard(
         k++,
         if (hookEnabled) {
-            "系统钩子只观察前台切换、进程启动/结束、崩溃/ANR 和锁屏状态，并通过受保护广播回传，不修改系统行为。进程、崩溃/ANR 和锁屏只在有启用规则使用时订阅，默认不采集。若出现异常，可在 LSPosed 管理器里关闭本模块或禁用系统框架作用域，再重启设备。"
+            "系统钩子只观察前台切换、进程启动/结束、崩溃/ANR、锁屏状态和媒体播放状态，并通过受保护广播回传，不修改系统行为。进程、崩溃/ANR、锁屏和媒体只在有启用规则使用时订阅，默认不采集。若出现异常，可在 LSPosed 管理器里关闭本模块或禁用系统框架作用域，再重启设备。"
         } else {
             "默认关闭。启用后需要 LSPosed 的系统框架作用域；关闭后已注册的钩子不再发送任何事件。"
         },

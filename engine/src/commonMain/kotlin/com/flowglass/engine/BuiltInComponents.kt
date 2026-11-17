@@ -129,6 +129,20 @@ object BuiltInComponents {
             minTier = Tier.XPOSED,
             description = "只观察锁屏状态变化；需要 LSPosed 系统钩子。"
         ),
+        ComponentMeta("trigger.media", "媒体播放状态", "媒体", ComponentKind.TRIGGER,
+            listOf(
+                param("state", "状态", "playing", ParamType.ENUM, required = true, options = listOf(
+                    ParamOption("playing", "正在播放"),
+                    ParamOption("paused", "已暂停"),
+                    ParamOption("stopped", "已停止"),
+                )),
+                param("package", "应用", "应用包名", ParamType.APPLICATION, required = true,
+                    hint = "需要 LSPosed 系统钩子；支持 package@userId 分身。",
+                    applicationScope = ApplicationScope.ALL_PROFILES),
+            ), supports = listOf(LayerSupport(ExecutionLayer.XPOSED)),
+            minTier = Tier.XPOSED,
+            description = "观察媒体会话的播放 / 暂停 / 停止状态；只读，不控制播放。",
+        ),
         ComponentMeta("trigger.headset", "耳机插入/拔出", "设备", ComponentKind.TRIGGER,
             listOf(
                 param("state", "状态", "plugged", ParamType.ENUM, required = true, options = listOf(

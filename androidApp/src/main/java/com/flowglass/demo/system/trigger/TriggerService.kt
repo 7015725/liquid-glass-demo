@@ -273,6 +273,9 @@ private fun Intent.toTriggerEvent(): TriggerEvent? = when (action) {
             SystemHookProtocol.EVENT_PROCESS_ENDED -> TriggerKinds.APP_PROCESS_ENDED
             SystemHookProtocol.EVENT_APP_CRASH -> TriggerKinds.APP_CRASH
             SystemHookProtocol.EVENT_APP_ANR -> TriggerKinds.APP_ANR
+            SystemHookProtocol.EVENT_MEDIA_PLAYING -> TriggerKinds.MEDIA_PLAYING
+            SystemHookProtocol.EVENT_MEDIA_PAUSED -> TriggerKinds.MEDIA_PAUSED
+            SystemHookProtocol.EVENT_MEDIA_STOPPED -> TriggerKinds.MEDIA_STOPPED
             else -> return null
         }
         TriggerEvent(

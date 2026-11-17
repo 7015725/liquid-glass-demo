@@ -41,7 +41,9 @@ class ComponentLayerDeclarationTest {
         // The process/crash triggers are deliberately XPOSED-only: they are system-server events
         // with no normal or Root fallback, and declaring a fake normal implementation would make
         // the editor promise behavior the app cannot deliver.
-        val xposedOnlyTriggers = setOf("trigger.app_process", "trigger.app_crash", "trigger.keyguard")
+        val xposedOnlyTriggers = setOf(
+            "trigger.app_process", "trigger.app_crash", "trigger.keyguard", "trigger.media",
+        )
         BuiltInComponents.all
             .filter { it.kind == ComponentKind.ACTION && it.block == null || it.kind == ComponentKind.TRIGGER }
             .forEach { meta ->

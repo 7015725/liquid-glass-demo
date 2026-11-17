@@ -33,10 +33,16 @@ internal object SystemHook {
     private val lastIdentity = AtomicReference<String?>(null)
     private val lastKeyguard = AtomicReference<Boolean?>(null)
     private val lastProcessEvent = ConcurrentHashMap<String, Long>()
+    private val lastMediaState = ConcurrentHashMap<String, String>()
     private val installedCounts = ConcurrentHashMap<SystemHookFamily, Int>()
     private val sequence = AtomicLong(0L)
     @Volatile private var systemContext: Context? = null
     @Volatile private var receiverRegistered = false
+
+    /** android.media.PlaybackState constants, copied to avoid a compile-time system dependency. */
+    private const val MEDIA_STATE_STOPPED = 1
+    private const val MEDIA_STATE_PAUSED = 2
+    private const val MEDIA_STATE_PLAYING = 3
     private var heartbeat: Runnable? = null
     private val skipped = ConcurrentHashMap<String, Boolean>()
     private val dispatcher: SystemHookDispatcher by lazy {
@@ -55,6 +61,7 @@ internal object SystemHook {
             hookForegroundCandidates(lpparam.classLoader)
             hookProcessCandidates(lpparam.classLoader)
             hookKeyguardCandidates(lpparam.classLoader)
+            hookMediaCandidates(lpparam.classLoader)
             hookSystemContext(lpparam.classLoader)
         }
     }
@@ -165,6 +172,15 @@ internal object SystemHook {
         )
     }
 
+    private fun hookMediaCandidates(classLoader: ClassLoader) {
+        hookCandidates(
+            classLoader = classLoader,
+            candidates = SystemHookCandidates.media,
+            hookFactory = ::mediaHook,
+            family = SystemHookFamily.MEDIA,
+        )
+    }
+
     /**
      * Hooks every candidate once and records its own count. A family can contain candidates from
      * several classes; the total is what makes that family available to the app.
@@ -219,6 +235,12 @@ internal object SystemHook {
     private fun keyguardHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
         override fun afterHookedMethod(param: MethodHookParam?) {
             safe("keyguard event ${candidate.label}") { observeKeyguard(candidate, param) }
+        }
+    }
+
+    private fun mediaHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
+        override fun afterHookedMethod(param: MethodHookParam?) {
+            safe("media event ${candidate.label}") { observeMedia(candidate, param) }
         }
     }
 
@@ -294,6 +316,41 @@ internal object SystemHook {
             SystemHookProtocol.EVENT_KEYGUARD_UNLOCKED
         }
         emit(SystemHookFamily.KEYGUARD, kind, null)
+    }
+
+    private fun observeMedia(candidate: HookCandidate, param: XC_MethodHook.MethodHookParam?) {
+        if (!canEmit(SystemHookFamily.MEDIA)) return
+        val arguments = param?.args ?: return
+        val record = arguments.getOrNull(0) ?: run {
+            logSkip(candidate, "media session record unavailable")
+            return
+        }
+        val identity = readMediaIdentity(record) ?: run {
+            logSkip(candidate, "media package/user unavailable")
+            return
+        }
+        if (!isWatched(identity)) {
+            logSkip(candidate, "media package/user not subscribed")
+            return
+        }
+        val kind = when (candidate.source) {
+            HookEventSource.FIRST_ARGUMENT_MEDIA_SESSION -> SystemHookProtocol.EVENT_MEDIA_STOPPED
+            HookEventSource.FIRST_ARGUMENT_MEDIA_SESSION_WITH_PLAYBACK_STATE -> {
+                val playback = arguments.getOrNull(2) ?: return
+                val state = runCatching {
+                    XposedHelpers.callMethod(playback, "getState") as? Number
+                }.getOrNull()?.toInt() ?: return
+                when (state) {
+                    MEDIA_STATE_PLAYING -> SystemHookProtocol.EVENT_MEDIA_PLAYING
+                    MEDIA_STATE_PAUSED -> SystemHookProtocol.EVENT_MEDIA_PAUSED
+                    MEDIA_STATE_STOPPED -> SystemHookProtocol.EVENT_MEDIA_STOPPED
+                    else -> return
+                }
+            }
+            else -> return
+        }
+        if (lastMediaState.put(identity.key, kind) == kind) return
+        emit(SystemHookFamily.MEDIA, kind, identity)
     }
 
     private fun emit(family: SystemHookFamily, kind: String, identity: HookIdentity?) {
@@ -374,6 +431,23 @@ internal object SystemHook {
         }.getOrNull()) {
             is Number -> raw.toInt()
             else -> uid / 100_000
+        }
+        return HookIdentityReader.of(packageName, userId)
+    }
+
+    private fun readMediaIdentity(record: Any?): HookIdentity? {
+        if (record == null) return null
+        val packageName = runCatching {
+            XposedHelpers.callMethod(record, "getPackageName") as? String
+        }.getOrNull() ?: runCatching {
+            XposedHelpers.getObjectField(record, "mPackageName") as? String
+        }.getOrNull()
+        val userId = when (val raw = runCatching {
+            XposedHelpers.callMethod(record, "getUserId")
+        }.getOrNull()) {
+            is Number -> raw.toInt()
+            else -> runCatching { XposedHelpers.getObjectField(record, "mUserId") as? Number }
+                .getOrNull()?.toInt()
         }
         return HookIdentityReader.of(packageName, userId)
     }

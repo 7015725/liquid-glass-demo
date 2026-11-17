@@ -42,7 +42,8 @@ data class CommandItem(
             "trigger.location_enter", "trigger.location_exit" ->
                 parameter.split('|').filter { it.isNotEmpty() }.joinToString(" · ")
             "trigger.wifi", "trigger.bluetooth", "trigger.notification",
-            "trigger.app_foreground", "trigger.app_process", "trigger.app_crash", "trigger.headset" ->
+            "trigger.app_foreground", "trigger.app_process", "trigger.app_crash", "trigger.keyguard",
+            "trigger.media", "trigger.headset" ->
                 parameter.split('|').filter { it.isNotEmpty() }.joinToString(" · ")
             "condition.app_process_state" -> parameter.split('|').joinToString(" · ")
             else -> parameter
