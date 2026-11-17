@@ -3,6 +3,7 @@ package com.flowglass.demo.system
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.edit
+import com.flowglass.demo.xposed.BroadcastRateLimiter
 import com.flowglass.demo.xposed.HookIdentityReader
 import com.flowglass.demo.xposed.SystemHookFamily
 import com.flowglass.demo.xposed.SystemHookProtocol
@@ -27,7 +28,10 @@ object SystemHookSettings {
     private const val KEY_SUBSCRIBED_FAMILIES = "subscribed_families"
     private const val KEY_WATCHED = "watched_packages"
     private const val HEARTBEAT_TTL_MS = 60_000L
+    private const val HEARTBEAT_MIN_WRITE_MS = 2_000L
     private const val MAX_WATCHED = 128
+    private const val SEND_MIN_INTERVAL_MS = 2_000L
+    private val sendLimiter = BroadcastRateLimiter(SEND_MIN_INTERVAL_MS)
 
     enum class Status {
         /** No ACTION_LOADED has ever reached this app process. */
@@ -96,25 +100,43 @@ object SystemHookSettings {
         context: Context,
         hookCount: Int,
         availableFamilies: Int = SystemHookFamily.defaultMask,
-    ) {
-        prefs(context).edit {
+    ): Boolean {
+        val store = prefs(context)
+        val families = availableFamilies and knownFamilyMask()
+        if (store.getBoolean(KEY_LOADED, false) &&
+            store.getInt(KEY_HOOKS, -1) == hookCount &&
+            store.getInt(KEY_AVAILABLE_FAMILIES, SystemHookFamily.defaultMask) == families
+        ) return false
+        store.edit {
             putBoolean(KEY_LOADED, true)
             putInt(KEY_HOOKS, hookCount)
-            putInt(KEY_AVAILABLE_FAMILIES, availableFamilies and knownFamilyMask())
+            putInt(KEY_AVAILABLE_FAMILIES, families)
         }
+        return true
     }
 
+    /** Returns true when this heartbeat changed the stored state and is worth acting on. */
     fun markHeartbeat(
         context: Context,
         hookCount: Int,
         availableFamilies: Int = SystemHookFamily.defaultMask,
-    ) {
-        prefs(context).edit {
+    ): Boolean {
+        val store = prefs(context)
+        val now = System.currentTimeMillis()
+        val families = availableFamilies and knownFamilyMask()
+        val last = store.getLong(KEY_HEARTBEAT, 0L)
+        if (store.getBoolean(KEY_LOADED, false) &&
+            store.getInt(KEY_HOOKS, -1) == hookCount &&
+            store.getInt(KEY_AVAILABLE_FAMILIES, SystemHookFamily.defaultMask) == families &&
+            now - last in 0 until HEARTBEAT_MIN_WRITE_MS
+        ) return false
+        store.edit {
             putBoolean(KEY_LOADED, true)
-            putLong(KEY_HEARTBEAT, System.currentTimeMillis())
+            putLong(KEY_HEARTBEAT, now)
             putInt(KEY_HOOKS, hookCount)
-            putInt(KEY_AVAILABLE_FAMILIES, availableFamilies and knownFamilyMask())
+            putInt(KEY_AVAILABLE_FAMILIES, families)
         }
+        return true
     }
 
     private fun heartbeatFresh(last: Long): Boolean =
@@ -175,16 +197,29 @@ object SystemHookSettings {
         families: Int,
         watched: Collection<String>,
     ) {
+        val enabled = isEnabled(context)
+        val loaded = isLoaded(context)
+        val normalizedWatched = watched.asSequence()
+            .mapNotNull { HookIdentityReader.fromKey(it)?.key }
+            .sorted()
+            .joinToString(",")
+        val key = "$action|$enabled|$loaded|$families|$normalizedWatched"
+        if (!sendLimiter.allow(key, System.currentTimeMillis())) return
         runCatching {
             context.applicationContext.sendBroadcast(
                 Intent(action)
                     .setPackage("android")
-                    .putExtra(SystemHookProtocol.EXTRA_ENABLED, isEnabled(context))
-                    .putExtra(SystemHookProtocol.EXTRA_APP_KNOWS_LOADED, isLoaded(context))
+                    .putExtra(SystemHookProtocol.EXTRA_ENABLED, enabled)
+                    .putExtra(SystemHookProtocol.EXTRA_APP_KNOWS_LOADED, loaded)
                     .putExtra(SystemHookProtocol.EXTRA_FAMILIES, families)
-                    .putExtra(SystemHookProtocol.EXTRA_WATCHED, watched.joinToString(","))
+                    .putExtra(SystemHookProtocol.EXTRA_WATCHED, normalizedWatched)
             )
         }
+    }
+
+    /** Test seam; production never needs to reset the rate limiter. */
+    internal fun resetBroadcastThrottle() {
+        sendLimiter.clear()
     }
 
     fun normalizeWatched(values: Collection<String>): Set<String> {

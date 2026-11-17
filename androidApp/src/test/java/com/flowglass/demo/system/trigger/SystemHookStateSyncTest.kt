@@ -8,6 +8,7 @@ import com.flowglass.demo.xposed.SystemHookProtocol
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -18,6 +19,14 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class SystemHookStateSyncTest {
+    @Before
+    fun resetBroadcastThrottle() {
+        RuntimeEnvironment.getApplication()
+            .getSharedPreferences("system_hook", Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        SystemHookSettings.resetBroadcastThrottle()
+    }
+
     @Test
     fun appStartedBeforeHookEventuallySynchronizesEnabledState() {
         val app = RuntimeEnvironment.getApplication()
@@ -86,5 +95,45 @@ class SystemHookStateSyncTest {
         val reply = Shadows.shadowOf(app).broadcastIntents.last { it.action == SystemHookProtocol.ACTION_STATE }
         assertFalse(reply.getBooleanExtra(SystemHookProtocol.EXTRA_ENABLED, true))
         assertTrue(reply.getBooleanExtra(SystemHookProtocol.EXTRA_APP_KNOWS_LOADED, false))
+    }
+
+    @Test
+    fun repeatedLoadedAnnouncementsCannotFloodStateReplies() {
+        val app = RuntimeEnvironment.getApplication()
+        SystemHookSettings.setEnabled(app, true)
+        val shadow = Shadows.shadowOf(app)
+        val before = shadow.broadcastIntents.count { it.action == SystemHookProtocol.ACTION_STATE }
+
+        repeat(1_000) {
+            SystemHookReceiver().onReceive(
+                app,
+                Intent(SystemHookProtocol.ACTION_LOADED)
+                    .putExtra(SystemHookProtocol.EXTRA_HOOKS, 3),
+            )
+        }
+
+        val replies = shadow.broadcastIntents.count { it.action == SystemHookProtocol.ACTION_STATE } - before
+        assertTrue("state replies must be bounded, was $replies", replies <= 1)
+    }
+
+    @Test
+    fun repeatedIdenticalConfigCannotFloodTheHook() {
+        val app = RuntimeEnvironment.getApplication()
+        val shadow = Shadows.shadowOf(app)
+        val before = shadow.broadcastIntents.count { it.action == SystemHookProtocol.ACTION_CONFIG }
+
+        repeat(1_000) {
+            SystemHookSettings.broadcastConfig(app, SystemHookFamily.FOREGROUND.mask, listOf("com.example.app"))
+        }
+
+        val configs = shadow.broadcastIntents.count { it.action == SystemHookProtocol.ACTION_CONFIG } - before
+        assertTrue("config broadcasts must be bounded, was $configs", configs <= 1)
+    }
+
+    @Test
+    fun duplicateHeartbeatDoesNotRestartTheServiceInATightLoop() {
+        val app = RuntimeEnvironment.getApplication()
+        assertTrue(SystemHookSettings.markHeartbeat(app, 3))
+        assertFalse(SystemHookSettings.markHeartbeat(app, 3))
     }
 }
