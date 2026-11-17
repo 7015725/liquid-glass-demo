@@ -23,8 +23,5 @@ class ComponentRegistry {
     fun byCategory(category: String): List<ComponentMeta> = components.values.filter { it.category == category }
 
     @Synchronized
-    fun availableFor(tier: Tier): List<ComponentMeta> = components.values.filter { it.minTier.ordinal <= tier.ordinal }
-
-    @Synchronized
     fun byKind(kind: ComponentKind): List<ComponentMeta> = components.values.filter { it.kind == kind }
 }

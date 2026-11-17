@@ -4,6 +4,7 @@ import android.Manifest
 import com.flowglass.demo.system.Perms
 import com.flowglass.engine.BuiltInComponents
 import com.flowglass.engine.ComponentKind
+import com.flowglass.engine.ExecutionLayer
 import com.flowglass.engine.Tier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -95,6 +96,31 @@ class UiCatalogTest {
                     assertTrue("${option.typeId} 缺少层级徽标", option.minTier.badgeLabel.isNotBlank())
                 }
             }
+        }
+    }
+
+    @Test
+    fun catalogOptionsCarryTheDeclaredExecutionLayers() {
+        val systemEvent = CommandCatalog.options(CommandSection.TRIGGERS)
+            .first { it.typeId == "trigger.app_process" }
+        assertTrue(
+            "系统事件触发器没有把 XPOSED 层传给添加面板",
+            systemEvent.supports.any { it.layer == ExecutionLayer.XPOSED },
+        )
+    }
+
+    @Test
+    fun xposedBadgeUsesTheLsposedName() {
+        assertEquals("需 LSPosed", Tier.XPOSED.badgeLabel)
+        CommandSection.entries.forEach { section ->
+            CommandCatalog.options(section)
+                .filter { it.minTier == Tier.XPOSED }
+                .forEach { option ->
+                    assertTrue(
+                        "${option.typeId} 的徽标文案仍是旧框架名",
+                        option.minTier.badgeLabel == "需 LSPosed",
+                    )
+                }
         }
     }
 

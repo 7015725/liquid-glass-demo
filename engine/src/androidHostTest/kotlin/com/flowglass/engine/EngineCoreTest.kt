@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 
 class EngineCoreTest {
     @Test
-    fun registryRejectsDuplicateIdsAndFiltersByTier() {
+    fun registryRejectsDuplicateIdsAndListsByCategory() {
         val registry = ComponentRegistry()
         val normal = ComponentMeta("action.normal", "普通", "设备", ComponentKind.ACTION,
             supports = listOf(LayerSupport(ExecutionLayer.NORMAL)))
@@ -22,8 +22,7 @@ class EngineCoreTest {
         registry.register(root)
 
         assertEquals(listOf(normal, root), registry.byCategory("设备"))
-        assertEquals(listOf(normal), registry.availableFor(Tier.NORMAL))
-        assertEquals(listOf(normal, root), registry.availableFor(Tier.ROOT))
+        assertEquals(listOf(normal, root), registry.byKind(ComponentKind.ACTION))
         assertFailsWith<IllegalArgumentException> { registry.register(normal) }
     }
 
