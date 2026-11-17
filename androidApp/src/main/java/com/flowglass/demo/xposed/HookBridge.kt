@@ -24,11 +24,24 @@ internal interface HookBridge {
      */
     fun hookAllMethods(clazz: Class<*>, methodName: String, callback: HookCallback): Int
 
+    /**
+     * Hooks one already-resolved method. Returning false (for example because the framework
+     * rejected a native/abstract method) must not throw. Method-hook installers use this after
+     * [com.flowglass.engine.methodhook.MethodHookResolver] has selected a unique overload.
+     */
+    fun hookMethod(method: java.lang.reflect.Method, callback: HookCallback): Boolean
+
     fun getObjectField(instance: Any?, name: String): Any?
 
     fun callMethod(instance: Any?, name: String, vararg args: Any?): Any?
 
     fun callStaticMethod(clazz: Class<*>, name: String, vararg args: Any?): Any?
+
+    /**
+     * Reads the framework-provided configuration group. Classic uses XSharedPreferences; modern
+     * uses XposedInterface.getRemotePreferences. Missing groups return an empty map, never throw.
+     */
+    fun readPreferences(name: String): Map<String, String>
 }
 
 /**

@@ -53,6 +53,45 @@ data class MethodHookFile(
     }
 }
 
+/**
+ * Target-process copy of one hook. The token is the bearer secret shared through the framework's
+ * remote preferences; it never enters the App's commands document or its logs.
+ */
+@Serializable
+data class MethodHookRuntimeHook(
+    val spec: MethodHookSpec,
+    val token: String,
+)
+
+@Serializable
+data class MethodHookRuntimeConfig(
+    val formatVersion: Int = CURRENT_FORMAT_VERSION,
+    val hooks: List<MethodHookRuntimeHook> = emptyList(),
+) {
+    companion object {
+        const val CURRENT_FORMAT_VERSION = 1
+        const val PREF_KEY = "runtime"
+    }
+}
+
+object MethodHookRuntimeJson {
+    val format = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
+
+    fun encode(config: MethodHookRuntimeConfig): String =
+        format.encodeToString(MethodHookRuntimeConfig.serializer(), config)
+
+    fun decode(text: String): MethodHookRuntimeConfig {
+        val config = format.decodeFromString(MethodHookRuntimeConfig.serializer(), text)
+        require(config.formatVersion == MethodHookRuntimeConfig.CURRENT_FORMAT_VERSION) {
+            "不支持的方法钩子运行时格式版本 ${config.formatVersion}"
+        }
+        return config
+    }
+}
+
 object MethodHookJson {
     val format = Json {
         ignoreUnknownKeys = true

@@ -86,6 +86,13 @@
                 android:value="Listens for the triggers of enabled automatic commands" />
         </service>
 
+        <!-- Exported on purpose: target apps bind without our signature permission; every packet
+             is checked by calling UID + per-hook HMAC + session/seq in the Binder stub. -->
+        <service
+            android:name=".xposed.method.MethodHookEventService"
+            android:exported="true"
+            tools:ignore="ExportedService" />
+
         <receiver
             android:name=".system.trigger.TriggerAlarmReceiver"
             android:exported="false" />
@@ -151,5 +158,8 @@
         <meta-data android:name="xposeddescription" android:value="流光自动化：增强自动指令能力（Demo）" />
         <meta-data android:name="xposedminversion" android:value="82" />
         <meta-data android:name="xposedscope" android:resource="@array/xposed_scope" />
+        <!-- Lets classic XSharedPreferences read the method-hook runtime snapshot. Modern reads
+             the same group through XposedService.getRemotePreferences. -->
+        <meta-data android:name="xposedsharedprefs" android:value="true" />
     </application>
 </manifest>

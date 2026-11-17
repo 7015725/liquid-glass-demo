@@ -6,6 +6,7 @@ import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam
 import io.github.libxposed.api.XposedModuleInterface.SystemServerStartingParam
+import com.flowglass.demo.xposed.method.MethodHookTargetBootstrap
 
 /**
  * libxposed API 101 entry. The module app itself is not injected by modern frameworks, so this
@@ -34,10 +35,26 @@ class Api101Entry : XposedModule() {
     }
 
     override fun onPackageReady(param: PackageReadyParam) {
-        // Kept as an explicit no-op marker for the next PR: target-app method hooks are installed
-        // here, after the app classloader is ready, and never for the system packages.
+        // Kept as an explicit marker for the next PR: target-app method hooks are installed from
+        // onPackageLoaded via the Application#attach bootstrap, never for the system packages.
         runCatching {
             log(Log.DEBUG, TAG, "onPackageReady package=${param.packageName} first=${param.isFirstPackage}")
+        }
+    }
+
+    override fun onPackageLoaded(param: io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam) {
+        val packageName = param.packageName
+        if (packageName == "android" || packageName == "com.flowglass.demo" || packageName == "com.android.systemui") {
+            return
+        }
+        runCatching {
+            MethodHookTargetBootstrap.installOnApplicationAttach(
+                Api101HookBridge(this, param.defaultClassLoader),
+                param.defaultClassLoader,
+                packageName,
+            )
+        }.onFailure { failure ->
+            runCatching { log(Log.WARN, TAG, "method hook bootstrap failed: ${failure.javaClass.simpleName}") }
         }
     }
 

@@ -7,6 +7,7 @@ import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.system.trigger.TriggerService
 import com.flowglass.demo.ui.primeComposeStateOnMainThread
 import com.flowglass.demo.xposed.ModernModuleStatus
+import com.flowglass.demo.xposed.method.MethodHookConfigPublisher
 
 /**
  * Installs the root-grant cache for every entry point, not just the Activity: a background
@@ -21,7 +22,10 @@ class FlowApp : Application() {
         Root.install(this)
         // API101 no longer injects the module into its own app. Bind the framework service and
         // mark activation from that; the classic entry still marks itself through XposedEntry.
-        ModernModuleStatus.install()
+        ModernModuleStatus.install {
+            MethodHookConfigPublisher.publish(this)
+        }
+        MethodHookConfigPublisher.publish(this)
         // Upgrade path: old builds created keepalive/triggers channels; only "running" remains.
         RunningNotification.cleanupLegacyChannels(this)
         // Re-send the persisted hook state after process/system restarts; the system hook starts
