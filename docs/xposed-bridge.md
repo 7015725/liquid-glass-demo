@@ -34,7 +34,25 @@
 - `ModuleStatus` 的 classic 自 hook 仍然保留；modern API101 的激活状态在后续 PR 通过
   `XposedService` 绑定判断，不再依赖模块应用被自己 hook。
 
+## API101 入口（alpha18）
+
+- `androidApp/src/main/resources/META-INF/xposed/module.prop` 声明 `minApiVersion=101`、
+  `targetApiVersion=101`、`staticScope=false`、`autoHotReload=false`。
+- `java_init.list` 只列 `com.flowglass.demo.xposed.Api101Entry`；`scope.list` 初始包含
+  `com.flowglass.demo` 和 `system`。modern 的系统框架作用域是 `system`，不再用 `android` 判断。
+- `Api101Entry` 在 `onSystemServerStarting` 安装现有的系统钩子；`onModuleLoaded` 只记录进程；
+  `onPackageReady` 暂时只记录，方法钩子在后续 PR 安装。
+- `Api101HookBridge` 用 `hook(method).setExceptionMode(PROTECTIVE).intercept` 实现统一的
+  after 语义：`chain.proceed()` 恰好一次，参数复制后观察，返回值原样透传。
+- modern 框架不再把模块注入自己的 App，因此 `ModernModuleStatus` 通过
+  `XposedServiceHelper` 读取 `XposedService` 的 API、框架版本和作用域来标记激活；
+  `ModuleStatus` 同时保留 classic 自 hook 路径。
+- API101 的 `onPackageLoaded` / `onPackageReady` 带 Android Q 门槛；Android 8/9 的方法钩子
+  后续需要走 classic 或明确禁用，不能把 modern 方法钩子当成全版本可用。
+
 ## 边界
 
-- 本 PR 只做入口重构，不改变用户可见行为，不增加方法钩子。
-- 真机仍需确认 classic 入口在目标 LSPosed 版本上照常加载；本 PR 不做模拟器测试。
+- 本 PR 只接入 modern101 + classic；不生成 API100 stub、不发第二个 flavor。
+- 真机需要确认：LSPosed 版本/API101、模块列表中显示 modern 入口、作用域出现
+  `system`、系统钩子仍能加载且无广播风暴；这些不能由 JVM 测试代替。
+
