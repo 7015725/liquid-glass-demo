@@ -23,7 +23,7 @@ data class MethodExtraction(
 @Serializable
 data class MethodHookSpec(
     val id: String,
-    val enabled: Boolean = true,
+    val enabled: Boolean = false,
     val packageName: String,
     val userId: Int = 0,
     val className: String,

@@ -71,6 +71,7 @@ class MethodHookInstallerTest {
         burst: Int = 1,
     ) = MethodHookSpec(
         id = "h1",
+        enabled = true,
         packageName = "com.example.target",
         className = Target::class.java.name,
         methodName = methodName,

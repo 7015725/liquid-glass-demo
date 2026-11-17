@@ -895,7 +895,7 @@ private fun MethodHookEditorDialog(
     var paramTypes by remember(initial) { mutableStateOf(initial?.paramTypes?.joinToString(",").orEmpty()) }
     var maxCalls by remember(initial) { mutableStateOf(initial?.maxCallsPerMinute?.toString() ?: "60") }
     var burst by remember(initial) { mutableStateOf(initial?.burst?.toString() ?: "10") }
-    var enabled by remember(initial) { mutableStateOf(initial?.enabled ?: true) }
+    var enabled by remember(initial) { mutableStateOf(initial?.enabled ?: false) }
     var drafts by remember(initial) {
         mutableStateOf(
             initial?.extractions?.map {
