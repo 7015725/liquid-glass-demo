@@ -33,6 +33,7 @@ object TriggerTypes {
     const val APP_FOREGROUND = "trigger.app_foreground"
     const val APP_PROCESS = "trigger.app_process"
     const val APP_CRASH = "trigger.app_crash"
+    const val KEYGUARD = "trigger.keyguard"
     const val HEADSET = "trigger.headset"
     const val LOCATION_ENTER = "trigger.location_enter"
     const val LOCATION_EXIT = "trigger.location_exit"
@@ -49,6 +50,7 @@ object TriggerTypes {
         NOTIFICATION -> TriggerSource.NOTIFICATION
         APP_FOREGROUND -> TriggerSource.APP
         APP_PROCESS, APP_CRASH -> TriggerSource.SYSTEM
+        KEYGUARD -> TriggerSource.SYSTEM
         HEADSET -> TriggerSource.HEADSET
         LOCATION_ENTER, LOCATION_EXIT -> TriggerSource.LOCATION
         else -> null
@@ -135,6 +137,7 @@ object TriggerKinds {
     const val APP_PROCESS_ENDED = "app_process_ended"
     const val APP_CRASH = "app_crash"
     const val APP_ANR = "app_anr"
+    const val KEYGUARD = "keyguard"
     const val HEADSET = "headset"
     const val LOCATION = "location"
 }
@@ -227,6 +230,7 @@ object TriggerMatcher {
             TriggerKinds.APP_PROCESS_ENDED -> matchesProcessEvent(binding, event, "ended")
             TriggerKinds.APP_CRASH -> matchesCrashEvent(binding, event, "crash")
             TriggerKinds.APP_ANR -> matchesCrashEvent(binding, event, "anr")
+            TriggerKinds.KEYGUARD -> matchesKeyguard(binding, event)
             TriggerKinds.HEADSET -> matchesHeadset(binding, event, states)
             TriggerKinds.LOCATION -> matchesLocation(binding, event, states)
             else -> false
@@ -371,6 +375,12 @@ object TriggerMatcher {
         if (binding.component.params["event"]?.stringValue() != eventName) return false
         val target = binding.component.params["package"]?.stringValue()?.trim().orEmpty()
         return target.isNotEmpty() && sameApp(target, event.data["app"].orEmpty())
+    }
+
+    private fun matchesKeyguard(binding: TriggerBinding, event: TriggerEvent): Boolean {
+        if (binding.component.typeId != TriggerTypes.KEYGUARD) return false
+        val expected = binding.component.params["state"]?.stringValue() ?: return false
+        return event.data["event"] == expected
     }
 
     /** The main profile may be written as a bare package or with an explicit @0 suffix. */

@@ -253,6 +253,17 @@ private fun Intent.toTriggerEvent(): TriggerEvent? = when (action) {
     }
     TriggerService.ACTION_SYSTEM_EVENT -> {
         val event = getStringExtra(SystemHookProtocol.EXTRA_EVENT) ?: return null
+        val eventTime = getLongExtra(SystemHookProtocol.EXTRA_TIME, System.currentTimeMillis())
+        if (event == SystemHookProtocol.EVENT_KEYGUARD_LOCKED ||
+            event == SystemHookProtocol.EVENT_KEYGUARD_UNLOCKED
+        ) {
+            return TriggerEvent(
+                kind = TriggerKinds.KEYGUARD,
+                source = TriggerSource.SYSTEM,
+                atEpochMs = eventTime,
+                data = mapOf("event" to event),
+            )
+        }
         val packageName = getStringExtra(SystemHookProtocol.EXTRA_PACKAGE) ?: return null
         val userId = getIntExtra(SystemHookProtocol.EXTRA_USER, -1)
         if (userId !in 0..999_999) return null
@@ -267,7 +278,7 @@ private fun Intent.toTriggerEvent(): TriggerEvent? = when (action) {
         TriggerEvent(
             kind = kind,
             source = TriggerSource.SYSTEM,
-            atEpochMs = getLongExtra(SystemHookProtocol.EXTRA_TIME, System.currentTimeMillis()),
+            atEpochMs = eventTime,
             data = mapOf(
                 "app" to identity,
                 "app.user" to userId.toString(),

@@ -31,6 +31,8 @@ object SystemHookProtocol {
     const val EVENT_PROCESS_ENDED = "process_ended"
     const val EVENT_APP_CRASH = "app_crash"
     const val EVENT_APP_ANR = "app_anr"
+    const val EVENT_KEYGUARD_LOCKED = "keyguard_locked"
+    const val EVENT_KEYGUARD_UNLOCKED = "keyguard_unlocked"
 
     const val PERMISSION = "com.flowglass.demo.permission.SYSTEM_HOOK"
     const val SYSTEM_RECEIVER = "com.flowglass.demo.system.trigger.SystemHookReceiver"

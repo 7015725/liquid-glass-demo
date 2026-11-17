@@ -42,6 +42,13 @@ class SystemHookSubscriptionsTest {
     }
 
     @Test
+    fun keyguardUsesTheKeyguardFamilyWithoutAPackageAllowlist() {
+        val rules = listOf(rule("keyguard", "trigger.keyguard" to mapOf("state" to "locked")))
+        assertEquals(SystemHookFamily.KEYGUARD.mask, SystemHookSubscriptions.requiredFamilies(rules))
+        assertEquals(emptySet<String>(), SystemHookSubscriptions.watchedPackages(rules))
+    }
+
+    @Test
     fun emptyRulesRequestNothingAndInvalidPackagesAreRejected() {
         assertEquals(0, SystemHookSubscriptions.requiredFamilies(emptyList()))
         assertEquals(emptySet<String>(), SystemHookSubscriptions.watchedPackages(emptyList()))
