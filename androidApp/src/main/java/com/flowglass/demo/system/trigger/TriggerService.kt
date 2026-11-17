@@ -10,6 +10,7 @@ import android.os.IBinder
 import android.os.Process
 import android.util.Log
 import com.flowglass.demo.system.RunningNotification
+import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.system.exec.ExecutionRuntime
 import com.flowglass.demo.ui.AppRuntime
 import com.flowglass.demo.ui.snapshot
@@ -46,6 +47,10 @@ class TriggerService : Service() {
     override fun onCreate() {
         super.onCreate()
         current = this
+        // The service can be the first component started after a reboot, possibly before the
+        // system hook receiver is registered. Re-send the persisted hook state here; the hook
+        // replays its loaded announcement if this state still arrived too early.
+        SystemHookSettings.broadcastState(this)
         // Start with the safe type. Location is only requested after the rule set is known and
         // the app is actually visible; background starts must never downgrade an existing type.
         RunningNotification.start(this, RunningNotification.OWNER_TRIGGER, includeLocation = false)

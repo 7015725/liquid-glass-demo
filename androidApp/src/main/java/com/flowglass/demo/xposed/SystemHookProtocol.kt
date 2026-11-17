@@ -8,9 +8,11 @@ package com.flowglass.demo.xposed
 object SystemHookProtocol {
     const val APP_PACKAGE = "com.flowglass.demo"
     const val ACTION_STATE = "com.flowglass.demo.SYSTEM_HOOK_STATE"
+    const val ACTION_LOADED = "com.flowglass.demo.SYSTEM_HOOK_LOADED"
     const val ACTION_FOREGROUND = "com.flowglass.demo.SYSTEM_FOREGROUND"
     const val ACTION_HEARTBEAT = "com.flowglass.demo.SYSTEM_HOOK_HEARTBEAT"
     const val EXTRA_ENABLED = "enabled"
+    const val EXTRA_APP_KNOWS_LOADED = "app_knows_loaded"
     const val EXTRA_PACKAGE = "package"
     const val EXTRA_USER = "user"
     const val EXTRA_TIME = "time"
