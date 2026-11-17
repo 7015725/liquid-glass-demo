@@ -3,6 +3,7 @@ package com.flowglass.demo.system.trigger
 import android.content.Context
 import android.content.Intent
 import com.flowglass.demo.system.SystemHookSettings
+import com.flowglass.demo.xposed.SystemHookFamily
 import com.flowglass.demo.xposed.SystemHookProtocol
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -45,6 +46,25 @@ class SystemHookStateSyncTest {
 
         SystemHookSettings.markHeartbeat(app, 3)
         assertEquals(SystemHookSettings.Status.READY, SystemHookSettings.status(app))
+    }
+
+    @Test
+    fun configBroadcastCarriesOnlyKnownFamiliesAndValidatedIdentities() {
+        val app = RuntimeEnvironment.getApplication()
+        app.getSharedPreferences("system_hook", Context.MODE_PRIVATE).edit().clear().commit()
+        SystemHookSettings.broadcastConfig(
+            app,
+            SystemHookFamily.FOREGROUND.mask or SystemHookFamily.PROCESS.mask or 0x4000,
+            listOf("com.example.app@10", "not a package", "com.other"),
+        )
+
+        val config = Shadows.shadowOf(app).broadcastIntents.last { it.action == SystemHookProtocol.ACTION_CONFIG }
+        assertEquals(
+            SystemHookFamily.FOREGROUND.mask or SystemHookFamily.PROCESS.mask,
+            config.getIntExtra(SystemHookProtocol.EXTRA_FAMILIES, -1),
+        )
+        val watched = config.getStringExtra(SystemHookProtocol.EXTRA_WATCHED).orEmpty().split(',').toSet()
+        assertEquals(setOf("com.example.app@10", "com.other"), watched)
     }
 
     @Test

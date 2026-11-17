@@ -53,6 +53,7 @@ import com.flowglass.demo.system.Perms
 import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.RootGrantResult
 import com.flowglass.demo.system.SystemHookSettings
+import com.flowglass.demo.xposed.SystemHookFamily
 import com.flowglass.demo.system.RootGrants
 import com.flowglass.demo.system.SysTick
 import com.flowglass.demo.system.exec.LayerHeadline
@@ -583,6 +584,7 @@ private fun LSPosedPage() {
         SystemHookSettings.Status.LOADED_DISABLED -> "已加载但开关关闭"
         SystemHookSettings.Status.LOADED_WAITING -> "已加载；等待系统钩子心跳"
         SystemHookSettings.Status.NO_HOOKS -> "系统钩子已加载，但未找到可用的检测点"
+        SystemHookSettings.Status.FAMILY_UNAVAILABLE -> "已加载，但已订阅的事件族缺少检测点"
         SystemHookSettings.Status.READY -> "已加载且开启；系统钩子心跳正常"
     }
     val managerInstalled = remember(t) {
@@ -614,7 +616,7 @@ private fun LSPosedPage() {
         }
     }
     NoteCard(k++, "新版 LSPosed 的管理器可能没有桌面图标，可以从通知栏的 LSPosed 通知进入。")
-    GroupTitle("系统前台钩子", k++)
+    GroupTitle("系统钩子", k++)
     GroupCard(k++) { bd ->
         ListRow(
             Row1(
@@ -630,10 +632,53 @@ private fun LSPosedPage() {
             }, bd)
         }
     }
+    GroupTitle("按需订阅事件", k++)
+    GroupCard(k++) {
+        val familyValue: (SystemHookFamily) -> String = { family ->
+            val loaded = SystemHookSettings.isLoaded(ctx)
+            val available = SystemHookSettings.availableFamilies(ctx)
+            val subscribed = SystemHookSettings.subscribedFamilies(ctx)
+            when {
+                !loaded -> "钩子未加载"
+                !hookEnabled -> "开关关闭"
+                (available and family.mask) == 0 -> "未找到检测点"
+                (subscribed and family.mask) != 0 -> "已按规则订阅"
+                else -> "暂无规则使用"
+            }
+        }
+        ListRow(
+            Row1(
+                Ic.Bolt,
+                "应用进程启动 / 结束",
+                familyValue(SystemHookFamily.PROCESS),
+                sub = "trigger.app_process · 支持 package@userId",
+            ),
+            true,
+        )
+        ListRow(
+            Row1(
+                Ic.Info,
+                "应用崩溃 / ANR",
+                familyValue(SystemHookFamily.CRASH),
+                sub = "trigger.app_crash · 只发送事件类型，不读取堆栈",
+            ),
+            true,
+        )
+        ListRow(
+            Row1(
+                Ic.Search,
+                "应用进程状态条件",
+                if (SystemHookSettings.isLoaded(ctx)) "依赖上面的进程事件" else "钩子未加载",
+                sub = "condition.app_process_state · 缓存过期按不满足处理",
+                valueColor = C.Muted,
+            ),
+            false,
+        )
+    }
     NoteCard(
         k++,
         if (hookEnabled) {
-            "系统钩子只观察前台切换并通过受保护广播回传，不修改系统行为。若出现异常，可在 LSPosed 管理器里关闭本模块或禁用系统框架作用域，再重启设备。"
+            "系统钩子只观察前台切换、进程启动/结束和崩溃/ANR，并通过受保护广播回传，不修改系统行为。进程和崩溃/ANR 只在有启用规则使用时订阅，默认不采集。若出现异常，可在 LSPosed 管理器里关闭本模块或禁用系统框架作用域，再重启设备。"
         } else {
             "默认关闭。启用后需要 LSPosed 的系统框架作用域；关闭后已注册的钩子不再发送任何事件。"
         },

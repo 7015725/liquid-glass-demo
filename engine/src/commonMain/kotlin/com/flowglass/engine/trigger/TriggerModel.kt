@@ -14,7 +14,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 /** One installable listener family. Several trigger types can share a source. */
-enum class TriggerSource { TIME, SCREEN, POWER, BATTERY, BOOT, WIFI, BLUETOOTH, NOTIFICATION, APP, HEADSET, LOCATION }
+enum class TriggerSource { TIME, SCREEN, POWER, BATTERY, BOOT, WIFI, BLUETOOTH, NOTIFICATION, APP, HEADSET, LOCATION, SYSTEM }
 
 object TriggerTypes {
     const val TIME = "trigger.time"
@@ -31,6 +31,8 @@ object TriggerTypes {
     const val BLUETOOTH = "trigger.bluetooth"
     const val NOTIFICATION = "trigger.notification"
     const val APP_FOREGROUND = "trigger.app_foreground"
+    const val APP_PROCESS = "trigger.app_process"
+    const val APP_CRASH = "trigger.app_crash"
     const val HEADSET = "trigger.headset"
     const val LOCATION_ENTER = "trigger.location_enter"
     const val LOCATION_EXIT = "trigger.location_exit"
@@ -46,6 +48,7 @@ object TriggerTypes {
         BLUETOOTH -> TriggerSource.BLUETOOTH
         NOTIFICATION -> TriggerSource.NOTIFICATION
         APP_FOREGROUND -> TriggerSource.APP
+        APP_PROCESS, APP_CRASH -> TriggerSource.SYSTEM
         HEADSET -> TriggerSource.HEADSET
         LOCATION_ENTER, LOCATION_EXIT -> TriggerSource.LOCATION
         else -> null
@@ -128,6 +131,10 @@ object TriggerKinds {
     const val BLUETOOTH = "bluetooth"
     const val NOTIFICATION = "notification"
     const val APP = "app_foreground"
+    const val APP_PROCESS_STARTED = "app_process_started"
+    const val APP_PROCESS_ENDED = "app_process_ended"
+    const val APP_CRASH = "app_crash"
+    const val APP_ANR = "app_anr"
     const val HEADSET = "headset"
     const val LOCATION = "location"
 }
@@ -216,6 +223,10 @@ object TriggerMatcher {
             TriggerKinds.BLUETOOTH -> matchesBluetooth(binding, event, states)
             TriggerKinds.NOTIFICATION -> matchesNotification(binding, event)
             TriggerKinds.APP -> matchesApp(binding, event, states)
+            TriggerKinds.APP_PROCESS_STARTED -> matchesProcessEvent(binding, event, "started")
+            TriggerKinds.APP_PROCESS_ENDED -> matchesProcessEvent(binding, event, "ended")
+            TriggerKinds.APP_CRASH -> matchesCrashEvent(binding, event, "crash")
+            TriggerKinds.APP_ANR -> matchesCrashEvent(binding, event, "anr")
             TriggerKinds.HEADSET -> matchesHeadset(binding, event, states)
             TriggerKinds.LOCATION -> matchesLocation(binding, event, states)
             else -> false
@@ -339,6 +350,34 @@ object TriggerMatcher {
             else -> false
         }
     }
+
+    private fun matchesProcessEvent(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        eventName: String,
+    ): Boolean {
+        if (binding.component.typeId != TriggerTypes.APP_PROCESS) return false
+        if (binding.component.params["event"]?.stringValue() != eventName) return false
+        val target = binding.component.params["package"]?.stringValue()?.trim().orEmpty()
+        return target.isNotEmpty() && sameApp(target, event.data["app"].orEmpty())
+    }
+
+    private fun matchesCrashEvent(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        eventName: String,
+    ): Boolean {
+        if (binding.component.typeId != TriggerTypes.APP_CRASH) return false
+        if (binding.component.params["event"]?.stringValue() != eventName) return false
+        val target = binding.component.params["package"]?.stringValue()?.trim().orEmpty()
+        return target.isNotEmpty() && sameApp(target, event.data["app"].orEmpty())
+    }
+
+    /** The main profile may be written as a bare package or with an explicit @0 suffix. */
+    private fun sameApp(target: String, actual: String): Boolean =
+        target == actual ||
+            target.endsWith("@0") && target.removeSuffix("@0") == actual ||
+            actual.endsWith("@0") && actual.removeSuffix("@0") == target
 
     private fun matchesHeadset(
         binding: TriggerBinding,

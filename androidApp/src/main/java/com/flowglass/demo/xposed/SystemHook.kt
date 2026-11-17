@@ -11,32 +11,38 @@ import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
  * System-server side of the LSPosed integration. It is deliberately read-only: hooks only observe
- * candidate "resumed activity" methods and enqueue package/user data; nothing is replaced or
- * mutated. The actual broadcast is sent by [SystemHookDispatcher] on its own HandlerThread, after
- * the callback has returned and outside the WindowManager/ActivityManager locks held by the
- * hooked methods.
+ * candidate methods and enqueue package/user data; nothing is replaced or mutated. The actual
+ * broadcast is sent by [SystemHookDispatcher] on its own HandlerThread, after the callback has
+ * returned and outside the WindowManager/ActivityManager locks held by the hooked methods.
  *
  * Every callback and every posted Runnable is routed through [HookFailureGuard]: an unexpected
  * ROM layout or SecurityException is logged and can never escape into system_server.
  */
 internal object SystemHook {
     private val enabled = AtomicBoolean(false)
+    private val subscribedFamilies = AtomicInteger(SystemHookFamily.defaultMask)
+    private val watchedKeys = AtomicReference<Set<String>>(emptySet())
     private val lastIdentity = AtomicReference<String?>(null)
+    private val lastProcessEvent = ConcurrentHashMap<String, Long>()
+    private val installedCounts = ConcurrentHashMap<SystemHookFamily, Int>()
+    private val sequence = AtomicLong(0L)
     @Volatile private var systemContext: Context? = null
     @Volatile private var receiverRegistered = false
-    @Volatile private var installedHooks = 0
     private var heartbeat: Runnable? = null
-    private val skipped = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    private val skipped = ConcurrentHashMap<String, Boolean>()
     private val dispatcher: SystemHookDispatcher by lazy {
         SystemHookDispatcher(
             capacity = EVENT_QUEUE_CAPACITY,
             log = ::log,
-            sender = ::sendForeground,
+            sender = ::sendEvent,
         )
     }
 
@@ -46,6 +52,7 @@ internal object SystemHook {
             // Install detection points before any receiver can request a heartbeat, so the first
             // heartbeat always reports the real installed count (including zero).
             hookForegroundCandidates(lpparam.classLoader)
+            hookProcessCandidates(lpparam.classLoader)
             hookSystemContext(lpparam.classLoader)
         }
     }
@@ -105,7 +112,10 @@ internal object SystemHook {
             XposedHelpers.callMethod(thread, "getSystemContext") as? Context
         }.getOrNull() ?: return
         systemContext = context
-        val filter = IntentFilter(SystemHookProtocol.ACTION_STATE)
+        val filter = IntentFilter().apply {
+            addAction(SystemHookProtocol.ACTION_STATE)
+            addAction(SystemHookProtocol.ACTION_CONFIG)
+        }
         if (Build.VERSION.SDK_INT >= 33) {
             context.registerReceiver(
                 stateReceiver,
@@ -127,34 +137,71 @@ internal object SystemHook {
     }
 
     private fun hookForegroundCandidates(classLoader: ClassLoader) {
-        var installed = 0
-        val active = mutableListOf<String>()
-        for (candidate in SystemHookCandidates.resumed) {
+        hookCandidates(
+            classLoader = classLoader,
+            candidates = SystemHookCandidates.resumed,
+            hookFactory = ::foregroundHook,
+            family = SystemHookFamily.FOREGROUND,
+        )
+    }
+
+    private fun hookProcessCandidates(classLoader: ClassLoader) {
+        hookCandidates(
+            classLoader = classLoader,
+            candidates = SystemHookCandidates.process,
+            hookFactory = ::processHook,
+            family = null,
+        )
+    }
+
+    /**
+     * Hooks every candidate once and records its own count. A family can contain candidates from
+     * several classes; the total is what makes that family available to the app.
+     */
+    private fun hookCandidates(
+        classLoader: ClassLoader,
+        candidates: List<HookCandidate>,
+        hookFactory: (HookCandidate) -> XC_MethodHook,
+        family: SystemHookFamily?,
+    ) {
+        for (candidate in candidates) {
             var classFound = false
             try {
                 val clazz = XposedHelpers.findClass(candidate.className, classLoader)
                 classFound = true
-                val methods = XposedBridge.hookAllMethods(clazz, candidate.methodName, foregroundHook(candidate))
+                val methods = XposedBridge.hookAllMethods(clazz, candidate.methodName, hookFactory(candidate))
                 val count = methods.size
                 if (count > 0) {
-                    installed += count
-                    active += "${candidate.label}($count)"
+                    val targetFamily = family ?: candidate.family
+                    installedCounts.merge(targetFamily, count, Int::plus)
                 }
-                log("candidate ${candidate.label}: class=found hooks=$count")
+                log(
+                    "candidate ${candidate.label}: class=found family=${(family ?: candidate.family).name} " +
+                        "hooks=$count"
+                )
             } catch (failure: Throwable) {
                 log(
                     "candidate ${candidate.label}: class=${if (classFound) "found" else "missing"} " +
-                        "hooks=0 (${failure.javaClass.simpleName}: ${failure.message})"
+                        "family=${(family ?: candidate.family).name} hooks=0 " +
+                        "(${failure.javaClass.simpleName}: ${failure.message})"
                 )
             }
         }
-        installedHooks = installed
-        log("foreground hooks installed=$installed active=${active.ifEmpty { listOf("none") }.joinToString(",")}")
+        val active = installedCounts.entries
+            .filter { it.value > 0 }
+            .joinToString(",") { "${it.key.name}(${it.value})" }
+        log("hooks installed=${installedHooks()} active=${active.ifEmpty { "none" }}")
     }
 
     private fun foregroundHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
         override fun afterHookedMethod(param: MethodHookParam?) {
-            safe("foreground event ${candidate.label}") { observe(candidate, param) }
+            safe("foreground event ${candidate.label}") { observeForeground(candidate, param) }
+        }
+    }
+
+    private fun processHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
+        override fun afterHookedMethod(param: MethodHookParam?) {
+            safe("process event ${candidate.label}") { observeProcess(candidate, param) }
         }
     }
 
@@ -162,8 +209,8 @@ internal object SystemHook {
      * Runs on the hooked system-server thread while WMS/AMS locks may be held. It must not send a
      * broadcast or call into ActivityManager here; only copy plain data into the bounded queue.
      */
-    private fun observe(candidate: HookCandidate, param: XC_MethodHook.MethodHookParam?) {
-        if (!enabled.get()) return
+    private fun observeForeground(candidate: HookCandidate, param: XC_MethodHook.MethodHookParam?) {
+        if (!canEmit(SystemHookFamily.FOREGROUND)) return
         val arguments = param?.args ?: return
         val record = when (candidate.source) {
             HookEventSource.FIRST_ARGUMENT_ACTIVITY -> arguments.getOrNull(0)
@@ -171,24 +218,77 @@ internal object SystemHook {
                 if (!isResumedState(arguments.getOrNull(0))) return
                 param.thisObject
             }
+            else -> return
         } ?: run {
             logSkip(candidate, "activity record is null")
             return
         }
-        val identity = readIdentity(record) ?: run {
+        val identity = readActivityIdentity(record) ?: run {
             logSkip(candidate, "packageName/mUserId unavailable")
             return
         }
-        val key = if (identity.userId == 0) identity.packageName else "${identity.packageName}@${identity.userId}"
-        if (lastIdentity.get() == key) return
-        lastIdentity.set(key)
+        if (lastIdentity.get() == identity.key) return
+        lastIdentity.set(identity.key)
+        emit(SystemHookFamily.FOREGROUND, SystemHookProtocol.EVENT_FOREGROUND, identity)
+    }
+
+    private fun observeProcess(candidate: HookCandidate, param: XC_MethodHook.MethodHookParam?) {
+        if (!canEmit(candidate.family)) return
+        val arguments = param?.args ?: return
+        val identity = when (candidate.source) {
+            HookEventSource.SECOND_ARGUMENT_APPLICATION -> {
+                // startProcessLocked returns null when the process was not actually started.
+                if (param.result == null) {
+                    logSkip(candidate, "startProcessLocked returned null")
+                    return
+                }
+                readApplicationIdentity(arguments.getOrNull(1))
+            }
+            HookEventSource.FIRST_ARGUMENT_PROCESS -> readProcessIdentity(arguments.getOrNull(0))
+            HookEventSource.SECOND_ARGUMENT_PROCESS -> readProcessIdentity(arguments.getOrNull(1))
+            HookEventSource.CLEANUP_PROCESS_RECORD -> {
+                // A restarting app is not an exit; it immediately gets a new process.
+                if (arguments.getOrNull(2) == true) return
+                readProcessIdentity(arguments.getOrNull(0))
+            }
+            else -> null
+        } ?: run {
+            logSkip(candidate, "ProcessRecord identity unavailable")
+            return
+        }
+        if (!isWatched(identity)) {
+            logSkip(candidate, "package/user not subscribed")
+            return
+        }
+        if (!dedupeProcess(identity, candidate.kind)) return
+        emit(candidate.family, candidate.kind, identity)
+    }
+
+    private fun emit(family: SystemHookFamily, kind: String, identity: HookIdentity) {
+        if (!canEmit(family)) return
         dispatcher.enqueue(
-            HookForegroundEvent(
+            HookEvent(
+                family = family,
+                kind = kind,
                 packageName = identity.packageName,
                 userId = identity.userId,
                 atEpochMs = System.currentTimeMillis(),
             )
         )
+    }
+
+    private fun canEmit(family: SystemHookFamily): Boolean =
+        enabled.get() && (subscribedFamilies.get() and family.mask) != 0
+
+    private fun isWatched(identity: HookIdentity): Boolean =
+        watchedKeys.get().contains(identity.key)
+
+    private fun dedupeProcess(identity: HookIdentity, kind: String): Boolean {
+        val key = "${identity.key}:$kind"
+        val now = System.currentTimeMillis()
+        val previous = lastProcessEvent.put(key, now) ?: return true
+        if (now - previous < PROCESS_DEDUPE_MS) return false
+        return true
     }
 
     private fun isResumedState(state: Any?): Boolean {
@@ -197,7 +297,7 @@ internal object SystemHook {
         return name == "RESUMED"
     }
 
-    private fun readIdentity(record: Any?): HookIdentity? {
+    private fun readActivityIdentity(record: Any?): HookIdentity? {
         if (record == null) return null
         val packageName = runCatching {
             XposedHelpers.getObjectField(record, "packageName") as? String
@@ -211,6 +311,41 @@ internal object SystemHook {
         return HookIdentityReader.of(packageName, userId)
     }
 
+    private fun readApplicationIdentity(info: Any?): HookIdentity? {
+        if (info == null) return null
+        val packageName = runCatching {
+            XposedHelpers.getObjectField(info, "packageName") as? String
+        }.getOrNull()
+        val uid = when (val raw = runCatching {
+            XposedHelpers.getObjectField(info, "uid")
+        }.getOrNull()) {
+            is Number -> raw.toInt()
+            else -> null
+        } ?: return null
+        return HookIdentityReader.of(packageName, uid / 100_000)
+    }
+
+    private fun readProcessIdentity(record: Any?): HookIdentity? {
+        if (record == null) return null
+        val info = runCatching { XposedHelpers.getObjectField(record, "info") }.getOrNull()
+        val packageName = runCatching {
+            XposedHelpers.getObjectField(info, "packageName") as? String
+        }.getOrNull()
+        val uid = when (val raw = runCatching {
+            XposedHelpers.getObjectField(info, "uid")
+        }.getOrNull()) {
+            is Number -> raw.toInt()
+            else -> null
+        } ?: return null
+        val userId = when (val raw = runCatching {
+            XposedHelpers.getObjectField(record, "userId")
+        }.getOrNull()) {
+            is Number -> raw.toInt()
+            else -> uid / 100_000
+        }
+        return HookIdentityReader.of(packageName, userId)
+    }
+
     private fun logSkip(candidate: HookCandidate, reason: String) {
         val key = "${candidate.label}:$reason"
         if (skipped.putIfAbsent(key, true) == null) {
@@ -219,13 +354,15 @@ internal object SystemHook {
     }
 
     /** Runs on the dispatcher's HandlerThread, never under the hooked method's lock. */
-    private fun sendForeground(event: HookForegroundEvent) {
+    private fun sendEvent(event: HookEvent) {
         val context = systemContext ?: return
-        val intent = Intent(SystemHookProtocol.ACTION_FOREGROUND)
+        val intent = Intent(SystemHookProtocol.ACTION_EVENT)
             .setClassName(SystemHookProtocol.APP_PACKAGE, SystemHookProtocol.SYSTEM_RECEIVER)
-            .putExtra(SystemHookProtocol.EXTRA_PACKAGE, event.packageName)
-            .putExtra(SystemHookProtocol.EXTRA_USER, event.userId)
+            .putExtra(SystemHookProtocol.EXTRA_EVENT, event.kind)
             .putExtra(SystemHookProtocol.EXTRA_TIME, event.atEpochMs)
+            .putExtra(SystemHookProtocol.EXTRA_SEQ, sequence.incrementAndGet())
+        event.packageName?.let { intent.putExtra(SystemHookProtocol.EXTRA_PACKAGE, it) }
+        event.userId?.let { intent.putExtra(SystemHookProtocol.EXTRA_USER, it) }
         context.sendBroadcast(intent)
     }
 
@@ -240,7 +377,8 @@ internal object SystemHook {
             ctx.sendBroadcast(
                 Intent(SystemHookProtocol.ACTION_LOADED)
                     .setClassName(SystemHookProtocol.APP_PACKAGE, SystemHookProtocol.SYSTEM_RECEIVER)
-                    .putExtra(SystemHookProtocol.EXTRA_HOOKS, installedHooks)
+                    .putExtra(SystemHookProtocol.EXTRA_HOOKS, installedHooks())
+                    .putExtra(SystemHookProtocol.EXTRA_AVAILABLE_FAMILIES, availableFamilyMask())
             )
         }
     }
@@ -248,10 +386,21 @@ internal object SystemHook {
     private val stateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             safe("state receiver") {
-                if (intent?.action != SystemHookProtocol.ACTION_STATE) return@safe
+                val action = intent?.action
+                if (action != SystemHookProtocol.ACTION_STATE &&
+                    action != SystemHookProtocol.ACTION_CONFIG
+                ) return@safe
                 enabled.set(intent.getBooleanExtra(SystemHookProtocol.EXTRA_ENABLED, false))
+                subscribedFamilies.set(
+                    intent.getIntExtra(SystemHookProtocol.EXTRA_FAMILIES, SystemHookFamily.defaultMask) and
+                        knownFamilyMask()
+                )
+                watchedKeys.set(parseWatched(intent.getStringExtra(SystemHookProtocol.EXTRA_WATCHED)))
                 val appKnowsLoaded = intent.getBooleanExtra(SystemHookProtocol.EXTRA_APP_KNOWS_LOADED, false)
-                log("enabled=${enabled.get()} appKnowsLoaded=$appKnowsLoaded")
+                log(
+                    "enabled=${enabled.get()} families=0x${subscribedFamilies.get().toString(16)} " +
+                        "watched=${watchedKeys.get().size} appKnowsLoaded=$appKnowsLoaded"
+                )
                 // The app may have started before this receiver was registered. Its state
                 // broadcast then carries appKnowsLoaded=false; replay the loaded announcement
                 // once. Its acknowledgement carries true, so this cannot loop.
@@ -260,6 +409,25 @@ internal object SystemHook {
             }
         }
     }
+
+    private fun parseWatched(raw: String?): Set<String> {
+        if (raw.isNullOrBlank()) return emptySet()
+        return raw.split(',')
+            .asSequence()
+            .take(MAX_WATCHED)
+            .mapNotNull { HookIdentityReader.fromKey(it)?.key }
+            .toSet()
+    }
+
+    private fun installedHooks(): Int = installedCounts.values.sum()
+
+    private fun availableFamilyMask(): Int =
+        installedCounts.entries.fold(0) { result, entry ->
+            if (entry.value > 0) result or entry.key.mask else result
+        }
+
+    private fun knownFamilyMask(): Int =
+        SystemHookFamily.entries.fold(0) { result, family -> result or family.mask }
 
     private fun safe(where: String, block: () -> Unit) {
         HookFailureGuard.run(where, log = ::log, block = block)
@@ -289,7 +457,8 @@ internal object SystemHook {
         context.sendBroadcast(
             Intent(SystemHookProtocol.ACTION_HEARTBEAT)
                 .setClassName(SystemHookProtocol.APP_PACKAGE, SystemHookProtocol.SYSTEM_RECEIVER)
-                .putExtra(SystemHookProtocol.EXTRA_HOOKS, installedHooks)
+                .putExtra(SystemHookProtocol.EXTRA_HOOKS, installedHooks())
+                .putExtra(SystemHookProtocol.EXTRA_AVAILABLE_FAMILIES, availableFamilyMask())
         )
     }
 
@@ -304,4 +473,6 @@ internal object SystemHook {
 
     private const val HEARTBEAT_MS = 20_000L
     private const val EVENT_QUEUE_CAPACITY = 32
+    private const val PROCESS_DEDUPE_MS = 750L
+    private const val MAX_WATCHED = 128
 }

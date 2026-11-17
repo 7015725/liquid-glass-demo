@@ -12,6 +12,7 @@ import com.flowglass.engine.ActionOutcome
 import com.flowglass.engine.BuiltInActions
 import com.flowglass.engine.BuiltInComponents
 import com.flowglass.engine.CancellationCheckpoint
+import com.flowglass.demo.system.trigger.SystemEventCache
 import com.flowglass.engine.ConditionEnvironment
 import com.flowglass.engine.ExecutionLayer
 import com.flowglass.engine.ParameterCodec
@@ -293,6 +294,9 @@ private class AndroidConditionEnvironment(private val context: Context) : Condit
         val manager = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
         manager.isInteractive
     }.getOrDefault(true)
+
+    override fun appProcessRunning(packageName: String, userId: Int): Boolean? =
+        SystemEventCache.isProcessRunning(packageName, userId)
 
     override fun isDndOn(): Boolean? = runCatching {
         val manager = context.getSystemService(android.app.NotificationManager::class.java)

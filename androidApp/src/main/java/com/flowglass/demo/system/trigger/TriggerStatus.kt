@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.flowglass.demo.system.Perms
 import com.flowglass.demo.system.PermItem
+import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.ui.Cmd
 import com.flowglass.engine.BuiltInComponents
 import com.flowglass.engine.trigger.TriggerRule
@@ -16,6 +17,7 @@ enum class RuleListenState(val label: String) {
     LISTENING("监听中"),
     PAUSED("引擎已暂停"),
     MISSING_PERMISSION("缺少权限"),
+    WAITING_SYSTEM_HOOK("等待系统钩子"),
     DISABLED("未启用"),
     UNSUPPORTED("暂不支持"),
     UNCONFIGURED("未配置触发器"),
@@ -49,6 +51,8 @@ fun Cmd.listenState(running: Boolean, context: Context): RuleListenState = when 
     triggers.isEmpty() -> RuleListenState.UNCONFIGURED
     triggers.none { TriggerTypes.sourceOf(it.typeId.orEmpty()) != null } -> RuleListenState.UNSUPPORTED
     missingPermissionItems(context).isNotEmpty() -> RuleListenState.MISSING_PERMISSION
+    triggers.any { TriggerLayers.requiresSystemHook(it.typeId.orEmpty()) } &&
+        !SystemHookSettings.isAlive(context) -> RuleListenState.WAITING_SYSTEM_HOOK
     !TriggerStatus.serviceActive || id !in TriggerStatus.listeningRuleIds -> RuleListenState.PAUSED
     else -> RuleListenState.LISTENING
 }

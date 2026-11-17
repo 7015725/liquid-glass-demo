@@ -18,10 +18,10 @@ import java.util.concurrent.TimeUnit
 class HookEventDispatcherTest {
     @Test
     fun boundedQueueDropsTheOldestEvent() {
-        val queue = BoundedHookEventQueue(2)
-        queue.offer(HookForegroundEvent("a", 0, 1))
-        queue.offer(HookForegroundEvent("b", 0, 2))
-        queue.offer(HookForegroundEvent("c", 0, 3))
+        val queue = BoundedHookEventQueue<HookEvent>(2)
+        queue.offer(HookEvent(SystemHookFamily.FOREGROUND, SystemHookProtocol.EVENT_FOREGROUND, "a", 0, 1))
+        queue.offer(HookEvent(SystemHookFamily.FOREGROUND, SystemHookProtocol.EVENT_FOREGROUND, "b", 0, 2))
+        queue.offer(HookEvent(SystemHookFamily.FOREGROUND, SystemHookProtocol.EVENT_FOREGROUND, "c", 0, 3))
 
         assertEquals(listOf("b", "c"), queue.drain().map { it.packageName })
         assertEquals(0, queue.size())
@@ -48,12 +48,12 @@ class HookEventDispatcherTest {
         )
         val executor = Executors.newSingleThreadExecutor()
         try {
-            dispatcher.enqueue(HookForegroundEvent("first", 0, 1))
+            dispatcher.enqueue(HookEvent(SystemHookFamily.FOREGROUND, SystemHookProtocol.EVENT_FOREGROUND, "first", 0, 1))
             assertTrue("sender did not start", senderStarted.await(2, TimeUnit.SECONDS))
 
             // If dispatch held the queue lock while blocked in the sender, this enqueue could not
             // return until releaseSender; a short future timeout catches that regression.
-            val enqueueFuture = executor.submit { dispatcher.enqueue(HookForegroundEvent("second", 0, 2)) }
+            val enqueueFuture = executor.submit { dispatcher.enqueue(HookEvent(SystemHookFamily.FOREGROUND, SystemHookProtocol.EVENT_FOREGROUND, "second", 0, 2)) }
             enqueueFuture.get(1, TimeUnit.SECONDS)
 
             releaseSender.countDown()
@@ -81,8 +81,8 @@ class HookEventDispatcherTest {
             },
         )
         try {
-            dispatcher.enqueue(HookForegroundEvent("boom", 0, 1))
-            dispatcher.enqueue(HookForegroundEvent("ok", 0, 2))
+            dispatcher.enqueue(HookEvent(SystemHookFamily.FOREGROUND, SystemHookProtocol.EVENT_FOREGROUND, "boom", 0, 1))
+            dispatcher.enqueue(HookEvent(SystemHookFamily.FOREGROUND, SystemHookProtocol.EVENT_FOREGROUND, "ok", 0, 2))
             assertTrue("later event was not delivered", delivered.await(2, TimeUnit.SECONDS))
         } finally {
             dispatcher.close()
@@ -110,6 +110,48 @@ class HookEventDispatcherTest {
         assertEquals(
             HookEventSource.FIRST_ARGUMENT_ACTIVITY,
             SystemHookCandidates.resumed.single { it.label == "taskFragment.setResumedActivity" }.source,
+        )
+    }
+
+    @Test
+    fun familyMasksAreAppendOnlyAndRoundTrip() {
+        assertEquals(1, SystemHookFamily.FOREGROUND.mask)
+        assertEquals(2, SystemHookFamily.PROCESS.mask)
+        assertEquals(4, SystemHookFamily.CRASH.mask)
+        assertEquals(8, SystemHookFamily.KEYGUARD.mask)
+        assertEquals(16, SystemHookFamily.MEDIA.mask)
+        assertEquals(32, SystemHookFamily.FOREGROUND_SERVICE.mask)
+        val mask = SystemHookFamily.maskOf(
+            listOf(SystemHookFamily.FOREGROUND, SystemHookFamily.PROCESS, SystemHookFamily.CRASH),
+        )
+        assertEquals(setOf(SystemHookFamily.FOREGROUND, SystemHookFamily.PROCESS, SystemHookFamily.CRASH), SystemHookFamily.fromMask(mask))
+        assertEquals(emptySet<SystemHookFamily>(), SystemHookFamily.fromMask(0x40))
+        assertEquals(SystemHookFamily.FOREGROUND.mask, SystemHookFamily.defaultMask)
+    }
+
+    @Test
+    fun processCandidatesHaveExplicitSourcesAndFamilies() {
+        val methods = SystemHookCandidates.process.map { it.methodName }.toSet()
+        assertTrue("startProcessLocked" in methods)
+        assertTrue("cleanUpApplicationRecordLocked" in methods)
+        assertTrue("handleApplicationCrashInner" in methods)
+        assertTrue("appNotResponding" in methods)
+        assertTrue(
+            "process candidates must carry an explicit identity source",
+            SystemHookCandidates.process.all {
+                it.source in setOf(
+                    HookEventSource.SECOND_ARGUMENT_APPLICATION,
+                    HookEventSource.FIRST_ARGUMENT_PROCESS,
+                    HookEventSource.SECOND_ARGUMENT_PROCESS,
+                    HookEventSource.CLEANUP_PROCESS_RECORD,
+                )
+            },
+        )
+        assertTrue(
+            "process candidates must be bound to PROCESS or CRASH",
+            SystemHookCandidates.process.all {
+                it.family == SystemHookFamily.PROCESS || it.family == SystemHookFamily.CRASH
+            },
         )
     }
 
