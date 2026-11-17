@@ -12,7 +12,7 @@ class XposedEntry : IXposedHookLoadPackage {
         if (lpparam.packageName == "android") {
             // Defensive and read-only: every callback catches its own failures and the hook is
             // disabled until the app sends the explicit state broadcast.
-            SystemHook.install(lpparam)
+            SystemHook.install(LegacyHookBridge(), lpparam.classLoader)
             return
         }
         if (lpparam.packageName != "com.flowglass.demo") return
