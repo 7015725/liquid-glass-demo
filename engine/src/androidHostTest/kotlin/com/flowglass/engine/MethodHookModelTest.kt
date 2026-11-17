@@ -79,6 +79,9 @@ class MethodHookModelTest {
             extractions = valid.extractions + MethodExtraction(MethodHookVariables.APP, MethodExtractionSource.RESULT),
         )
         assertTrue(MethodHookValidation.errors(reserved).any { it.contains("内置变量") })
+
+        val sharedName = MethodHookValidation.errors(valid, existingNames = setOf("订单号"))
+        assertTrue(sharedName.any { it.contains("全局唯一") })
     }
 
     @Test

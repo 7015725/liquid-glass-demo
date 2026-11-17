@@ -156,6 +156,14 @@ object BuiltInComponents {
             minTier = Tier.XPOSED,
             description = "观察应用前台服务的进入 / 退出；只读，不读取通知内容。",
         ),
+        ComponentMeta("trigger.method_hook", "方法钩子", "应用", ComponentKind.TRIGGER,
+            listOf(
+                param("hook", "钩子标识", "", ParamType.TEXT, required = true,
+                    hint = "在「设置 → 方法钩子」创建后填入标识；规则中可直接写 {订单号} 等提取变量。"),
+            ), supports = listOf(LayerSupport(ExecutionLayer.XPOSED)),
+            minTier = Tier.XPOSED,
+            description = "目标应用的方法被调用时触发；只读观察参数/返回值，不修改目标方法。",
+        ),
         ComponentMeta("trigger.headset", "耳机插入/拔出", "设备", ComponentKind.TRIGGER,
             listOf(
                 param("state", "状态", "plugged", ParamType.ENUM, required = true, options = listOf(

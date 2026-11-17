@@ -269,6 +269,7 @@ class TriggerDispatcher(
             variables["event.$key"] = value
         }
         variables.putAll(BuiltInVariables.eventValues(event.kind, event.data, localTime))
+        event.methodHookVariables.forEach { (key, value) -> variables[key] = value }
         return variables
     }
 }

@@ -13,6 +13,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,6 +64,16 @@ import com.flowglass.demo.system.exec.LayerStatus
 import com.flowglass.demo.system.exec.label
 import com.flowglass.engine.ExecutionLayer
 import com.flowglass.demo.xposed.ModuleStatus
+import com.flowglass.demo.xposed.method.MethodHookConfigPublisher
+import com.flowglass.demo.xposed.method.MethodHookSecrets
+import com.flowglass.demo.xposed.method.MethodHookStatusRegistry
+import com.flowglass.demo.xposed.method.MethodHookStore
+import com.flowglass.engine.methodhook.MethodExtraction
+import com.flowglass.engine.methodhook.MethodExtractionSource
+import com.flowglass.engine.methodhook.MethodHookSpec
+import com.flowglass.engine.methodhook.MethodHookStatus
+import com.flowglass.engine.methodhook.MethodHookValidation
+import com.flowglass.engine.methodhook.MethodHookNames
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -73,6 +85,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.io.File
 
 /** Settings sub pages. 0 = main list. */
 object SettingsPage {
@@ -85,6 +98,7 @@ object SettingsPage {
     const val Layers = 6
     const val Backup = 7
     const val Variables = 8
+    const val MethodHooks = 9
     fun title(p: Int) = when (p) {
         KeepAlive -> "App 保活"
         Root -> "Root 激活"
@@ -94,6 +108,7 @@ object SettingsPage {
         Layers -> "执行层级"
         Backup -> "备份与恢复"
         Variables -> "变量"
+        MethodHooks -> "方法钩子"
         else -> "设置"
     }
 }
@@ -114,6 +129,7 @@ fun SettingsHost(
         SettingsPage.Layers -> LayersPage()
         SettingsPage.Backup -> BackupRestorePage(state, themeMode, onThemeModeChange)
         SettingsPage.Variables -> VariableManagerPage(state)
+        SettingsPage.MethodHooks -> MethodHooksPage()
         else -> SettingsMain(state, themeMode)
     }
 }
@@ -308,6 +324,11 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
             valueColor = if (root?.granted == true) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Root }, true)
         ListRow(Row1(Ic.Puzzle, "LSPosed 激活", if (lsposed) "已激活" else "未激活", sub = "Xposed 模块增强",
             valueColor = if (lsposed) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.LSPosed }, true)
+        ListRow(Row1(Ic.Bolt, "方法钩子", MethodHookStatusRegistry.snapshot().count {
+            it.status == com.flowglass.engine.methodhook.MethodHookStatus.INSTALLED
+        }.let { if (it > 0) "$it 个已安装" else "只读观察" },
+            sub = "指定目标应用的方法被调用时触发；默认关闭",
+            valueColor = C.Muted) { state.settingsPage = SettingsPage.MethodHooks }, true)
         val layers = LayerStatus.current()
         val layersHeadline = LayerHeadline.of(layers)
         ListRow(Row1(Ic.Shield, "执行层级", layersHeadline.big,
@@ -719,6 +740,277 @@ private fun LSPosedPage() {
             "默认关闭。启用后需要 LSPosed 的系统框架作用域；关闭后已注册的钩子不再发送任何事件。"
         },
     )
+}
+
+// ================================================================ method hooks
+
+private data class MethodExtractionDraft(
+    val name: String = "",
+    val source: String = "参数",
+    val argIndex: String = "",
+    val path: String = "",
+)
+
+private fun MethodExtractionDraft.toModel(): MethodExtraction? {
+    val resultSource = source.trim().startsWith("返回")
+    return MethodExtraction(
+        name = name.trim(),
+        source = if (resultSource) MethodExtractionSource.RESULT else MethodExtractionSource.ARGUMENT,
+        argIndex = if (resultSource) null else argIndex.trim().toIntOrNull(),
+        path = path.trim(),
+    )
+}
+
+@Composable
+private fun MethodHooksPage() {
+    val ctx = LocalContext.current
+    val store = remember { MethodHookStore(File(ctx.filesDir, "method-hooks.json")) }
+    var loaded by remember { mutableStateOf(store.load()) }
+    var hooks by remember { mutableStateOf(loaded.hooks) }
+    var editing by remember { mutableStateOf<MethodHookSpec?>(null) }
+    var creating by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    val t = tick()
+    val statuses = remember(t) { MethodHookStatusRegistry.snapshot() }
+    var k = 0
+
+    StatusCard(
+        k++, Ic.Bolt, "方法钩子",
+        if (hooks.isNotEmpty()) "已配置" else "未配置",
+        hooks.isNotEmpty(),
+        hooks.size.toString(), "个",
+        listOf(
+            "只读观察",
+            "默认关闭",
+            if (ModuleStatus.isActive()) "LSPosed 已激活" else "等待 LSPosed",
+        ),
+    )
+    if (loaded.error != null) NoteCard(k++, loaded.error!!)
+    if (notice != null) NoteCard(k++, notice!!)
+
+    GroupTitle("已配置钩子", k++)
+    GroupCard(k++) {
+        if (hooks.isEmpty()) {
+            T("还没有方法钩子。先新增一个目标，再在规则里添加「方法钩子」触发器。",
+                13.sp, color = C.Muted, modifier = Modifier.padding(20.dp))
+        }
+        hooks.forEachIndexed { index, hook ->
+            val own = statuses.filter { it.hookId == hook.id }
+            val installed = own.count { it.status == MethodHookStatus.INSTALLED }
+            val failed = own.count {
+                it.status == MethodHookStatus.FAILED || it.status == MethodHookStatus.NOT_FOUND ||
+                    it.status == MethodHookStatus.AMBIGUOUS
+            }
+            val value = when {
+                installed > 0 -> "$installed 个进程已安装"
+                failed > 0 -> "$failed 个进程未安装"
+                else -> "未上报"
+            }
+            ListRow(
+                Row1(
+                    Ic.Bolt,
+                    "${hook.packageName}@${hook.userId} · ${hook.methodName}",
+                    value,
+                    sub = "${hook.className} · 标识 ${hook.id}" +
+                        if (hook.extractions.isNotEmpty()) " · 变量 ${hook.extractions.joinToString("、") { it.name }}" else "",
+                    valueColor = if (installed > 0) C.GoodText else C.Muted,
+                ),
+                index < hooks.lastIndex,
+            ) {
+                StatusPillButton("编辑", false) { editing = hook }
+            }
+        }
+    }
+    GroupCard(k++) {
+        PrimaryButton("新增方法钩子", Ic.Plus, { creating = true }, Modifier.fillMaxWidth())
+    }
+    NoteCard(
+        k++,
+        "勾选 LSPosed 作用域即表示信任该目标应用。第一版只读：不修改参数、返回值，也不跳过原方法；" +
+            "目标应用的同 UID 代码理论上能读到自己的 token，本机制防止其他应用伪造和重放，不做同 UID 的密码学隔离。" +
+            "每钩子默认 60 次/分钟、突发 10 次，超限只上报限流状态。",
+    )
+    NoteCard(
+        k++,
+        "目标应用必须已在 LSPosed 作用域中勾选，并在重启后重新进入目标进程；安装结果按进程显示。" +
+            "规则里用 {订单号} 这样的写法引用提取变量；固定变量为 {钩子应用}、{钩子用户}、{钩子进程}、" +
+            "{钩子方法}、{钩子签名}、{钩子标识}。",
+    )
+
+    if (creating || editing != null) {
+        MethodHookEditorDialog(
+            initial = editing,
+            existingNames = hooks.filterNot { it.id == editing?.id }
+                .flatMap { it.extractions }
+                .map { MethodHookNames.normalizeExtractionName(it.name) }
+                .toSet(),
+            onDismiss = { creating = false; editing = null },
+            onSave = { spec ->
+                val next = hooks.filterNot { it.id == spec.id } + spec
+                try {
+                    store.save(next)
+                    hooks = next
+                    MethodHookConfigPublisher.publish(ctx)
+                    if (!spec.enabled) MethodHookSecrets(ctx).remove(spec.id)
+                    loaded = store.load()
+                    notice = "已保存 ${spec.id}；目标应用下次启动或重启进程后会重新安装。"
+                    creating = false
+                    editing = null
+                } catch (failure: Throwable) {
+                    notice = "保存失败：${failure.message ?: failure.javaClass.simpleName}"
+                }
+            },
+            onDelete = editing?.let { old ->
+                {
+                    val next = hooks.filterNot { it.id == old.id }
+                    runCatching {
+                        store.save(next)
+                        MethodHookSecrets(ctx).remove(old.id)
+                        MethodHookConfigPublisher.publish(ctx)
+                    }
+                    hooks = next
+                    loaded = store.load()
+                    notice = "已删除 ${old.id}。"
+                    creating = false
+                    editing = null
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun MethodHookEditorDialog(
+    initial: MethodHookSpec?,
+    existingNames: Set<String>,
+    onDismiss: () -> Unit,
+    onSave: (MethodHookSpec) -> Unit,
+    onDelete: (() -> Unit)?,
+) {
+    var packageName by remember(initial) { mutableStateOf(initial?.packageName.orEmpty()) }
+    var userId by remember(initial) { mutableStateOf(initial?.userId?.toString() ?: "0") }
+    var className by remember(initial) { mutableStateOf(initial?.className.orEmpty()) }
+    var methodName by remember(initial) { mutableStateOf(initial?.methodName.orEmpty()) }
+    var paramCount by remember(initial) { mutableStateOf(initial?.paramCount?.toString().orEmpty()) }
+    var paramTypes by remember(initial) { mutableStateOf(initial?.paramTypes?.joinToString(",").orEmpty()) }
+    var maxCalls by remember(initial) { mutableStateOf(initial?.maxCallsPerMinute?.toString() ?: "60") }
+    var burst by remember(initial) { mutableStateOf(initial?.burst?.toString() ?: "10") }
+    var enabled by remember(initial) { mutableStateOf(initial?.enabled ?: true) }
+    var drafts by remember(initial) {
+        mutableStateOf(
+            initial?.extractions?.map {
+                MethodExtractionDraft(
+                    name = it.name,
+                    source = if (it.source == MethodExtractionSource.RESULT) "返回值" else "参数",
+                    argIndex = it.argIndex?.toString().orEmpty(),
+                    path = it.path,
+                )
+            } ?: emptyList()
+        )
+    }
+    var error by remember(initial) { mutableStateOf<String?>(null) }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.fillMaxSize().padding(16.dp).clip(RoundedRectangle(28.dp)).background(C.Card)
+                .verticalScroll(rememberScrollState()).padding(20.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                T(if (initial == null) "新增方法钩子" else "编辑方法钩子", 20.sp, FontWeight.Bold,
+                    modifier = Modifier.weight(1f))
+                StatusPillButton("取消", false, onDismiss)
+            }
+            Spacer(Modifier.height(14.dp))
+            LabeledHint("目标应用包名（必须已在 LSPosed 作用域勾选）")
+            ParameterTextField(packageName, "method-hook-package") { packageName = it }
+            LabeledHint("用户 ID（主用户 0，分身填对应 user id）")
+            ParameterTextField(userId, "method-hook-user") { userId = it }
+            LabeledHint("类名（全限定，例如 com.example.OrderApi）")
+            ParameterTextField(className, "method-hook-class") { className = it }
+            LabeledHint("方法名")
+            ParameterTextField(methodName, "method-hook-method") { methodName = it }
+            LabeledHint("参数个数（可留空；重载必须收敛到唯一一个）")
+            ParameterTextField(paramCount, "method-hook-count") { paramCount = it }
+            LabeledHint("参数类型（逗号分隔的全限定名，可留空；例如 java.lang.String,int）")
+            ParameterTextField(paramTypes, "method-hook-types") { paramTypes = it }
+            LabeledHint("每分钟上限 / 突发上限")
+            ParameterTextField(maxCalls, "method-hook-rate") { maxCalls = it }
+            ParameterTextField(burst, "method-hook-burst") { burst = it }
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                T("启用", 15.sp, FontWeight.Medium, modifier = Modifier.weight(1f))
+                StatusPillButton(if (enabled) "已启用" else "已停用", enabled) { enabled = !enabled }
+            }
+            Spacer(Modifier.height(14.dp))
+            T("提取变量（名字允许中文；重复、内置名会被拒绝）", 15.sp, FontWeight.SemiBold)
+            drafts.forEachIndexed { index, draft ->
+                Spacer(Modifier.height(8.dp))
+                ParameterTextField(draft.name, "method-hook-extract-name-$index") {
+                    drafts = drafts.toMutableList().also { list -> list[index] = draft.copy(name = it) }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusPillButton(if (draft.source.startsWith("返回")) "返回值" else "参数", false) {
+                        drafts = drafts.toMutableList().also { list ->
+                            list[index] = draft.copy(source = if (draft.source.startsWith("返回")) "参数" else "返回值")
+                        }
+                    }
+                    if (!draft.source.startsWith("返回")) {
+                        ParameterTextField(draft.argIndex, "method-hook-extract-index-$index") {
+                            drafts = drafts.toMutableList().also { list -> list[index] = draft.copy(argIndex = it) }
+                        }
+                    }
+                }
+                ParameterTextField(draft.path, "method-hook-extract-path-$index") {
+                    drafts = drafts.toMutableList().also { list -> list[index] = draft.copy(path = it) }
+                }
+                if (drafts.size > 1) {
+                    StatusPillButton("删除提取项", false) {
+                        drafts = drafts.toMutableList().also { it.removeAt(index) }
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            StatusPillButton("添加提取项", false) {
+                drafts = drafts + MethodExtractionDraft()
+            }
+            if (error != null) {
+                Spacer(Modifier.height(12.dp))
+                T(error!!, 13.sp, color = C.Muted)
+            }
+            Spacer(Modifier.height(18.dp))
+            PrimaryButton(if (initial == null) "保存钩子" else "保存修改", Ic.Edit, {
+                val spec = MethodHookSpec(
+                    id = initial?.id ?: "hook-${System.currentTimeMillis()}",
+                    enabled = enabled,
+                    packageName = packageName.trim(),
+                    userId = userId.trim().toIntOrNull() ?: 0,
+                    className = className.trim(),
+                    methodName = methodName.trim(),
+                    paramCount = paramCount.trim().toIntOrNull(),
+                    paramTypes = paramTypes.split(',', '，').map { it.trim() }.filter { it.isNotEmpty() },
+                    extractions = drafts.mapNotNull { it.toModel() },
+                    maxCallsPerMinute = maxCalls.trim().toIntOrNull() ?: 60,
+                    burst = burst.trim().toIntOrNull() ?: 10,
+                )
+                val errors = MethodHookValidation.errors(spec, existingNames)
+                if (errors.isNotEmpty()) {
+                    error = errors.joinToString("\n")
+                } else {
+                    onSave(spec)
+                }
+            }, Modifier.fillMaxWidth())
+            if (onDelete != null) {
+                Spacer(Modifier.height(10.dp))
+                StatusPillButton("删除这个钩子", false, onDelete)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LabeledHint(text: String) {
+    Spacer(Modifier.height(8.dp))
+    T(text, 12.sp, color = C.Muted, lineHeight = 17.sp)
 }
 
 private fun state_toast(ctx: Context) {
