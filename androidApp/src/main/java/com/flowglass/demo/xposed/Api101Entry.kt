@@ -1,5 +1,6 @@
 package com.flowglass.demo.xposed
 
+import android.annotation.SuppressLint
 import android.util.Log
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
@@ -14,6 +15,7 @@ import io.github.libxposed.api.XposedModuleInterface.SystemServerStartingParam
  * Only system_server installs system hooks here. Target-app method hooks are added in a later PR;
  * they must not run in the module's own package or in system_server/SystemUI.
  */
+@SuppressLint("NewApi") // libxposed API101 only runs on Android Q+; minSdk 26 is for the app UI.
 class Api101Entry : XposedModule() {
     override fun onModuleLoaded(param: ModuleLoadedParam) {
         runCatching {
