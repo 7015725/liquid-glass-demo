@@ -563,10 +563,11 @@ class AppState internal constructor(saved: PersistedAppState?) {
     }
 
     fun deleteVariable(ownerId: Long?, name: String, scope: com.flowglass.engine.VariableScope) {
-        if (scope == com.flowglass.engine.VariableScope.LOCAL && ownerId != null) {
-            val ruleId = ruleIdFor(ownerId) ?: return
+        if (scope == com.flowglass.engine.VariableScope.LOCAL) {
+            val ruleId = ownerId?.let(::ruleIdFor)
             engineRules = engineRules.map { rule ->
-                if (rule.id != ruleId) rule else rule.copy(locals = rule.locals.filterNot { it.name == name })
+                if (ruleId != null && rule.id != ruleId) rule
+                else rule.copy(locals = rule.locals.filterNot { it.name == name })
             }
         } else if (scope == com.flowglass.engine.VariableScope.GLOBAL) {
             removeGlobal(name)
@@ -669,6 +670,39 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun setGlobal(name: String, value: String) {
         engineGlobals = engineGlobals + (name to kotlinx.serialization.json.JsonPrimitive(value))
         engineGlobalMeta = engineGlobalMeta + (name to (engineGlobalMeta[name] ?: com.flowglass.engine.GlobalVariableMeta()))
+    }
+
+    /** Creates a user variable from the management page without requiring the set-var action. */
+    fun createVariable(
+        scope: com.flowglass.engine.VariableScope,
+        commandId: Long?,
+        name: String,
+        type: String,
+        note: String,
+        value: String,
+    ) {
+        when (scope) {
+            com.flowglass.engine.VariableScope.GLOBAL -> {
+                engineGlobals = engineGlobals + (name to kotlinx.serialization.json.JsonPrimitive(value))
+                engineGlobalMeta = engineGlobalMeta + (
+                    name to com.flowglass.engine.GlobalVariableMeta(type = type, note = note)
+                )
+            }
+            com.flowglass.engine.VariableScope.LOCAL -> {
+                val ruleId = commandId?.let(::ruleIdFor) ?: return
+                engineRules = engineRules.map { rule ->
+                    if (rule.id != ruleId) rule else rule.copy(
+                        locals = rule.locals.filterNot { it.name == name } + com.flowglass.engine.LocalVariable(
+                            name = name,
+                            type = type,
+                            initial = kotlinx.serialization.json.JsonPrimitive(value),
+                            note = note,
+                        ),
+                    )
+                }
+            }
+            com.flowglass.engine.VariableScope.BUILTIN -> Unit
+        }
     }
 
     fun removeGlobal(name: String) {

@@ -47,6 +47,7 @@ internal data class MenuItemSpec(
     val icon: Ic? = null,
     val danger: Boolean = false,
     val enabled: Boolean = true,
+    val dismissOnClick: Boolean = true,
     val onClick: () -> Unit,
 )
 
@@ -132,7 +133,7 @@ internal fun MenuSurface(
     ) {
         items.forEach { item ->
             MenuItemRow(item, itemHeight) {
-                onDismiss()
+                if (item.dismissOnClick) onDismiss()
                 if (item.enabled) item.onClick()
             }
         }
