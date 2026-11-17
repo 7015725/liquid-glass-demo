@@ -38,11 +38,15 @@ class ComponentLayerDeclarationTest {
 
     @Test
     fun everyActionAndTriggerPublishesAnExecutableLayer() {
+        // The process/crash triggers are deliberately XPOSED-only: they are system-server events
+        // with no normal or Root fallback, and declaring a fake normal implementation would make
+        // the editor promise behavior the app cannot deliver.
+        val xposedOnlyTriggers = setOf("trigger.app_process", "trigger.app_crash")
         BuiltInComponents.all
             .filter { it.kind == ComponentKind.ACTION && it.block == null || it.kind == ComponentKind.TRIGGER }
             .forEach { meta ->
                 assertTrue(
-                    meta.supports.any { it.layer != ExecutionLayer.XPOSED },
+                    meta.supports.any { it.layer != ExecutionLayer.XPOSED } || meta.typeId in xposedOnlyTriggers,
                     "${meta.typeId} 只有 LSPosed 事件层，缺少可执行层",
                 )
             }

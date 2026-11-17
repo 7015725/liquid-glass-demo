@@ -161,6 +161,7 @@ class TriggerService : Service() {
         const val ACTION_START = "com.flowglass.demo.trigger.START"
         const val ACTION_EVENT = "com.flowglass.demo.trigger.EVENT"
         const val ACTION_SYSTEM_FOREGROUND = "com.flowglass.demo.trigger.SYSTEM_FOREGROUND"
+        const val ACTION_SYSTEM_EVENT = "com.flowglass.demo.trigger.SYSTEM_EVENT"
         const val ACTION_SYSTEM_HOOK_READY = "com.flowglass.demo.trigger.SYSTEM_HOOK_READY"
         const val ACTION_BOOT = "com.flowglass.demo.trigger.BOOT"
         const val ACTION_STOP = "com.flowglass.demo.trigger.STOP"
@@ -247,6 +248,30 @@ private fun Intent.toTriggerEvent(): TriggerEvent? = when (action) {
             data = mapOf(
                 "app" to identity,
                 "app.user" to userId.toString(),
+            ),
+        )
+    }
+    TriggerService.ACTION_SYSTEM_EVENT -> {
+        val event = getStringExtra(SystemHookProtocol.EXTRA_EVENT) ?: return null
+        val packageName = getStringExtra(SystemHookProtocol.EXTRA_PACKAGE) ?: return null
+        val userId = getIntExtra(SystemHookProtocol.EXTRA_USER, -1)
+        if (userId !in 0..999_999) return null
+        val identity = if (userId == 0) packageName else "$packageName@$userId"
+        val kind = when (event) {
+            SystemHookProtocol.EVENT_PROCESS_STARTED -> TriggerKinds.APP_PROCESS_STARTED
+            SystemHookProtocol.EVENT_PROCESS_ENDED -> TriggerKinds.APP_PROCESS_ENDED
+            SystemHookProtocol.EVENT_APP_CRASH -> TriggerKinds.APP_CRASH
+            SystemHookProtocol.EVENT_APP_ANR -> TriggerKinds.APP_ANR
+            else -> return null
+        }
+        TriggerEvent(
+            kind = kind,
+            source = TriggerSource.SYSTEM,
+            atEpochMs = getLongExtra(SystemHookProtocol.EXTRA_TIME, System.currentTimeMillis()),
+            data = mapOf(
+                "app" to identity,
+                "app.user" to userId.toString(),
+                "event" to event,
             ),
         )
     }

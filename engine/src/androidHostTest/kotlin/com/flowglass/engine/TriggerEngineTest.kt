@@ -34,6 +34,7 @@ class TriggerEngineTest {
         var offsetMinutes: Int = 0,
         var dnd: Boolean? = false,
         var network: NetworkType = NetworkType.NONE,
+        var processRunning: Boolean? = null,
     ) : TriggerEnvironment {
         override fun zoneOffsetMinutes(atEpochMs: Long): Int = offsetMinutes
         override fun batteryPercent(): Int? = battery
@@ -41,6 +42,7 @@ class TriggerEngineTest {
         override fun isScreenOn(): Boolean = screenOn
         override fun isDndOn(): Boolean? = dnd
         override fun networkType(): NetworkType = network
+        override fun appProcessRunning(packageName: String, userId: Int): Boolean? = processRunning
     }
 
     private class RecordingExecutor : TriggerExecutor {
@@ -496,6 +498,63 @@ class TriggerEngineTest {
         assertEquals(listOf("enter"), d.dispatch(event("com.target"), listOf(enter, leave)).executions.map { it.rule.id })
         clock.now = 6_000
         assertEquals(listOf("leave"), d.dispatch(event("com.other"), listOf(enter, leave)).executions.map { it.rule.id })
+    }
+
+    @Test
+    fun appProcessConditionUsesCachedStateAndFailsClosedWhenUnknown() {
+        val env = FakeEnvironment(processRunning = null)
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, env, executor)
+        val condition = TriggerComponent(
+            "condition.app_process_state", "app_process_state",
+            mapOf("package" to JsonPrimitive("com.target@10"), "state" to JsonPrimitive("running")),
+        )
+        val r = rule("condition", listOf(trigger("trigger.screen_on")), conditions = listOf(condition))
+        val event = screenEvent(at = 1_000)
+
+        assertEquals(0, d.dispatch(event, listOf(r)).executions.size)
+        env.processRunning = true
+        assertEquals(1, d.dispatch(event, listOf(r)).executions.size)
+        env.processRunning = false
+        assertEquals(0, d.dispatch(screenEvent(at = 2_000), listOf(r)).executions.size)
+    }
+
+    @Test
+    fun processAndCrashTriggersMatchKindAndPackageWithoutBaseline() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        val started = rule("started", listOf(TriggerComponent(
+            "trigger.app_process", "app_process",
+            mapOf("event" to JsonPrimitive("started"), "package" to JsonPrimitive("com.target@10")),
+        )))
+        val ended = rule("ended", listOf(TriggerComponent(
+            "trigger.app_process", "app_process",
+            mapOf("event" to JsonPrimitive("ended"), "package" to JsonPrimitive("com.target@10")),
+        )))
+        val crash = rule("crash", listOf(TriggerComponent(
+            "trigger.app_crash", "app_crash",
+            mapOf("event" to JsonPrimitive("crash"), "package" to JsonPrimitive("com.target@10")),
+        )))
+        val anr = rule("anr", listOf(TriggerComponent(
+            "trigger.app_crash", "app_crash",
+            mapOf("event" to JsonPrimitive("anr"), "package" to JsonPrimitive("com.target@10")),
+        )))
+        val rules = listOf(started, ended, crash, anr)
+        fun event(kind: String, app: String) = TriggerEvent(
+            kind, TriggerSource.SYSTEM, clock.now, mapOf("app" to app, "event" to kind),
+        )
+
+        assertEquals(listOf("started"), d.dispatch(event(TriggerKinds.APP_PROCESS_STARTED, "com.target@10"), rules).executions.map { it.rule.id })
+        clock.now = 3_000
+        assertEquals(listOf("ended"), d.dispatch(event(TriggerKinds.APP_PROCESS_ENDED, "com.target@10"), rules).executions.map { it.rule.id })
+        clock.now = 6_000
+        assertEquals(listOf("crash"), d.dispatch(event(TriggerKinds.APP_CRASH, "com.target@10"), rules).executions.map { it.rule.id })
+        clock.now = 9_000
+        assertEquals(listOf("anr"), d.dispatch(event(TriggerKinds.APP_ANR, "com.target@10"), rules).executions.map { it.rule.id })
+        assertEquals(0, d.dispatch(event(TriggerKinds.APP_PROCESS_STARTED, "com.other"), rules).executions.size)
+        assertEquals(0, d.dispatch(event(TriggerKinds.APP_PROCESS_STARTED, "com.target"), rules).executions.size)
     }
 
     @Test

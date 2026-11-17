@@ -12,9 +12,14 @@ import com.flowglass.engine.trigger.TriggerTypes
  * trigger additionally has a system-hook provider and a clone-only Root poller.
  */
 internal object TriggerLayers {
+    private val xposedOnly = setOf(TriggerTypes.APP_PROCESS, TriggerTypes.APP_CRASH)
+
+    fun requiresSystemHook(typeId: String): Boolean = typeId in xposedOnly
+
     fun hasImplementation(typeId: String, layer: ExecutionLayer): Boolean = when (layer) {
-        ExecutionLayer.NORMAL -> TriggerTypes.sourceOf(typeId) != null
-        ExecutionLayer.XPOSED, ExecutionLayer.ROOT -> typeId == TriggerTypes.APP_FOREGROUND
+        ExecutionLayer.NORMAL -> TriggerTypes.sourceOf(typeId) != null && typeId !in xposedOnly
+        ExecutionLayer.XPOSED -> typeId == TriggerTypes.APP_FOREGROUND || typeId in xposedOnly
+        ExecutionLayer.ROOT -> typeId == TriggerTypes.APP_FOREGROUND
     }
 
     /** The system hook wins when the user enabled it and the module is active. */

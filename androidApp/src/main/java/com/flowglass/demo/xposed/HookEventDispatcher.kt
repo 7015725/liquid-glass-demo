@@ -3,37 +3,40 @@ package com.flowglass.demo.xposed
 import android.os.Handler
 import android.os.HandlerThread
 import java.util.ArrayDeque
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * The only data a foreground hook is allowed to carry. No Context, Intent or system object is
- * retained in the queue: the worker builds the broadcast after the hook callback has returned.
+ * The only data a hook callback is allowed to carry. No Context, Intent or system object is
+ * retained in the queue: the worker builds the broadcast after the callback has returned.
  */
-internal data class HookForegroundEvent(
-    val packageName: String,
-    val userId: Int,
-    val atEpochMs: Long,
+internal data class HookEvent(
+    val family: SystemHookFamily,
+    val kind: String,
+    val packageName: String? = null,
+    val userId: Int? = null,
+    val atEpochMs: Long = System.currentTimeMillis(),
 )
 
 /**
  * Bounded event buffer. When the producer is faster than the worker, the oldest event is
- * discarded; recent foreground transitions are more useful than stale ones.
+ * discarded; recent transitions are more useful than stale ones.
  */
-internal class BoundedHookEventQueue(private val capacity: Int) {
+internal class BoundedHookEventQueue<T>(private val capacity: Int) {
     init {
         require(capacity > 0) { "capacity must be positive" }
     }
 
     private val lock = Any()
-    private val events = ArrayDeque<HookForegroundEvent>(capacity)
+    private val events = ArrayDeque<T>(capacity)
 
-    fun offer(event: HookForegroundEvent) {
+    fun offer(event: T) {
         synchronized(lock) {
             if (events.size >= capacity) events.removeFirst()
             events.addLast(event)
         }
     }
 
-    fun drain(): List<HookForegroundEvent> = synchronized(lock) {
+    fun drain(): List<T> = synchronized(lock) {
         if (events.isEmpty()) return@synchronized emptyList()
         val snapshot = events.toList()
         events.clear()
@@ -71,30 +74,24 @@ internal object HookFailureGuard {
 /**
  * Serializes hook events onto a dedicated HandlerThread. Hook callbacks only [enqueue] data;
  * the protected broadcast is sent later, outside the WindowManager/ActivityManager locks that
- * are often held by the hooked methods. A bounded queue prevents an unbounded backlog.
+ * are often held by the hooked methods. Every family has its own bounded queue, so a burst of
+ * high-frequency events cannot evict foreground/lifecycle transitions.
  */
 internal class SystemHookDispatcher(
     private val capacity: Int = 32,
     private val log: (String) -> Unit,
-    private val sender: (HookForegroundEvent) -> Unit,
+    private val sender: (HookEvent) -> Unit,
 ) {
-    private val queue = BoundedHookEventQueue(capacity)
+    private val queues: Map<SystemHookFamily, BoundedHookEventQueue<HookEvent>> =
+        SystemHookFamily.entries.associateWith { BoundedHookEventQueue<HookEvent>(capacity) }
     private val workerLock = Any()
+    private val scheduled = AtomicBoolean(false)
     @Volatile private var worker: HandlerThread? = null
     @Volatile private var handler: Handler? = null
 
-    fun enqueue(event: HookForegroundEvent) {
-        queue.offer(event)
-        HookFailureGuard.run("schedule hook dispatch", log = log) {
-            ensureWorker()
-            handler?.post {
-                HookFailureGuard.run("dispatch hook events", log = log) {
-                    queue.drain().forEach { item ->
-                        HookFailureGuard.run("send hook event", log = log) { sender(item) }
-                    }
-                }
-            }
-        }
+    fun enqueue(event: HookEvent) {
+        queues.getValue(event.family).offer(event)
+        schedule()
     }
 
     /** Start the worker before the first hook callback, not while a WMS/AMS lock may be held. */
@@ -108,9 +105,52 @@ internal class SystemHookDispatcher(
                 worker?.quitSafely()
                 worker = null
                 handler = null
+                scheduled.set(false)
             }
         }
     }
+
+    private fun schedule() {
+        HookFailureGuard.run("schedule hook dispatch", log = log) {
+            ensureWorker()
+            if (!scheduled.compareAndSet(false, true)) return@run
+            val target = handler
+            if (target == null) {
+                scheduled.set(false)
+                return@run
+            }
+            target.post {
+                HookFailureGuard.run("dispatch hook events", log = log) {
+                    try {
+                        drainAll()
+                    } finally {
+                        scheduled.set(false)
+                        if (hasEvents()) schedule()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun drainAll() {
+        var delivered = true
+        var batches = 0
+        while (delivered && batches < MAX_DRAIN_BATCHES) {
+            delivered = false
+            batches++
+            for (family in SystemHookFamily.entries) {
+                val batch = queues.getValue(family).drain()
+                if (batch.isEmpty()) continue
+                delivered = true
+                batch.forEach { item ->
+                    HookFailureGuard.run("send hook event", log = log) { sender(item) }
+                }
+            }
+        }
+    }
+
+    private fun hasEvents(): Boolean =
+        SystemHookFamily.entries.any { queues.getValue(it).size() > 0 }
 
     private fun ensureWorker() {
         if (handler != null) return
@@ -125,5 +165,6 @@ internal class SystemHookDispatcher(
 
     private companion object {
         const val WORKER_NAME = "FlowGlass-HookDispatch"
+        const val MAX_DRAIN_BATCHES = 8
     }
 }

@@ -16,6 +16,7 @@ interface TriggerEnvironment {
     fun isScreenOn(): Boolean
     fun isDndOn(): Boolean? = null
     fun networkType(): NetworkType = NetworkType.NONE
+    fun appProcessRunning(packageName: String, userId: Int): Boolean? = null
 }
 
 interface TriggerExecutor {
@@ -76,6 +77,8 @@ object TriggerConditions {
             override fun isScreenOn(): Boolean = environment.isScreenOn()
             override fun isDndOn(): Boolean? = environment.isDndOn()
             override fun networkType(): NetworkType = environment.networkType()
+            override fun appProcessRunning(packageName: String, userId: Int): Boolean? =
+                environment.appProcessRunning(packageName, userId)
         }
         val failed = conditions.mapNotNull { condition ->
             val passed = com.flowglass.engine.Conditions.evaluate(

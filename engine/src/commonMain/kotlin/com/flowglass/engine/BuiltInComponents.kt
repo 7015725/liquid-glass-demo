@@ -100,6 +100,28 @@ object BuiltInComponents {
                 LayerSupport(ExecutionLayer.NORMAL, permissions = listOf("foreground_app")),
             ),
             applicationCapability = ApplicationCapability.FOREGROUND_EVENTS),
+        ComponentMeta("trigger.app_process", "应用进程启动/结束", "应用", ComponentKind.TRIGGER,
+            listOf(
+                param("event", "事件", "started", ParamType.ENUM, required = true, options = listOf(
+                    ParamOption("started", "进程启动"), ParamOption("ended", "进程结束"))),
+                param("package", "应用", "应用包名", ParamType.APPLICATION, required = true,
+                    hint = "需要 LSPosed 系统钩子；支持 package@userId 分身。",
+                    applicationScope = ApplicationScope.ALL_PROFILES),
+            ), supports = listOf(LayerSupport(ExecutionLayer.XPOSED)),
+            minTier = Tier.XPOSED,
+            description = "观察应用进程的启动和结束，不是只观察前台 Activity。",
+        ),
+        ComponentMeta("trigger.app_crash", "应用崩溃 / ANR", "应用", ComponentKind.TRIGGER,
+            listOf(
+                param("event", "事件", "crash", ParamType.ENUM, required = true, options = listOf(
+                    ParamOption("crash", "崩溃"), ParamOption("anr", "无响应（ANR）"))),
+                param("package", "应用", "应用包名", ParamType.APPLICATION, required = true,
+                    hint = "需要 LSPosed 系统钩子；只发送事件类型，不读取堆栈或异常内容。",
+                    applicationScope = ApplicationScope.ALL_PROFILES),
+            ), supports = listOf(LayerSupport(ExecutionLayer.XPOSED)),
+            minTier = Tier.XPOSED,
+            description = "应用崩溃或 ANR 时触发；不发送崩溃堆栈。",
+        ),
         ComponentMeta("trigger.headset", "耳机插入/拔出", "设备", ComponentKind.TRIGGER,
             listOf(
                 param("state", "状态", "plugged", ParamType.ENUM, required = true, options = listOf(
@@ -142,6 +164,17 @@ object BuiltInComponents {
         ComponentMeta("condition.screen_state", "屏幕状态", "设备", ComponentKind.CONDITION,
             listOf(param("state", "屏幕状态", "on", ParamType.ENUM, options = listOf(
                 ParamOption("on", "已亮屏"), ParamOption("off", "已熄屏")))), supports = normalLayer),
+        ComponentMeta("condition.app_process_state", "应用进程状态", "应用", ComponentKind.CONDITION,
+            listOf(
+                ParamSpec("package", "应用", ParamType.APPLICATION, defaultValue = JsonPrimitive("应用包名"),
+                    hint = "需要 LSPosed 进程事件；数据过期时按不满足处理。",
+                    applicationScope = ApplicationScope.ALL_PROFILES,
+                    source = ParamSource.LAUNCHER_APPS),
+                param("state", "状态", "running", ParamType.ENUM, required = true, options = listOf(
+                    ParamOption("running", "运行中"), ParamOption("not_running", "未运行"))),
+            ), supports = normalLayer,
+            description = "读取最近一次 LSPosed 进程事件缓存；缓存过期返回不满足。",
+        ),
         ComponentMeta("condition.network_type", "网络类型", "网络", ComponentKind.CONDITION,
             listOf(param("network", "网络类型", "wifi", ParamType.ENUM, options = listOf(
                 ParamOption("wifi", "WiFi"), ParamOption("mobile", "移动网络"),

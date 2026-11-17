@@ -1,5 +1,6 @@
 package com.flowglass.demo.system
 
+import com.flowglass.demo.xposed.SystemHookFamily
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -44,6 +45,32 @@ class SystemHookSettingsTest {
                 loaded = true,
                 heartbeatFresh = true,
                 hookCount = -1,
+            ),
+        )
+    }
+
+    @Test
+    fun subscribedFamilyWithoutADetectionPointIsNotReady() {
+        assertEquals(
+            SystemHookSettings.Status.FAMILY_UNAVAILABLE,
+            SystemHookSettings.status(
+                enabled = true,
+                loaded = true,
+                heartbeatFresh = true,
+                hookCount = 1,
+                availableFamilies = SystemHookFamily.FOREGROUND.mask,
+                subscribedFamilies = SystemHookFamily.FOREGROUND.mask or SystemHookFamily.PROCESS.mask,
+            ),
+        )
+        assertEquals(
+            SystemHookSettings.Status.READY,
+            SystemHookSettings.status(
+                enabled = true,
+                loaded = true,
+                heartbeatFresh = true,
+                hookCount = 2,
+                availableFamilies = SystemHookFamily.FOREGROUND.mask or SystemHookFamily.PROCESS.mask,
+                subscribedFamilies = SystemHookFamily.FOREGROUND.mask or SystemHookFamily.PROCESS.mask,
             ),
         )
     }

@@ -15,6 +15,12 @@ interface ConditionEnvironment {
     fun isScreenOn(): Boolean
     fun isDndOn(): Boolean? = null
     fun networkType(): NetworkType = NetworkType.NONE
+
+    /**
+     * Last known process state from the LSPosed event cache. Null means unknown or stale; the
+     * condition fails closed rather than assuming the process is running.
+     */
+    fun appProcessRunning(packageName: String, userId: Int): Boolean? = null
 }
 
 /**
@@ -79,12 +85,32 @@ object Conditions {
             "off" -> !environment.isScreenOn()
             else -> false
         }
+        "condition.app_process_state" -> {
+            val target = parseAppTarget(condition.params["package"]?.stringValue()) ?: return false
+            val running = environment.appProcessRunning(target.first, target.second) ?: return false
+            when (condition.params["state"]?.stringValue()) {
+                "running" -> running
+                "not_running" -> !running
+                else -> false
+            }
+        }
         "condition.var_compare" -> compare(
             left = ParamTemplate.expand(condition.params["left"]?.stringValue().orEmpty(), variables),
             op = condition.params["op"]?.stringValue() ?: "eq",
             right = ParamTemplate.expand(condition.params["right"]?.stringValue().orEmpty(), variables),
         )
         else -> false
+    }
+
+    private fun parseAppTarget(raw: String?): Pair<String, Int>? {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return null
+        val at = value.lastIndexOf('@')
+        val packageName = if (at < 0) value else value.substring(0, at)
+        val userId = if (at < 0) 0 else value.substring(at + 1).toIntOrNull() ?: return null
+        if (!PACKAGE_PATTERN.matches(packageName)) return null
+        if (userId !in 0..999_999) return null
+        return packageName to userId
     }
 
     internal fun compare(left: String, op: String, right: String): Boolean {
@@ -117,3 +143,5 @@ private fun kotlinx.serialization.json.JsonElement.stringValue(): String? = when
     is JsonObject, is kotlinx.serialization.json.JsonArray -> null
     else -> jsonPrimitive.content
 }
+
+private val PACKAGE_PATTERN = Regex("[A-Za-z][A-Za-z0-9_]*(?:\\.[A-Za-z0-9_]+)*")

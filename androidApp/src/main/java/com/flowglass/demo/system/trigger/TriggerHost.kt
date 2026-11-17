@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import androidx.compose.runtime.snapshotFlow
+import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.system.exec.ExecutionRuntime
 import com.flowglass.demo.ui.AppRuntime
 import com.flowglass.demo.ui.AppState
@@ -68,6 +69,9 @@ internal class AndroidTriggerEnvironment(private val context: Context) : Trigger
 
     override fun isScreenOn(): Boolean =
         context.getSystemService(PowerManager::class.java)?.isInteractive == true
+
+    override fun appProcessRunning(packageName: String, userId: Int): Boolean? =
+        SystemEventCache.isProcessRunning(packageName, userId)
 
     override fun isDndOn(): Boolean? {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return null
@@ -253,7 +257,16 @@ internal class TriggerHost(
 
     /** Rebuild the foreground source after the system hook's first heartbeat. */
     fun refreshAppSource() {
-        if (!started || TriggerSource.APP !in sourceRegistry.registered) return
+        if (!started) return
+        // A heartbeat also proves that the system hook can receive config now. Re-send the
+        // current rule-derived subscription: an app that started before the hook registered its
+        // receiver may otherwise miss the process/crash families for the whole session.
+        SystemHookSettings.broadcastConfig(
+            context,
+            SystemHookSubscriptions.requiredFamilies(lastRules),
+            SystemHookSubscriptions.watchedPackages(lastRules),
+        )
+        if (TriggerSource.APP !in sourceRegistry.registered) return
         uninstallSource(TriggerSource.APP)
         installSource(TriggerSource.APP)
     }
@@ -261,11 +274,17 @@ internal class TriggerHost(
     private fun reconcile(input: TriggerInput) {
         val eligible = eligibleRules(input.rules)
         if (!input.running || eligible.isEmpty()) {
+            SystemHookSettings.clearSubscriptions(context)
             dispatcher.prune(emptyList())
             stop(cancelAlarms = true)
             onShouldStop()
             return
         }
+        SystemHookSettings.broadcastConfig(
+            context,
+            SystemHookSubscriptions.requiredFamilies(eligible),
+            SystemHookSubscriptions.watchedPackages(eligible),
+        )
         dispatcher.prune(eligible)
         val listening = eligible.filter { rule ->
             rule.triggers.any { TriggerTypes.sourceOf(it.typeId) != null }
@@ -338,9 +357,9 @@ internal class TriggerHost(
             }
             TriggerSource.HEADSET -> headsetWatcher.start()
             TriggerSource.LOCATION -> locationWatcher.start()
-            // TIME is an AlarmManager schedule, BOOT is a manifest receiver; neither has a
-            // dynamic receiver to install.
-            TriggerSource.TIME, TriggerSource.BOOT -> Unit
+            // TIME is an AlarmManager schedule, BOOT is a manifest receiver; SYSTEM events are
+            // emitted by the already-installed LSPosed hook and need no dynamic receiver.
+            TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM -> Unit
         }
     }
 
@@ -358,7 +377,7 @@ internal class TriggerHost(
             }
             TriggerSource.HEADSET -> headsetWatcher.stop()
             TriggerSource.LOCATION -> locationWatcher.stop()
-            TriggerSource.TIME, TriggerSource.BOOT -> Unit
+            TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM -> Unit
         }
     }
 
