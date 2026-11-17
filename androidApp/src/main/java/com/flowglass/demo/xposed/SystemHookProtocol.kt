@@ -36,6 +36,8 @@ object SystemHookProtocol {
     const val EVENT_MEDIA_PLAYING = "media_playing"
     const val EVENT_MEDIA_PAUSED = "media_paused"
     const val EVENT_MEDIA_STOPPED = "media_stopped"
+    const val EVENT_FOREGROUND_SERVICE_STARTED = "foreground_service_started"
+    const val EVENT_FOREGROUND_SERVICE_STOPPED = "foreground_service_stopped"
 
     const val PERMISSION = "com.flowglass.demo.permission.SYSTEM_HOOK"
     const val SYSTEM_RECEIVER = "com.flowglass.demo.system.trigger.SystemHookReceiver"

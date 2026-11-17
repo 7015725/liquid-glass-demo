@@ -276,6 +276,8 @@ private fun Intent.toTriggerEvent(): TriggerEvent? = when (action) {
             SystemHookProtocol.EVENT_MEDIA_PLAYING -> TriggerKinds.MEDIA_PLAYING
             SystemHookProtocol.EVENT_MEDIA_PAUSED -> TriggerKinds.MEDIA_PAUSED
             SystemHookProtocol.EVENT_MEDIA_STOPPED -> TriggerKinds.MEDIA_STOPPED
+            SystemHookProtocol.EVENT_FOREGROUND_SERVICE_STARTED -> TriggerKinds.FOREGROUND_SERVICE_STARTED
+            SystemHookProtocol.EVENT_FOREGROUND_SERVICE_STOPPED -> TriggerKinds.FOREGROUND_SERVICE_STOPPED
             else -> return null
         }
         TriggerEvent(

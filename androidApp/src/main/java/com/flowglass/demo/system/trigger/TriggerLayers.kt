@@ -17,6 +17,7 @@ internal object TriggerLayers {
         TriggerTypes.APP_CRASH,
         TriggerTypes.KEYGUARD,
         TriggerTypes.MEDIA,
+        TriggerTypes.FOREGROUND_SERVICE,
     )
 
     fun requiresSystemHook(typeId: String): Boolean = typeId in xposedOnly

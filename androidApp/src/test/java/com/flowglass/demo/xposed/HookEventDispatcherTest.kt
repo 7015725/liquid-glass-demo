@@ -178,6 +178,14 @@ class HookEventDispatcherTest {
     }
 
     @Test
+    fun foregroundServiceCandidateUsesServiceRecordSource() {
+        val candidate = SystemHookCandidates.foregroundService.single()
+        assertEquals("setServiceForegroundInnerLocked", candidate.methodName)
+        assertEquals(HookEventSource.FIRST_ARGUMENT_SERVICE_RECORD, candidate.source)
+        assertEquals(SystemHookFamily.FOREGROUND_SERVICE, candidate.family)
+    }
+
+    @Test
     fun identityRejectsMissingOrInvalidValues() {
         assertEquals(HookIdentity("com.example.app", 999), HookIdentityReader.of("com.example.app", 999))
         assertEquals(HookIdentity("com.example.app", 0), HookIdentityReader.of("com.example.app", 0))

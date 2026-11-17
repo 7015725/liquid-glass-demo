@@ -12,9 +12,10 @@ system_server。
 | `trigger.app_crash` | 应用崩溃 / ANR；只发送事件类型，不读取堆栈或异常文本 | LSPosed |
 | `trigger.keyguard` | 锁屏 / 解锁；只观察 `setKeyguardShown` 的状态边沿 | LSPosed |
 | `trigger.media` | 媒体播放 / 暂停 / 停止；只观察媒体会话状态，不控制播放 | LSPosed |
+| `trigger.foreground_service` | 前台服务进入 / 退出；只观察状态，不读取通知内容 | LSPosed |
 | `condition.app_process_state` | 读取 App 侧最近一次进程事件缓存；缓存 120 秒过期后按不满足处理 | 普通 |
 
-`trigger.app_foreground` 仍保留普通、Root、LSPosed 三种执行方式。进程、崩溃/ANR、锁屏和媒体触发器有意只声明
+`trigger.app_foreground` 仍保留普通、Root、LSPosed 三种执行方式。进程、崩溃/ANR、锁屏、媒体和前台服务触发器有意只声明
 LSPosed 层，不提供假的普通回退；没有系统钩子时规则显示「等待系统钩子」。
 
 ## 订阅与隐私
@@ -26,6 +27,7 @@ LSPosed 层，不提供假的普通回退；没有系统钩子时规则显示「
   - 崩溃 / ANR 规则：`CRASH`
   - 锁屏规则：`KEYGUARD`
   - 媒体规则：`MEDIA`
+  - 前台服务规则：`FOREGROUND_SERVICE`
 - 进程和崩溃事件额外携带启用规则中的应用 `package` / `package@userId` 白名单。钩子在
   system_server 内先按白名单过滤，不匹配的进程不进入队列。
 - 广播只包含包名、userId、事件类型、时间戳和序号，不含标题、正文、异常堆栈、ANR reason
@@ -41,6 +43,7 @@ LSPosed 层，不提供假的普通回退；没有系统钩子时规则显示「
 - 进程事件 750ms 去重；进程结束的 `restarting=true` 视为重启，不发送「结束」。
 - 锁屏只在 `setKeyguardShown` 的布尔值变化时发送；`keyguardGoingAway` 不当作已解锁。
 - 媒体只发送播放 / 暂停 / 停止三个状态；同一媒体会话只有状态变化时才发送，忽略缓冲和错误等中间态。
+- 前台服务只在进入 / 退出前台状态时发送；按 `package@userId` 去重，不读取通知标题或正文。
 - 状态握手沿用 alpha6：钩子发 `ACTION_LOADED`，App 回发开关、订阅和
   `app_knows_loaded=true`；心跳携带各族已安装的检测点数量。
 

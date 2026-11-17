@@ -20,6 +20,9 @@ internal enum class HookEventSource {
     /** The first argument is a MediaSessionRecordImpl (onSessionDied). */
     FIRST_ARGUMENT_MEDIA_SESSION,
 
+    /** The first argument is a ServiceRecord (ActiveServices#setServiceForegroundInnerLocked). */
+    FIRST_ARGUMENT_SERVICE_RECORD,
+
     /** The first argument is a ProcessRecord (AnrHelper#appNotResponding). */
     FIRST_ARGUMENT_PROCESS,
 
@@ -166,6 +169,21 @@ internal object SystemHookCandidates {
             source = HookEventSource.FIRST_ARGUMENT_MEDIA_SESSION,
             family = SystemHookFamily.MEDIA,
             kind = SystemHookProtocol.EVENT_MEDIA_STOPPED,
+        ),
+    )
+
+    /**
+     * Foreground-service enter/exit. Argument #2 is the notification id; zero means the service
+     * is leaving foreground mode. The notification itself is never read.
+     */
+    val foregroundService = listOf(
+        HookCandidate(
+            label = "services.setServiceForegroundInnerLocked",
+            className = "com.android.server.am.ActiveServices",
+            methodName = "setServiceForegroundInnerLocked",
+            source = HookEventSource.FIRST_ARGUMENT_SERVICE_RECORD,
+            family = SystemHookFamily.FOREGROUND_SERVICE,
+            kind = SystemHookProtocol.EVENT_FOREGROUND_SERVICE_STARTED,
         ),
     )
 }

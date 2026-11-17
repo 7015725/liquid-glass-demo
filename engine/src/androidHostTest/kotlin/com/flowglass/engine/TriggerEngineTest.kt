@@ -543,6 +543,25 @@ class TriggerEngineTest {
     }
 
     @Test
+    fun foregroundServiceTriggerMatchesPackageAndEnterExit() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        val started = rule("started", listOf(TriggerComponent(
+            "trigger.foreground_service", "fgs",
+            mapOf("state" to JsonPrimitive("started"), "package" to JsonPrimitive("com.example.app")),
+        )))
+        val rules = listOf(started)
+        fun event(kind: String) = TriggerEvent(
+            kind, TriggerSource.SYSTEM, clock.now, mapOf("app" to "com.example.app@0", "event" to "fgs"),
+        )
+
+        assertEquals(listOf("started"), d.dispatch(event(TriggerKinds.FOREGROUND_SERVICE_STARTED), rules)
+            .executions.map { it.rule.id })
+        assertEquals(0, d.dispatch(event(TriggerKinds.FOREGROUND_SERVICE_STOPPED), rules).executions.size)
+    }
+
+    @Test
     fun appProcessConditionUsesCachedStateAndFailsClosedWhenUnknown() {
         val env = FakeEnvironment(processRunning = null)
         val clock = FakeClock(0)

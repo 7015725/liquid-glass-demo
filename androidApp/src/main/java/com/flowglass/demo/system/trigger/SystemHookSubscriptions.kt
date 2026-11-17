@@ -26,7 +26,8 @@ internal object SystemHookSubscriptions {
                 .filter {
                     it.typeId == TriggerTypes.APP_PROCESS ||
                         it.typeId == TriggerTypes.APP_CRASH ||
-                        it.typeId == TriggerTypes.MEDIA
+                        it.typeId == TriggerTypes.MEDIA ||
+                        it.typeId == TriggerTypes.FOREGROUND_SERVICE
                 }
                 .mapNotNull { it.params["package"]?.toString()?.trim('"') }
                 .filter { it.isNotBlank() }
@@ -39,6 +40,7 @@ internal object SystemHookSubscriptions {
         TriggerTypes.APP_CRASH -> SystemHookFamily.CRASH
         TriggerTypes.KEYGUARD -> SystemHookFamily.KEYGUARD
         TriggerTypes.MEDIA -> SystemHookFamily.MEDIA
+        TriggerTypes.FOREGROUND_SERVICE -> SystemHookFamily.FOREGROUND_SERVICE
         else -> null
     }
 }

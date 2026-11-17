@@ -98,6 +98,8 @@ class SystemHookReceiver : BroadcastReceiver() {
             SystemHookProtocol.EVENT_MEDIA_PLAYING,
             SystemHookProtocol.EVENT_MEDIA_PAUSED,
             SystemHookProtocol.EVENT_MEDIA_STOPPED,
+            SystemHookProtocol.EVENT_FOREGROUND_SERVICE_STARTED,
+            SystemHookProtocol.EVENT_FOREGROUND_SERVICE_STOPPED,
         )
     }
 }
