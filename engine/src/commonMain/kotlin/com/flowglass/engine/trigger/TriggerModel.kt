@@ -35,6 +35,7 @@ object TriggerTypes {
     const val APP_CRASH = "trigger.app_crash"
     const val KEYGUARD = "trigger.keyguard"
     const val MEDIA = "trigger.media"
+    const val FOREGROUND_SERVICE = "trigger.foreground_service"
     const val HEADSET = "trigger.headset"
     const val LOCATION_ENTER = "trigger.location_enter"
     const val LOCATION_EXIT = "trigger.location_exit"
@@ -53,6 +54,7 @@ object TriggerTypes {
         APP_PROCESS, APP_CRASH -> TriggerSource.SYSTEM
         KEYGUARD -> TriggerSource.SYSTEM
         MEDIA -> TriggerSource.SYSTEM
+        FOREGROUND_SERVICE -> TriggerSource.SYSTEM
         HEADSET -> TriggerSource.HEADSET
         LOCATION_ENTER, LOCATION_EXIT -> TriggerSource.LOCATION
         else -> null
@@ -143,6 +145,8 @@ object TriggerKinds {
     const val MEDIA_PLAYING = "media_playing"
     const val MEDIA_PAUSED = "media_paused"
     const val MEDIA_STOPPED = "media_stopped"
+    const val FOREGROUND_SERVICE_STARTED = "foreground_service_started"
+    const val FOREGROUND_SERVICE_STOPPED = "foreground_service_stopped"
     const val HEADSET = "headset"
     const val LOCATION = "location"
 }
@@ -239,6 +243,10 @@ object TriggerMatcher {
             TriggerKinds.MEDIA_PLAYING -> matchesMedia(binding, event, "playing")
             TriggerKinds.MEDIA_PAUSED -> matchesMedia(binding, event, "paused")
             TriggerKinds.MEDIA_STOPPED -> matchesMedia(binding, event, "stopped")
+            TriggerKinds.FOREGROUND_SERVICE_STARTED ->
+                matchesForegroundService(binding, event, "started")
+            TriggerKinds.FOREGROUND_SERVICE_STOPPED ->
+                matchesForegroundService(binding, event, "stopped")
             TriggerKinds.HEADSET -> matchesHeadset(binding, event, states)
             TriggerKinds.LOCATION -> matchesLocation(binding, event, states)
             else -> false
@@ -393,6 +401,17 @@ object TriggerMatcher {
 
     private fun matchesMedia(binding: TriggerBinding, event: TriggerEvent, eventName: String): Boolean {
         if (binding.component.typeId != TriggerTypes.MEDIA) return false
+        if (binding.component.params["state"]?.stringValue() != eventName) return false
+        val target = binding.component.params["package"]?.stringValue()?.trim().orEmpty()
+        return target.isNotEmpty() && sameApp(target, event.data["app"].orEmpty())
+    }
+
+    private fun matchesForegroundService(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        eventName: String,
+    ): Boolean {
+        if (binding.component.typeId != TriggerTypes.FOREGROUND_SERVICE) return false
         if (binding.component.params["state"]?.stringValue() != eventName) return false
         val target = binding.component.params["package"]?.stringValue()?.trim().orEmpty()
         return target.isNotEmpty() && sameApp(target, event.data["app"].orEmpty())

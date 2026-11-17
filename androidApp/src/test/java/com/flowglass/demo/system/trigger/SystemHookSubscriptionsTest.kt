@@ -59,6 +59,19 @@ class SystemHookSubscriptionsTest {
     }
 
     @Test
+    fun foregroundServiceUsesItsFamilyAndPackageAllowlist() {
+        val rules = listOf(rule(
+            "fgs",
+            "trigger.foreground_service" to mapOf("state" to "started", "package" to "com.example.app"),
+        ))
+        assertEquals(
+            SystemHookFamily.FOREGROUND_SERVICE.mask,
+            SystemHookSubscriptions.requiredFamilies(rules),
+        )
+        assertEquals(setOf("com.example.app"), SystemHookSubscriptions.watchedPackages(rules))
+    }
+
+    @Test
     fun emptyRulesRequestNothingAndInvalidPackagesAreRejected() {
         assertEquals(0, SystemHookSubscriptions.requiredFamilies(emptyList()))
         assertEquals(emptySet<String>(), SystemHookSubscriptions.watchedPackages(emptyList()))

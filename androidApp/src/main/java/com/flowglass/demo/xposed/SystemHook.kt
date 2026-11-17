@@ -34,6 +34,7 @@ internal object SystemHook {
     private val lastKeyguard = AtomicReference<Boolean?>(null)
     private val lastProcessEvent = ConcurrentHashMap<String, Long>()
     private val lastMediaState = ConcurrentHashMap<String, String>()
+    private val lastForegroundServiceState = ConcurrentHashMap<String, String>()
     private val installedCounts = ConcurrentHashMap<SystemHookFamily, Int>()
     private val sequence = AtomicLong(0L)
     @Volatile private var systemContext: Context? = null
@@ -62,6 +63,7 @@ internal object SystemHook {
             hookProcessCandidates(lpparam.classLoader)
             hookKeyguardCandidates(lpparam.classLoader)
             hookMediaCandidates(lpparam.classLoader)
+            hookForegroundServiceCandidates(lpparam.classLoader)
             hookSystemContext(lpparam.classLoader)
         }
     }
@@ -181,6 +183,15 @@ internal object SystemHook {
         )
     }
 
+    private fun hookForegroundServiceCandidates(classLoader: ClassLoader) {
+        hookCandidates(
+            classLoader = classLoader,
+            candidates = SystemHookCandidates.foregroundService,
+            hookFactory = ::foregroundServiceHook,
+            family = SystemHookFamily.FOREGROUND_SERVICE,
+        )
+    }
+
     /**
      * Hooks every candidate once and records its own count. A family can contain candidates from
      * several classes; the total is what makes that family available to the app.
@@ -241,6 +252,12 @@ internal object SystemHook {
     private fun mediaHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
         override fun afterHookedMethod(param: MethodHookParam?) {
             safe("media event ${candidate.label}") { observeMedia(candidate, param) }
+        }
+    }
+
+    private fun foregroundServiceHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
+        override fun afterHookedMethod(param: MethodHookParam?) {
+            safe("foreground-service event ${candidate.label}") { observeForegroundService(candidate, param) }
         }
     }
 
@@ -353,6 +370,34 @@ internal object SystemHook {
         emit(SystemHookFamily.MEDIA, kind, identity)
     }
 
+    private fun observeForegroundService(candidate: HookCandidate, param: XC_MethodHook.MethodHookParam?) {
+        if (!canEmit(SystemHookFamily.FOREGROUND_SERVICE)) return
+        val arguments = param?.args ?: return
+        val record = arguments.getOrNull(0) ?: run {
+            logSkip(candidate, "service record unavailable")
+            return
+        }
+        val notificationId = (arguments.getOrNull(1) as? Number)?.toInt() ?: run {
+            logSkip(candidate, "foreground notification id unavailable")
+            return
+        }
+        val identity = readServiceIdentity(record) ?: run {
+            logSkip(candidate, "service package/user unavailable")
+            return
+        }
+        if (!isWatched(identity)) {
+            logSkip(candidate, "service package/user not subscribed")
+            return
+        }
+        val kind = if (notificationId != 0) {
+            SystemHookProtocol.EVENT_FOREGROUND_SERVICE_STARTED
+        } else {
+            SystemHookProtocol.EVENT_FOREGROUND_SERVICE_STOPPED
+        }
+        if (lastForegroundServiceState.put(identity.key, kind) == kind) return
+        emit(SystemHookFamily.FOREGROUND_SERVICE, kind, identity)
+    }
+
     private fun emit(family: SystemHookFamily, kind: String, identity: HookIdentity?) {
         if (!canEmit(family)) return
         dispatcher.enqueue(
@@ -448,6 +493,27 @@ internal object SystemHook {
             is Number -> raw.toInt()
             else -> runCatching { XposedHelpers.getObjectField(record, "mUserId") as? Number }
                 .getOrNull()?.toInt()
+        }
+        return HookIdentityReader.of(packageName, userId)
+    }
+
+    private fun readServiceIdentity(record: Any?): HookIdentity? {
+        if (record == null) return null
+        val packageName = runCatching {
+            XposedHelpers.getObjectField(record, "packageName") as? String
+        }.getOrNull() ?: runCatching {
+            val appInfo = XposedHelpers.getObjectField(record, "appInfo")
+            XposedHelpers.getObjectField(appInfo, "packageName") as? String
+        }.getOrNull()
+        val userId = when (val raw = runCatching {
+            XposedHelpers.getObjectField(record, "userId")
+        }.getOrNull()) {
+            is Number -> raw.toInt()
+            else -> runCatching {
+                val appInfo = XposedHelpers.getObjectField(record, "appInfo")
+                val uid = XposedHelpers.getObjectField(appInfo, "uid") as Number
+                uid.toInt() / 100_000
+            }.getOrNull()
         }
         return HookIdentityReader.of(packageName, userId)
     }

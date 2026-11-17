@@ -143,6 +143,19 @@ object BuiltInComponents {
             minTier = Tier.XPOSED,
             description = "观察媒体会话的播放 / 暂停 / 停止状态；只读，不控制播放。",
         ),
+        ComponentMeta("trigger.foreground_service", "前台服务", "应用", ComponentKind.TRIGGER,
+            listOf(
+                param("state", "状态", "started", ParamType.ENUM, required = true, options = listOf(
+                    ParamOption("started", "进入前台"),
+                    ParamOption("stopped", "退出前台"),
+                )),
+                param("package", "应用", "应用包名", ParamType.APPLICATION, required = true,
+                    hint = "需要 LSPosed 系统钩子；只观察前台服务状态。",
+                    applicationScope = ApplicationScope.ALL_PROFILES),
+            ), supports = listOf(LayerSupport(ExecutionLayer.XPOSED)),
+            minTier = Tier.XPOSED,
+            description = "观察应用前台服务的进入 / 退出；只读，不读取通知内容。",
+        ),
         ComponentMeta("trigger.headset", "耳机插入/拔出", "设备", ComponentKind.TRIGGER,
             listOf(
                 param("state", "状态", "plugged", ParamType.ENUM, required = true, options = listOf(
