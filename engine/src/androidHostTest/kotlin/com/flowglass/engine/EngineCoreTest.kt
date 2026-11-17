@@ -46,7 +46,7 @@ class EngineCoreTest {
 
         assertEquals(CURRENT_FORMAT_VERSION, decoded.formatVersion)
         assertEquals(document, decoded)
-        assertTrue(encoded.contains("\"formatVersion\":3"))
+        assertTrue(encoded.contains("\"formatVersion\":$CURRENT_FORMAT_VERSION"))
         assertFailsWith<IllegalArgumentException> { RuleJson.decode("{\"formatVersion\":9,\"rules\":[]}") }
         assertFailsWith<IllegalArgumentException> { RuleJson.decode("{\"formatVersion\":1,\"rules\":[]}") }
     }

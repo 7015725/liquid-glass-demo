@@ -1,6 +1,7 @@
 package com.flowglass.demo.ui
 
 import kotlinx.serialization.json.JsonPrimitive
+import com.flowglass.engine.GlobalVariableMeta
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -69,10 +70,40 @@ class CommandTransferTest {
     }
 
     @Test
+    fun commandExportKeepsGlobalDeclarationsAndNotesButNotValues() {
+        val state = AppState()
+        state.autoCmds.add(command())
+        state.engineGlobals = mapOf("token" to JsonPrimitive("secret"))
+        state.engineGlobalMeta = mapOf("token" to GlobalVariableMeta("text", "接口令牌"))
+
+        val parsed = parseImport(exportCommandJson(state, command()), state)
+
+        assertTrue(parsed.document.globals.isEmpty())
+        assertEquals(GlobalVariableMeta("text", "接口令牌"), parsed.document.globalMeta["token"])
+        assertFalse(exportCommandJson(state, command()).contains("secret"))
+    }
+
+    @Test
+    fun commandImportMergesMissingGlobalMetadataWithoutValues() {
+        val source = AppState()
+        source.autoCmds.add(command("带全局变量"))
+        source.engineGlobals = mapOf("token" to JsonPrimitive("secret"))
+        source.engineGlobalMeta = mapOf("token" to GlobalVariableMeta("text", "接口令牌"))
+        val parsed = parseImport(exportCommandJson(source, source.autoCmds.single()), AppState())
+
+        val target = AppState()
+        target.applyCommandImport(parsed)
+
+        assertEquals(GlobalVariableMeta("text", "接口令牌"), target.engineGlobalMeta["token"])
+        assertTrue(target.engineGlobals.isEmpty())
+    }
+
+    @Test
     fun backupRoundTripKeepsGlobalsAndThemeSetting() {
         val state = AppState()
         state.autoCmds.add(command())
         state.engineGlobals = mapOf("greeting" to JsonPrimitive("hello"))
+        state.engineGlobalMeta = mapOf("greeting" to GlobalVariableMeta("text", "问候语"))
         state.mode = 2
         state.setEngineRunning(false)
         val json = exportBackupJson(
@@ -84,6 +115,7 @@ class CommandTransferTest {
         assertEquals(ImportKind.BACKUP, parsed.kind)
         assertEquals(ThemeMode.DARK, parsed.preview.themeMode)
         assertEquals(JsonPrimitive("hello"), parsed.converted.engineGlobals["greeting"])
+        assertEquals(GlobalVariableMeta("text", "问候语"), parsed.converted.engineGlobalMeta["greeting"])
         assertEquals(2, parsed.converted.mode)
         assertFalse(parsed.converted.running)
         assertEquals(

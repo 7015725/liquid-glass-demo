@@ -82,6 +82,14 @@ data class LocalVariable(
     val type: String,
     val initial: kotlinx.serialization.json.JsonElement,
     val resetEachRun: Boolean = false,
+    /** User note shown by the variable manager and the insertion dialog. */
+    val note: String = "",
+)
+
+@Serializable
+data class GlobalVariableMeta(
+    val type: String = "text",
+    val note: String = "",
 )
 
 @Serializable
@@ -110,6 +118,8 @@ data class RuleDocument(
     val ui: RuleUiMetadata = RuleUiMetadata(),
     /** Cross-rule variables written by `global.` assignments. */
     val globals: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap(),
+    /** Type/note metadata for globals; values stay in [globals] for compatibility. */
+    val globalMeta: Map<String, GlobalVariableMeta> = emptyMap(),
 )
 
 @Serializable
@@ -184,9 +194,17 @@ object RuleJson {
         require(version in 2..CURRENT_FORMAT_VERSION) { "不支持的格式版本 $version" }
         val document = format.decodeFromJsonElement(RuleDocument.serializer(), element)
         val migrated = version < CURRENT_FORMAT_VERSION
-        val upgraded = if (migrated) document.migrateToV3() else document
+        val upgraded = if (migrated) document.migrateToCurrent() else document
         ParameterCodec.validateDocument(upgraded)
         return Decoded(upgraded, if (migrated) version else null)
+    }
+
+    private fun RuleDocument.migrateToCurrent(): RuleDocument {
+        val base = if (formatVersion < 3) migrateToV3() else copy(formatVersion = CURRENT_FORMAT_VERSION)
+        val meta = linkedMapOf<String, GlobalVariableMeta>()
+        for (name in base.globals.keys) meta[name] = base.globalMeta[name] ?: GlobalVariableMeta()
+        for ((name, value) in base.globalMeta) meta.putIfAbsent(name, value)
+        return base.copy(formatVersion = CURRENT_FORMAT_VERSION, globalMeta = meta)
     }
 
     private fun RuleDocument.migrateToV3(): RuleDocument {
@@ -231,4 +249,4 @@ object RuleJson {
     )
 }
 
-const val CURRENT_FORMAT_VERSION = 3
+const val CURRENT_FORMAT_VERSION = 4

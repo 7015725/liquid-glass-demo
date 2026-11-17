@@ -142,6 +142,7 @@ private fun commandDocument(state: AppState, cmd: Cmd): RuleDocument {
         engineRules = listOfNotNull(rule),
         engineUi = ui,
         engineGlobals = emptyMap(),
+        engineGlobalMeta = state.engineGlobalMeta,
     ).toRuleDocument()
 }
 
@@ -293,10 +294,14 @@ internal fun AppState.applyCommandImport(parsed: ParsedImport) {
             engineRules = listOfNotNull(clonedRule),
             engineUi = tempUi,
             engineGlobals = emptyMap(),
+            engineGlobalMeta = importedState.engineGlobalMeta,
         ).toRuleDocument()
     }
+    val importedMeta = pieces.flatMap { piece -> piece.globalMeta.entries }
+        .associate { (name, meta) -> name to meta }
     val merged = current.copy(
         rules = current.rules + pieces.flatMap { it.rules },
+        globalMeta = importedMeta + current.globalMeta,
         ui = current.ui.copy(
             presentation = current.ui.presentation + pieces.flatMap { it.ui.presentation.entries }
                 .associate { it.key to it.value },
