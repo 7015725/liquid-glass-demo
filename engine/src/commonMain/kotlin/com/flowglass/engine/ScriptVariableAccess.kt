@@ -9,4 +9,7 @@ package com.flowglass.engine
 interface ScriptVariableAccess {
     fun read(name: String): Any?
     fun write(name: String, value: Any?)
+
+    /** Names visible to a code field; used to build read-only `{名字}` bindings. */
+    fun names(): Set<String> = emptySet()
 }

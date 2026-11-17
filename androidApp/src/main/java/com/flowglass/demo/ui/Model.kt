@@ -145,9 +145,54 @@ class AppState internal constructor(saved: PersistedAppState?) {
                 applyVariableWrites(ruleId, ruleWrites, globalWrites)
             }
         }
+        engine.variableDefinitionWriter = { ruleId, locals, globals ->
+            com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                applyVariableDefinitions(ruleId, locals, globals)
+            }
+        }
     }
 
-    /** Merge-by-key write-back: keys the run never touched keep their stored value. */
+    private fun applyVariableDefinitions(
+        ruleId: String,
+        locals: List<com.flowglass.engine.VariableDefinition>,
+        globals: List<com.flowglass.engine.VariableDefinition>,
+    ) {
+        if (locals.isNotEmpty()) {
+            engineRules = engineRules.map { rule ->
+                if (rule.id != ruleId) rule else {
+                    var definitions = rule.locals
+                    for (definition in locals) {
+                        val index = definitions.indexOfFirst { it.name == definition.name }
+                        val previous = definitions.getOrNull(index)
+                        val initial = when {
+                            previous != null -> previous.initial
+                            definition.initial is kotlinx.serialization.json.JsonElement ->
+                                definition.initial as kotlinx.serialization.json.JsonElement
+                            else -> kotlinx.serialization.json.JsonPrimitive(definition.initial?.toString().orEmpty())
+                        }
+                        val next = com.flowglass.engine.LocalVariable(
+                            name = definition.name,
+                            type = definition.type.name.lowercase(),
+                            initial = initial,
+                            resetEachRun = definition.resetEachRun,
+                            note = previous?.note.orEmpty(),
+                        )
+                        definitions = if (index >= 0) definitions.toMutableList().also { it[index] = next }
+                        else definitions + next
+                    }
+                    rule.copy(locals = definitions)
+                }
+            }
+        }
+        if (globals.isNotEmpty()) {
+            engineGlobalMeta = engineGlobalMeta + globals.associate { definition ->
+                definition.name to (engineGlobalMeta[definition.name]?.copy(
+                    type = definition.type.name.lowercase(),
+                ) ?: com.flowglass.engine.GlobalVariableMeta(definition.type.name.lowercase()))
+            }
+        }
+    }
+
     private fun applyVariableWrites(ruleId: String, ruleWrites: Map<String, Any?>, globalWrites: Map<String, Any?>) {
         if (ruleWrites.isNotEmpty()) {
             engineRules = engineRules.map { rule ->

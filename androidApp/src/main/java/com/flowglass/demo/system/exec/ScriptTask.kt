@@ -10,6 +10,8 @@ import android.os.Looper
 import android.widget.Toast
 import com.flowglass.demo.ui.Cmd
 import com.flowglass.demo.ui.CommandItem
+import com.flowglass.engine.JavaScriptLanguage
+import com.flowglass.engine.LanguageBinding
 import com.flowglass.engine.ScriptVariableAccess
 import kotlinx.coroutines.runBlocking
 import org.mozilla.javascript.BaseFunction
@@ -70,12 +72,16 @@ internal object ScriptTask {
         val timeoutSeconds = parseTimeout(task.parameter)
         val logs = StringBuilder()
         val deadline = System.nanoTime() + timeoutSeconds * 1_000_000_000L
+        val bindings = variables?.names().orEmpty().sorted().map { name ->
+            LanguageBinding(name, variables?.read(name))
+        }
+        val prepared = JavaScriptLanguage.prepare(script, bindings)
 
         return try {
             val result = DeadlineFactory(deadline).call { cx ->
                 val scope = cx.initSafeStandardObjects()
-                installApi(cx, scope, context, cmd, variables, logs, deadline)
-                cx.evaluateString(scope, script, "script.js", 1, null)
+                installApi(cx, scope, context, cmd, variables, prepared.bindings, logs, deadline)
+                cx.evaluateString(scope, prepared.source, "script.js", 1, null)
             }
             val text = RhinoContext.toString(result)
             val logText = logs.toString().take(MAX_LOG_CHARS)
@@ -132,9 +138,14 @@ internal object ScriptTask {
         context: Context,
         cmd: Cmd,
         variables: ScriptVariableAccess?,
+        bindings: Map<String, Any?>,
         logs: StringBuilder,
         deadline: Long,
     ) {
+        for ((name, value) in bindings) {
+            ScriptableObject.putProperty(scope, name, jsValue(value))
+            (scope as? ScriptableObject)?.setAttributes(name, ScriptableObject.READONLY)
+        }
         fun put(name: String, fn: (Array<Any?>) -> Any?) {
             ScriptableObject.putProperty(scope, name, object : BaseFunction() {
                 override fun getFunctionName(): String = name

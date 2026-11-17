@@ -66,7 +66,11 @@ internal fun ActionParameterEditor(
     }
 
     if (meta.params.size > 1) {
-        MultiParameterEditor(meta, item, onParameter, onAuthorization, targets, variables)
+        if (item.typeId == "action.set_var") {
+            SetVariableEditor(meta, item, onParameter, targets, variables)
+        } else {
+            MultiParameterEditor(meta, item, onParameter, onAuthorization, targets, variables)
+        }
     } else {
         val spec = meta.params.single()
         ParamField(
@@ -89,6 +93,67 @@ internal fun ActionParameterEditor(
         }
     }
     if (showDone) EditorPill("完成", "完成", action = onDone)
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SetVariableEditor(
+    meta: ComponentMeta,
+    item: CommandItem,
+    onParameter: (String) -> Unit,
+    targets: List<String>,
+    variables: List<String>,
+) {
+    var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
+    var error by remember(item.id) { mutableStateOf<String?>(null) }
+
+    fun update(key: String, value: String) {
+        val next = fields + (key to value)
+        fields = next
+        ParameterForm.compose(meta, next)
+            .onSuccess { onParameter(it); error = null }
+            .onFailure { error = it.message?.replace('\n', ' ')?.take(120) }
+    }
+
+    val name = fields["name"].orEmpty().trim().removeSurrounding("{", "}")
+    val exists = name.isNotEmpty() && variables.any {
+        it.removePrefix("rule.").removePrefix("global.") == name
+    }
+    val scope = fields["scope"].orEmpty().ifEmpty { "local" }
+    val type = fields["type"].orEmpty().ifEmpty { "text" }
+
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        T("变量名", 14.sp, FontWeight.SemiBold)
+        ParameterTextField(name, "param-name") { update("name", it) }
+        T("只填名字，例如 城市。已有变量直接改名即可；新变量会自动创建。", 12.sp,
+            color = C.OnSurfaceVar, lineHeight = 18.sp)
+        if (error != null) T("参数无效：$error", 12.sp, color = C.Bad)
+
+        for (spec in meta.params) {
+            if (spec.key == "name") continue
+            if (exists && (spec.key == "scope" || spec.key == "retain")) continue
+            if (spec.key == "retain" && scope != "local") continue
+            if (spec.key == "op" && type != "number") continue
+            if (spec.key == "value") {
+                T("内容", 14.sp, FontWeight.SemiBold)
+                ParameterTextField(fields[spec.key].orEmpty(), "param-value") { update(spec.key, it) }
+                T("支持 {变量}。", 12.sp, color = C.OnSurfaceVar)
+                continue
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                T(ParameterForm.fieldLabel(spec), 14.sp, FontWeight.SemiBold)
+                ParamField(
+                    spec = spec,
+                    current = fields[spec.key].orEmpty(),
+                    tag = "param-${spec.key}",
+                    onValue = { update(spec.key, it) },
+                    targets = targets,
+                    variables = variables,
+                )
+                if (spec.hint.isNotBlank()) T(spec.hint, 12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

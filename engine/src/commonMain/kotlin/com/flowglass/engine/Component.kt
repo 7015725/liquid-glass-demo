@@ -146,6 +146,13 @@ enum class ParamExpansion {
      * The body keeps plain-text semantics.
      */
     HTTP_REQUEST,
+
+    /**
+     * Code field (JavaScript and future languages): [ParamTemplate] deliberately leaves the
+     * tokens untouched. The language plugin binds values as data instead of splicing them into
+     * executable source text.
+     */
+    SCRIPT,
 }
 
 @Serializable

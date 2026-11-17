@@ -90,12 +90,13 @@ object BuiltInActions {
                     JsonPrimitive("log(\"hello\");\n\"done\";"),
                     hint = "JavaScript（Rhino）。示例：\n" +
                         "log(\"开始\");\n" +
-                        "var count = get(\"run.count\") || \"0\";\n" +
-                        "set(\"run.count\", Number(count) + 1);\n" +
-                        "set(\"global.lastScript\", \"ok\");\n" +
+                        "var count = get(\"次数\") || \"0\";\n" +
+                        "set(\"次数\", Number(count) + 1);\n" +
+                        "set(\"最后结果\", \"ok\");\n" +
                         "\"完成\";\n" +
                         "可用 API：get(name)、set(name, value)、log(text)、toast(text)、notify(title, text)、http(method, url, body?)、sleep(ms)。" +
-                        "变量名可带 run. / rule. / global. 前缀；裸名写入运行级。脚本不能访问 Java 类、反射或文件系统。"),
+                        "直接写 {变量} 会作为只读数据绑定；裸名 get/set 对应局部变量，global./rule./run. 旧前缀继续兼容。脚本不能访问 Java 类、反射或文件系统。",
+                    expansion = ParamExpansion.SCRIPT),
                 ParamSpec("timeout", "超时", ParamType.INTEGER, false, JsonPrimitive(10),
                     minValue = 1, maxValue = 60, suffix = "秒",
                     hint = "默认 10 秒；超时会中断脚本并把该动作标记为失败。"),

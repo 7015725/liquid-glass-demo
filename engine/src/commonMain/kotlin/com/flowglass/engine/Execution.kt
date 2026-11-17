@@ -97,6 +97,9 @@ interface RuleCaller {
 fun interface VariableSink {
     fun persist(rule: Map<String, Any?>, global: Map<String, Any?>)
 
+    /** Metadata for variables created or type-changed by this run. */
+    fun persistDefinitions(rule: List<VariableDefinition>, global: List<VariableDefinition>) {}
+
     companion object {
         val Noop = VariableSink { _, _ -> }
     }
@@ -142,6 +145,9 @@ internal class RunScopes(
     val global: MutableMap<String, Any?> = LinkedHashMap(globals)
     private val ruleDirty = linkedSetOf<String>()
     private val globalDirty = linkedSetOf<String>()
+    private val localMeta = rule.locals.associateBy { it.name }.toMutableMap()
+    private val createdLocals = linkedMapOf<String, VariableDefinition>()
+    private val createdGlobals = linkedMapOf<String, VariableDefinition>()
 
     init {
         for (local in rule.locals) ruleVars[local.name] = local.initial.toPlainValue()
@@ -163,26 +169,168 @@ internal class RunScopes(
         run.forEach { (k, v) -> put("run.$k", v) }
     }
 
-    fun ruleWrites(): Map<String, Any?> = ruleDirty.associateWith { ruleVars[it] }
+    fun names(): Set<String> = flattened().keys
+
+    fun ruleWrites(): Map<String, Any?> = ruleDirty
+        .filterNot { localMeta[it]?.resetEachRun == true || createdLocals[it]?.resetEachRun == true }
+        .associateWith { ruleVars[it] }
+
     fun globalWrites(): Map<String, Any?> = globalDirty.associateWith { global[it] }
 
-    /** Applies [op] and returns the stored value, so the step log shows the result. */
+    fun definitions(): Pair<List<VariableDefinition>, List<VariableDefinition>> =
+        createdLocals.values.toList() to createdGlobals.values.toList()
+
+    fun read(name: String): Any? {
+        val trimmed = clean(name)
+        return when {
+            trimmed.startsWith("global.") -> global[trimmed.removePrefix("global.")]
+            trimmed.startsWith("rule.") -> ruleVars[trimmed.removePrefix("rule.")]
+            trimmed.startsWith("run.") -> run[trimmed.removePrefix("run.")]
+            trimmed.startsWith("event.") -> event[trimmed.removePrefix("event.")]
+            else -> ruleVars[trimmed] ?: global[trimmed] ?: builtins[trimmed] ?: run[trimmed]
+        }
+    }
+
+    /**
+     * New-style SET_VAR. Bare names resolve local, then global, then built-in; absent names are
+     * created in [scope]. [retain] applies only to a newly created local variable.
+     */
+    fun setNamed(
+        rawName: String,
+        rawValue: String,
+        type: VariableType,
+        op: String,
+        scope: VariableScope,
+        retain: Boolean,
+    ): String {
+        val trimmed = clean(rawName)
+        require(trimmed.isNotEmpty()) { "变量名不能为空" }
+        val prefix = when {
+            trimmed.startsWith("global.") -> VariableScope.GLOBAL
+            trimmed.startsWith("rule.") -> VariableScope.LOCAL
+            trimmed.startsWith("run.") -> null
+            else -> null
+        }
+        val key = when (prefix) {
+            VariableScope.GLOBAL -> trimmed.removePrefix("global.")
+            VariableScope.LOCAL -> trimmed.removePrefix("rule.")
+            else -> trimmed.removePrefix("run.")
+        }
+        require(key.isNotEmpty()) { "变量名不能为空" }
+        if (prefix == null && key in builtins) throw IllegalArgumentException("内置变量「$key」只读，不能修改")
+        if (prefix == null && BuiltInVariables.byName.containsKey(key)) {
+            throw IllegalArgumentException("内置变量「$key」只读，不能修改")
+        }
+
+        val isLocal = when {
+            prefix == VariableScope.LOCAL -> true
+            prefix == VariableScope.GLOBAL -> false
+            prefix == null && ruleVars.containsKey(key) -> true
+            prefix == null && global.containsKey(key) -> false
+            prefix == null && scope == VariableScope.LOCAL -> true
+            else -> false
+        }
+        val target = if (isLocal) ruleVars else global
+        val existing = target.containsKey(key)
+        val nextType = type
+        val next = applyOperation(
+            current = if (existing) target[key] else null,
+            raw = rawValue,
+            type = nextType,
+            op = op,
+            hasCurrent = existing,
+        )
+        target[key] = next
+        if (isLocal) {
+            ruleDirty += key
+            val previous = localMeta[key]
+            if (!existing || previous?.type != nextType.name.lowercase()) {
+                val reset = if (existing) previous?.resetEachRun ?: false else !retain
+                localMeta[key] = LocalVariable(
+                    name = key,
+                    type = nextType.name.lowercase(),
+                    initial = kotlinx.serialization.json.JsonPrimitive(next.toString()),
+                    resetEachRun = reset,
+                    note = previous?.note.orEmpty(),
+                )
+                createdLocals[key] = VariableDefinition(key, VariableScope.LOCAL, nextType, reset, next)
+            }
+        } else {
+            globalDirty += key
+            createdGlobals[key] = VariableDefinition(key, VariableScope.GLOBAL, nextType, false, next)
+        }
+        return next.toString()
+    }
+
+    /** Script `set(name, value)`: absent bare names become local, run-only variables. */
+    fun writeScript(name: String, value: Any?): Any? {
+        val trimmed = clean(name)
+        require(trimmed.isNotEmpty()) { "变量名不能为空" }
+        if (trimmed.startsWith("global.")) {
+            val key = trimmed.removePrefix("global.")
+            require(key.isNotEmpty()) { "变量名不能为空" }
+            global[key] = value
+            globalDirty += key
+            createdGlobals[key] = VariableDefinition(key, VariableScope.GLOBAL, inferType(value), false, value)
+            return value
+        }
+        if (trimmed.startsWith("rule.")) {
+            val key = trimmed.removePrefix("rule.")
+            require(key.isNotEmpty()) { "变量名不能为空" }
+            ruleVars[key] = value
+            ruleDirty += key
+            return value
+        }
+        if (trimmed.startsWith("run.")) {
+            val key = trimmed.removePrefix("run.")
+            require(key.isNotEmpty()) { "变量名不能为空" }
+            run[key] = value
+            return value
+        }
+        if (trimmed.startsWith("event.")) throw IllegalArgumentException("事件变量「$trimmed」只读，不能修改")
+        if (trimmed in builtins || BuiltInVariables.byName.containsKey(trimmed)) {
+            throw IllegalArgumentException("内置变量「$trimmed」只读，不能修改")
+        }
+        if (ruleVars.containsKey(trimmed)) {
+            ruleVars[trimmed] = value
+            ruleDirty += trimmed
+        } else if (global.containsKey(trimmed)) {
+            global[trimmed] = value
+            globalDirty += trimmed
+        } else {
+            ruleVars[trimmed] = value
+            ruleDirty += trimmed
+            localMeta[trimmed] = LocalVariable(
+                name = trimmed,
+                type = inferType(value).name.lowercase(),
+                initial = kotlinx.serialization.json.JsonPrimitive(value?.toString().orEmpty()),
+                resetEachRun = true,
+            )
+            createdLocals[trimmed] = VariableDefinition(trimmed, VariableScope.LOCAL, inferType(value), true, value)
+        }
+        return value
+    }
+
+    /** Legacy SET_VAR path for documents written before the `type/scope/retain` fields existed. */
     fun set(name: String, value: String, op: String): String {
         val trimmed = name.trim()
         require(trimmed.isNotEmpty()) { "变量名不能为空" }
         require(Regex("[A-Za-z0-9_.-]+").matches(trimmed)) { "变量名只能包含字母、数字、_ . -" }
-        val (scope, key) = when {
+        val (target, key) = when {
             trimmed.startsWith("global.") -> global to trimmed.removePrefix("global.")
             trimmed.startsWith("rule.") -> ruleVars to trimmed.removePrefix("rule.")
             trimmed.startsWith("run.") -> run to trimmed.removePrefix("run.")
             else -> run to trimmed
         }
         require(key.isNotEmpty()) { "变量名不能为空" }
+        if (target === run && (key in builtins || BuiltInVariables.byName.containsKey(key))) {
+            throw IllegalArgumentException("内置变量「$key」只读，不能修改")
+        }
         val next = when (op) {
             "set" -> value
-            "append" -> (scope[key]?.toString().orEmpty()) + value
+            "append" -> (target[key]?.toString().orEmpty()) + value
             "add", "sub", "mul", "div" -> {
-                val left = scope[key]?.toString()?.trim()?.toDoubleOrNull()
+                val left = target[key]?.toString()?.trim()?.toDoubleOrNull()
                     ?: throw IllegalArgumentException("变量 $key 不是数字")
                 val right = value.trim().toDoubleOrNull()
                     ?: throw IllegalArgumentException("值不是数字")
@@ -197,10 +345,60 @@ internal class RunScopes(
             }
             else -> throw IllegalArgumentException("未知运算：$op")
         }
-        scope[key] = next
-        if (scope === ruleVars) ruleDirty += key
-        if (scope === global) globalDirty += key
-        return next.toString()
+        target[key] = next
+        if (target === ruleVars) ruleDirty += key
+        if (target === global) globalDirty += key
+        return next
+    }
+
+    private fun clean(raw: String): String {
+        val trimmed = raw.trim()
+        return if (trimmed.startsWith("{") && trimmed.endsWith("}")) trimmed.substring(1, trimmed.length - 1) else trimmed
+    }
+
+    private fun applyOperation(current: Any?, raw: String, type: VariableType, op: String, hasCurrent: Boolean): Any {
+        if (type != VariableType.NUMBER && op != "set") {
+            throw IllegalArgumentException("只有数字类型支持加、减、乘、除")
+        }
+        if (op == "set") return coerce(raw, type)
+        if (!hasCurrent) throw IllegalArgumentException("变量还不存在，不能做运算")
+        val left = current?.toString()?.trim()?.toDoubleOrNull()
+            ?: throw IllegalArgumentException("变量不是数字")
+        val right = raw.trim().toDoubleOrNull() ?: throw IllegalArgumentException("内容不是数字")
+        if (op == "div" && right == 0.0) throw IllegalArgumentException("不能除以零")
+        val result = when (op) {
+            "add" -> left + right
+            "sub" -> left - right
+            "mul" -> left * right
+            "div" -> left / right
+            else -> throw IllegalArgumentException("未知运算：$op")
+        }
+        return if (result == result.toLong().toDouble()) result.toLong() else result
+    }
+
+    private fun coerce(raw: String, type: VariableType): Any = when (type) {
+        VariableType.TEXT -> raw
+        VariableType.NUMBER -> raw.trim().toDoubleOrNull()?.let { if (it == it.toLong().toDouble()) it.toLong() else it }
+            ?: throw IllegalArgumentException("内容不是数字")
+        VariableType.BOOLEAN -> when (raw.trim().lowercase()) {
+            "true", "1", "是", "开" -> true
+            "false", "0", "否", "关" -> false
+            else -> throw IllegalArgumentException("内容不是真假值（true/false）")
+        }
+        VariableType.LIST -> {
+            val element = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(raw) }.getOrNull()
+            if (element !is kotlinx.serialization.json.JsonArray) {
+                throw IllegalArgumentException("内容不是列表（JSON 数组）")
+            }
+            element
+        }
+    }
+
+    private fun inferType(value: Any?): VariableType = when (value) {
+        is Boolean -> VariableType.BOOLEAN
+        is Number -> VariableType.NUMBER
+        is kotlinx.serialization.json.JsonArray, is List<*> -> VariableType.LIST
+        else -> VariableType.TEXT
     }
 }
 
@@ -239,15 +437,11 @@ class RuleExecutor(
         val context = RunContext(rule, reason)
         val scopes = RunScopes(rule, initialVariables, globals)
         context.scriptVariables = object : ScriptVariableAccess {
-            override fun read(name: String): Any? = scopes.flattened()[name]
+            override fun read(name: String): Any? = scopes.read(name)
             override fun write(name: String, value: Any?) {
-                val text = when (value) {
-                    null -> ""
-                    is Double -> if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()
-                    else -> value.toString()
-                }
-                scopes.set(name, text, "set")
+                scopes.writeScript(name, value)
             }
+            override fun names(): Set<String> = scopes.names()
         }
         var budgetExceeded: BudgetExceeded? = null
         var stopped: StopSignal? = null
@@ -288,6 +482,8 @@ class RuleExecutor(
         )
         // Success and failure both persist variables; cancellation already returned above.
         sink.persist(scopes.ruleWrites(), scopes.globalWrites())
+        val (ruleDefinitions, globalDefinitions) = scopes.definitions()
+        sink.persistDefinitions(ruleDefinitions, globalDefinitions)
         return RunLog(
             id = newIdString(),
             ruleId = rule.id,
@@ -528,7 +724,23 @@ class RuleExecutor(
         val value = ParamTemplate.expand(node.params["value"]?.stringValue().orEmpty(), scopes.flattened())
         val op = node.params["op"]?.stringValue() ?: "set"
         return try {
-            val stored = scopes.set(name, value, op)
+            val stored = if (node.params.containsKey("type") || node.params.containsKey("scope") ||
+                node.params.containsKey("retain")
+            ) {
+                val type = VariableType.values().firstOrNull {
+                    it.name.lowercase() == (node.params["type"]?.stringValue() ?: "text")
+                } ?: throw IllegalArgumentException("未知变量类型")
+                val scope = when (node.params["scope"]?.stringValue() ?: "local") {
+                    "global" -> VariableScope.GLOBAL
+                    "local" -> VariableScope.LOCAL
+                    else -> throw IllegalArgumentException("未知保存范围")
+                }
+                val retain = (node.params["retain"]?.stringValue() ?: "false") == "true"
+                scopes.setNamed(name, value, type, op, scope, retain)
+            } else {
+                // Documents written before the type/scope fields keep the old run-scope behavior.
+                scopes.set(name, value, op)
+            }
             record(StepStatus.SUCCESS, "$name = ${stored.ifEmpty { "(空)" }}")
             SequenceOutcome(StepStatus.SUCCESS, "$name = $stored")
         } catch (invalid: IllegalArgumentException) {

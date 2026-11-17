@@ -159,6 +159,18 @@ object ParameterCodec {
         if (meta.typeId == "action.script") return parseScript(meta, text)
         if (meta.typeId == "action.post_notification") return parseNotification(meta, text)
         if (meta.typeId == "action.toast") return parseToast(meta, text)
+        // Old set-var rows had exactly name|op|value. Keep them editable while the new editor
+        // adds type/scope/retain fields.
+        if (meta.typeId == "action.set_var") {
+            val parts = text.split('|')
+            if (parts.size == 3) {
+                return mapOf(
+                    "name" to parse(meta.params.first { it.key == "name" }, parts[0]),
+                    "op" to parse(meta.params.first { it.key == "op" }, parts[1]),
+                    "value" to parse(meta.params.first { it.key == "value" }, parts[2]),
+                )
+            }
+        }
         // v0.5 location rules stored a free-form label such as "公司"; keep them editable rather
         // than turning the whole component into an unknown item. They cannot trigger until the
         // user replaces the label with coordinates.
@@ -268,6 +280,13 @@ object ParameterCodec {
             if (radius.jsonPrimitive.content == "500" && location.isNotBlank() &&
                 ',' !in location && '，' !in location) return location
             return "$location|${format(meta.params.single { it.key == "radius" }, radius)}"
+        }
+        if (meta.typeId == "action.set_var") {
+            val defaults = meta.params.associate { it.key to it.defaultValue }
+            val merged = defaults + params
+            val values = meta.params.map { format(it, merged[it.key]) }
+            require(values.none { '|' in it }) { "参数不能包含 |" }
+            return values.joinToString("|")
         }
         if (meta.params.size > 1) {
             val values = meta.params.map { format(it, params[it.key]) }

@@ -67,14 +67,25 @@ object BuiltInBlocks {
             "action.set_var", "设置变量", "流程控制", ComponentKind.ACTION,
             listOf(
                 ParamSpec("name", "变量名", ParamType.TEXT, true, JsonPrimitive(""),
-                    hint = "可写 run.x / rule.x / global.x；不带前缀等价于 run.x。"),
-                ParamSpec("op", "运算", ParamType.ENUM, false, JsonPrimitive("set"), options = listOf(
-                    ParamOption("set", "赋值"), ParamOption("add", "加"), ParamOption("sub", "减"),
-                    ParamOption("mul", "乘"), ParamOption("div", "除"), ParamOption("append", "追加文本"),
+                    hint = "只填名字，例如 城市；新变量会自动创建。"),
+                ParamSpec("type", "类型", ParamType.ENUM, false, JsonPrimitive("text"), options = listOf(
+                    ParamOption("text", "文本"), ParamOption("number", "数字"),
+                    ParamOption("boolean", "真假"), ParamOption("list", "列表"),
                 )),
-                ParamSpec("value", "值", ParamType.TEXT, false, JsonPrimitive("")),
+                ParamSpec("value", "内容", ParamType.TEXT, false, JsonPrimitive(""),
+                    hint = "支持 {变量}。"),
+                ParamSpec("op", "运算", ParamType.ENUM, false, JsonPrimitive("set"), options = listOf(
+                    ParamOption("set", "设为"), ParamOption("add", "加"), ParamOption("sub", "减"),
+                    ParamOption("mul", "乘"), ParamOption("div", "除"),
+                )),
+                ParamSpec("scope", "保存范围", ParamType.ENUM, false, JsonPrimitive("local"), options = listOf(
+                    ParamOption("local", "本指令"), ParamOption("global", "所有指令"),
+                )),
+                ParamSpec("retain", "运行后保留", ParamType.ENUM, false, JsonPrimitive("false"), options = listOf(
+                    ParamOption("false", "关闭"), ParamOption("true", "开启"),
+                )),
             ),
-            description = "赋值或做简单运算；值支持 %{变量}。",
+            description = "赋值或做简单运算；新建变量时可选择保存范围，局部变量可选择运行后是否保留。",
             supports = normalLayer,
             block = BlockKind.SET_VAR,
         ),
