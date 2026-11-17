@@ -136,6 +136,12 @@ class HookEventDispatcherTest {
         assertTrue("cleanUpApplicationRecordLocked" in methods)
         assertTrue("handleApplicationCrashInner" in methods)
         assertTrue("appNotResponding" in methods)
+        assertTrue("handleAppDiedLocked" in methods)
+        val processListStart = SystemHookCandidates.process.single {
+            it.className == "com.android.server.am.ProcessList" && it.methodName == "startProcessLocked"
+        }
+        assertEquals(HookEventSource.PROCESS_START_ARGUMENTS, processListStart.source)
+        assertEquals(SystemHookFamily.PROCESS, processListStart.family)
         assertTrue(
             "process candidates must carry an explicit identity source",
             SystemHookCandidates.process.all {
@@ -143,7 +149,9 @@ class HookEventDispatcherTest {
                     HookEventSource.SECOND_ARGUMENT_APPLICATION,
                     HookEventSource.FIRST_ARGUMENT_PROCESS,
                     HookEventSource.SECOND_ARGUMENT_PROCESS,
+                    HookEventSource.PROCESS_START_ARGUMENTS,
                     HookEventSource.CLEANUP_PROCESS_RECORD,
+                    HookEventSource.PROCESS_DIED_RECORD,
                 )
             },
         )
