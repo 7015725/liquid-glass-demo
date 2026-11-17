@@ -1,8 +1,10 @@
 package com.flowglass.demo.system.exec
 
+import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.ui.Cmd
 import com.flowglass.demo.ui.CommandItem
 import com.flowglass.demo.ui.Ic
+import com.flowglass.demo.xposed.ModuleStatus
 import com.flowglass.engine.ExecutionLayer
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -122,5 +124,42 @@ class ExecutionEngineTest {
         assertTrue(first.await().ok)
         assertFalse(engine.run(command, "完成后").ignored)
         assertEquals(2, calls)
+    }
+
+    @Test fun rootActionRefreshKeepsReadyLsposed() = runTest {
+        val app = RuntimeEnvironment.getApplication()
+        try {
+            SystemHookSettings.setEnabled(app, true)
+            SystemHookSettings.markLoaded(app, hookCount = 3)
+            SystemHookSettings.markHeartbeat(app, hookCount = 3)
+            ModuleStatus.markModern(
+                apiVersion = 101,
+                frameworkName = "LSPosed",
+                frameworkVersion = "2.2",
+                frameworkVersionCode = 3080L,
+                scope = listOf("system", "com.flowglass.demo"),
+            )
+            assertTrue(SystemHookSettings.isAlive(app))
+            LayerStatus.updateLsposed(active = true, systemHookReady = true)
+
+            val rootAction = command(1).copy(
+                actions = listOf(
+                    CommandItem(
+                        id = 1,
+                        name = "强制停止",
+                        parameter = "com.example.app",
+                        ic = Ic.Bolt,
+                        typeId = "action.force_stop",
+                    ),
+                ),
+            )
+            ExecutionEngine(app).run(rootAction, "测试")
+
+            assertEquals(LayerState.READY, LayerStatus.current().lsposed)
+        } finally {
+            ModuleStatus.clearModern()
+            SystemHookSettings.setEnabled(app, false)
+            LayerStatus.updateLsposed(active = false, systemHookReady = false)
+        }
     }
 }
