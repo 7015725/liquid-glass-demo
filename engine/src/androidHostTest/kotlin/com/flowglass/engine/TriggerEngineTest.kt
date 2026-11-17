@@ -501,6 +501,28 @@ class TriggerEngineTest {
     }
 
     @Test
+    fun keyguardTriggerMatchesOnlyTheConfiguredEdge() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        val locked = rule("locked", listOf(TriggerComponent(
+            "trigger.keyguard", "keyguard", mapOf("state" to JsonPrimitive("locked")),
+        )))
+        val unlocked = rule("unlocked", listOf(TriggerComponent(
+            "trigger.keyguard", "keyguard", mapOf("state" to JsonPrimitive("unlocked")),
+        )))
+        val rules = listOf(locked, unlocked)
+        fun event(state: String) = TriggerEvent(
+            TriggerKinds.KEYGUARD, TriggerSource.SYSTEM, clock.now, mapOf("event" to state),
+        )
+
+        assertEquals(listOf("locked"), d.dispatch(event("locked"), rules).executions.map { it.rule.id })
+        clock.now = 3_000
+        assertEquals(listOf("unlocked"), d.dispatch(event("unlocked"), rules).executions.map { it.rule.id })
+        assertEquals(0, d.dispatch(event("unknown"), rules).executions.size)
+    }
+
+    @Test
     fun appProcessConditionUsesCachedStateAndFailsClosedWhenUnknown() {
         val env = FakeEnvironment(processRunning = null)
         val clock = FakeClock(0)

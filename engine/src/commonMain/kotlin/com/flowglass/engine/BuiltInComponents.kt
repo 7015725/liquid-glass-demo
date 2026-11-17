@@ -122,6 +122,13 @@ object BuiltInComponents {
             minTier = Tier.XPOSED,
             description = "应用崩溃或 ANR 时触发；不发送崩溃堆栈。",
         ),
+        ComponentMeta("trigger.keyguard", "锁屏 / 解锁", "设备", ComponentKind.TRIGGER,
+            listOf(param("state", "状态", "locked", ParamType.ENUM, required = true, options = listOf(
+                ParamOption("locked", "已锁屏"), ParamOption("unlocked", "已解锁")))),
+            supports = listOf(LayerSupport(ExecutionLayer.XPOSED)),
+            minTier = Tier.XPOSED,
+            description = "只观察锁屏状态变化；需要 LSPosed 系统钩子。"
+        ),
         ComponentMeta("trigger.headset", "耳机插入/拔出", "设备", ComponentKind.TRIGGER,
             listOf(
                 param("state", "状态", "plugged", ParamType.ENUM, required = true, options = listOf(

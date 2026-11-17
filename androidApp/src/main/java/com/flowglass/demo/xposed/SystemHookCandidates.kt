@@ -11,6 +11,9 @@ internal enum class HookEventSource {
     /** The second argument is an ApplicationInfo (ActivityManagerService#startProcessLocked). */
     SECOND_ARGUMENT_APPLICATION,
 
+    /** The first argument is a boolean (KeyguardController#setKeyguardShown). */
+    FIRST_ARGUMENT_BOOLEAN,
+
     /** The first argument is a ProcessRecord (AnrHelper#appNotResponding). */
     FIRST_ARGUMENT_PROCESS,
 
@@ -117,6 +120,22 @@ internal object SystemHookCandidates {
             source = HookEventSource.FIRST_ARGUMENT_PROCESS,
             family = SystemHookFamily.CRASH,
             kind = SystemHookProtocol.EVENT_APP_ANR,
+        ),
+    )
+
+    /**
+     * Keyguard transitions. `setKeyguardShown(true)` is the lock edge; `false` is the unlock
+     * edge. keyguardGoingAway is deliberately not treated as unlocked: it is a transition while
+     * the keyguard may still be showing.
+     */
+    val keyguard = listOf(
+        HookCandidate(
+            label = "keyguard.setKeyguardShown",
+            className = "com.android.server.wm.KeyguardController",
+            methodName = "setKeyguardShown",
+            source = HookEventSource.FIRST_ARGUMENT_BOOLEAN,
+            family = SystemHookFamily.KEYGUARD,
+            kind = SystemHookProtocol.EVENT_KEYGUARD_LOCKED,
         ),
     )
 }

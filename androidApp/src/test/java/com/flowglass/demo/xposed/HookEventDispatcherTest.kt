@@ -156,6 +156,14 @@ class HookEventDispatcherTest {
     }
 
     @Test
+    fun keyguardCandidateUsesBooleanArgumentAndKeyguardFamily() {
+        val candidate = SystemHookCandidates.keyguard.single()
+        assertEquals("setKeyguardShown", candidate.methodName)
+        assertEquals(HookEventSource.FIRST_ARGUMENT_BOOLEAN, candidate.source)
+        assertEquals(SystemHookFamily.KEYGUARD, candidate.family)
+    }
+
+    @Test
     fun identityRejectsMissingOrInvalidValues() {
         assertEquals(HookIdentity("com.example.app", 999), HookIdentityReader.of("com.example.app", 999))
         assertEquals(HookIdentity("com.example.app", 0), HookIdentityReader.of("com.example.app", 0))

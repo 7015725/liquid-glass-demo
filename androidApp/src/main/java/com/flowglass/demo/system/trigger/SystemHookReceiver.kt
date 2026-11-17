@@ -52,6 +52,15 @@ class SystemHookReceiver : BroadcastReceiver() {
             receiveForeground(context, intent)
             return
         }
+        if (event == SystemHookProtocol.EVENT_KEYGUARD_LOCKED ||
+            event == SystemHookProtocol.EVENT_KEYGUARD_UNLOCKED
+        ) {
+            TriggerService.start(context, TriggerService.ACTION_SYSTEM_EVENT) {
+                putExtra(SystemHookProtocol.EXTRA_EVENT, event)
+                putExtra(SystemHookProtocol.EXTRA_TIME, System.currentTimeMillis())
+            }
+            return
+        }
         if (event !in SUPPORTED_EVENTS) return
         val packageName = intent.getStringExtra(SystemHookProtocol.EXTRA_PACKAGE) ?: return
         if (!PACKAGE_PATTERN.matches(packageName)) return

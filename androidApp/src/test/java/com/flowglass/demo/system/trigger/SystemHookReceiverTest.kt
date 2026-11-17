@@ -58,6 +58,22 @@ class SystemHookReceiverTest {
     }
 
     @Test
+    fun keyguardEventStartsTheSystemEventActionWithoutAPackage() {
+        val app = app()
+        SystemHookReceiver().onReceive(
+            app,
+            Intent(SystemHookProtocol.ACTION_EVENT)
+                .putExtra(SystemHookProtocol.EXTRA_EVENT, SystemHookProtocol.EVENT_KEYGUARD_LOCKED),
+        )
+
+        val started = Shadows.shadowOf(app).nextStartedService
+        assertNotNull(started)
+        assertEquals(TriggerService.ACTION_SYSTEM_EVENT, started.action)
+        assertEquals(SystemHookProtocol.EVENT_KEYGUARD_LOCKED, started.getStringExtra(SystemHookProtocol.EXTRA_EVENT))
+        assertTrue(!started.hasExtra(SystemHookProtocol.EXTRA_PACKAGE))
+    }
+
+    @Test
     fun malformedEventIsDroppedBeforeStartingTheService() {
         val app = app()
         SystemHookReceiver().onReceive(

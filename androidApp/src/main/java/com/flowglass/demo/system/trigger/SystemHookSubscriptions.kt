@@ -33,6 +33,7 @@ internal object SystemHookSubscriptions {
         TriggerTypes.APP_FOREGROUND -> SystemHookFamily.FOREGROUND
         TriggerTypes.APP_PROCESS -> SystemHookFamily.PROCESS
         TriggerTypes.APP_CRASH -> SystemHookFamily.CRASH
+        TriggerTypes.KEYGUARD -> SystemHookFamily.KEYGUARD
         else -> null
     }
 }

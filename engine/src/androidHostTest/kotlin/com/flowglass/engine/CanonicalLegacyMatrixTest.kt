@@ -55,7 +55,8 @@ class CanonicalLegacyMatrixTest {
             it.block == null &&
                 it.typeId !in setOf(
                     "action.script", // introduced in 0.8, no v0.5 form
-                    "trigger.app_process", "trigger.app_crash", "condition.app_process_state", // alpha7
+                    "trigger.app_process", "trigger.app_crash", "condition.app_process_state",
+                    "trigger.keyguard", // alpha8
                 )
         }
         assertEquals(expected.keys, legacyComponents.map { it.typeId }.toSet())
@@ -111,7 +112,9 @@ class CanonicalLegacyMatrixTest {
     }
 
     @Test fun allEnumLabelsAndCanonicalTokensMigrateToValues() {
-        for (meta in BuiltInComponents.all.filter { it.params.singleOrNull()?.type in setOf(ParamType.TRI_STATE, ParamType.ENUM) }) {
+        for (meta in BuiltInComponents.all.filter {
+            it.typeId != "trigger.keyguard" // alpha8, no v0.5 legacy form
+        }.filter { it.params.singleOrNull()?.type in setOf(ParamType.TRI_STATE, ParamType.ENUM) }) {
             val spec = meta.params.single()
             for (option in spec.options) for (input in listOf(option.label, option.value)) {
                 assertEquals(JsonPrimitive(option.value), migrate(meta, input).params[spec.key])

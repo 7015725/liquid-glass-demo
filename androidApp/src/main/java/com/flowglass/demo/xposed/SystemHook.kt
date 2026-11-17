@@ -31,6 +31,7 @@ internal object SystemHook {
     private val subscribedFamilies = AtomicInteger(SystemHookFamily.defaultMask)
     private val watchedKeys = AtomicReference<Set<String>>(emptySet())
     private val lastIdentity = AtomicReference<String?>(null)
+    private val lastKeyguard = AtomicReference<Boolean?>(null)
     private val lastProcessEvent = ConcurrentHashMap<String, Long>()
     private val installedCounts = ConcurrentHashMap<SystemHookFamily, Int>()
     private val sequence = AtomicLong(0L)
@@ -53,6 +54,7 @@ internal object SystemHook {
             // heartbeat always reports the real installed count (including zero).
             hookForegroundCandidates(lpparam.classLoader)
             hookProcessCandidates(lpparam.classLoader)
+            hookKeyguardCandidates(lpparam.classLoader)
             hookSystemContext(lpparam.classLoader)
         }
     }
@@ -154,6 +156,15 @@ internal object SystemHook {
         )
     }
 
+    private fun hookKeyguardCandidates(classLoader: ClassLoader) {
+        hookCandidates(
+            classLoader = classLoader,
+            candidates = SystemHookCandidates.keyguard,
+            hookFactory = ::keyguardHook,
+            family = SystemHookFamily.KEYGUARD,
+        )
+    }
+
     /**
      * Hooks every candidate once and records its own count. A family can contain candidates from
      * several classes; the total is what makes that family available to the app.
@@ -202,6 +213,12 @@ internal object SystemHook {
     private fun processHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
         override fun afterHookedMethod(param: MethodHookParam?) {
             safe("process event ${candidate.label}") { observeProcess(candidate, param) }
+        }
+    }
+
+    private fun keyguardHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
+        override fun afterHookedMethod(param: MethodHookParam?) {
+            safe("keyguard event ${candidate.label}") { observeKeyguard(candidate, param) }
         }
     }
 
@@ -264,14 +281,29 @@ internal object SystemHook {
         emit(candidate.family, candidate.kind, identity)
     }
 
-    private fun emit(family: SystemHookFamily, kind: String, identity: HookIdentity) {
+    private fun observeKeyguard(candidate: HookCandidate, param: XC_MethodHook.MethodHookParam?) {
+        if (!canEmit(SystemHookFamily.KEYGUARD)) return
+        val showing = param?.args?.getOrNull(0) as? Boolean ?: run {
+            logSkip(candidate, "keyguard boolean unavailable")
+            return
+        }
+        if (lastKeyguard.getAndSet(showing) == showing) return
+        val kind = if (showing) {
+            SystemHookProtocol.EVENT_KEYGUARD_LOCKED
+        } else {
+            SystemHookProtocol.EVENT_KEYGUARD_UNLOCKED
+        }
+        emit(SystemHookFamily.KEYGUARD, kind, null)
+    }
+
+    private fun emit(family: SystemHookFamily, kind: String, identity: HookIdentity?) {
         if (!canEmit(family)) return
         dispatcher.enqueue(
             HookEvent(
                 family = family,
                 kind = kind,
-                packageName = identity.packageName,
-                userId = identity.userId,
+                packageName = identity?.packageName,
+                userId = identity?.userId,
                 atEpochMs = System.currentTimeMillis(),
             )
         )
@@ -391,6 +423,7 @@ internal object SystemHook {
                     action != SystemHookProtocol.ACTION_CONFIG
                 ) return@safe
                 enabled.set(intent.getBooleanExtra(SystemHookProtocol.EXTRA_ENABLED, false))
+                if (enabled.get()) lastKeyguard.set(null)
                 subscribedFamilies.set(
                     intent.getIntExtra(SystemHookProtocol.EXTRA_FAMILIES, SystemHookFamily.defaultMask) and
                         knownFamilyMask()
