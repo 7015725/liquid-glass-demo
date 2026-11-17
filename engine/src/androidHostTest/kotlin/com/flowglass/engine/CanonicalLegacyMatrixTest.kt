@@ -55,6 +55,7 @@ class CanonicalLegacyMatrixTest {
             it.block == null &&
                 it.typeId !in setOf(
                     "action.script", // introduced in 0.8, no v0.5 form
+                    "action.force_stop", // alpha11, root-only
                     "trigger.app_process", "trigger.app_crash", "condition.app_process_state",
                     "trigger.keyguard", // alpha8
                     "trigger.media", // alpha9
@@ -93,7 +94,11 @@ class CanonicalLegacyMatrixTest {
     }
 
     @Test fun freeTextAndApplicationPreserveArbitraryTextIncludingEmptyAndWhitespace() {
-        val metas = BuiltInComponents.all.filter { it.params.size == 1 && it.params.single().type in setOf(ParamType.TEXT, ParamType.MULTILINE_TEXT, ParamType.APPLICATION) }
+        val metas = BuiltInComponents.all.filter {
+            it.typeId != "action.force_stop" && // alpha11, no v0.5 form
+                it.params.size == 1 &&
+                it.params.single().type in setOf(ParamType.TEXT, ParamType.MULTILINE_TEXT, ParamType.APPLICATION)
+        }
         assertTrue(metas.isNotEmpty())
         for (meta in metas) for (text in listOf("", "\t\n", "引号\" | JSON { } 中文\n第二行")) {
             val component = migrate(meta, text)
