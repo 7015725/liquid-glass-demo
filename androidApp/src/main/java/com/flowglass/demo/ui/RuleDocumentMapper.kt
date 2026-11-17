@@ -104,6 +104,7 @@ internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Bool
             },
     ),
     globals = engineGlobals,
+    globalMeta = engineGlobalMeta,
 )
 
 internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
@@ -222,6 +223,7 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
         engineRules = annotatedRules,
         engineUi = ui.copy(presentation = normalizedPresentation),
         engineGlobals = globals,
+        engineGlobalMeta = globalMeta,
     )
 }
 

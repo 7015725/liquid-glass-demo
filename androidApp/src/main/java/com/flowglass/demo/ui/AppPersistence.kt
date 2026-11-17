@@ -245,20 +245,26 @@ internal class PersistedAppState(
     autoCmds: List<Cmd>, oneTaps: List<Cmd>, logs: List<RunLog>,
     val running: Boolean, val mode: Int,
     engineRules: List<Rule> = emptyList(),
-    val engineUi: RuleUiMetadata = RuleUiMetadata(running = running, mode = mode),
-    val engineGlobals: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap(),
+    engineUi: RuleUiMetadata = RuleUiMetadata(running = running, mode = mode),
+    engineGlobals: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap(),
+    engineGlobalMeta: Map<String, com.flowglass.engine.GlobalVariableMeta> = emptyMap(),
 ) {
     val autoCmds = immutableCommands(autoCmds)
     val oneTaps = immutableCommands(oneTaps)
     val logs: List<RunLog> = immutableList(logs.map { it.copy(steps = immutableList(it.steps)) })
     val engineRules: List<Rule> = immutableList(engineRules)
+    val engineUi: RuleUiMetadata = engineUi
+    val engineGlobals: Map<String, kotlinx.serialization.json.JsonElement> =
+        Collections.unmodifiableMap(LinkedHashMap(engineGlobals))
+    val engineGlobalMeta: Map<String, com.flowglass.engine.GlobalVariableMeta> =
+        Collections.unmodifiableMap(LinkedHashMap(engineGlobalMeta))
 
     override fun equals(other: Any?): Boolean = other is PersistedAppState &&
         autoCmds == other.autoCmds && oneTaps == other.oneTaps && logs == other.logs &&
         running == other.running && mode == other.mode && engineRules == other.engineRules &&
-        engineGlobals == other.engineGlobals
+        engineGlobals == other.engineGlobals && engineGlobalMeta == other.engineGlobalMeta
     override fun hashCode(): Int =
-        listOf(autoCmds, oneTaps, logs, running, mode, engineRules, engineGlobals).hashCode()
+        listOf(autoCmds, oneTaps, logs, running, mode, engineRules, engineGlobals, engineGlobalMeta).hashCode()
 }
 
 private fun <T> immutableList(values: List<T>): List<T> = Collections.unmodifiableList(ArrayList(values))
@@ -285,6 +291,7 @@ internal fun AppState.snapshot() = PersistedAppState(
     autoCmds, oneTaps, logs, running, mode, engineRules,
     engineUi.copy(startedAt = engineStartedAt),
     engineGlobals,
+    engineGlobalMeta,
 )
 
 internal object AppStateJson {
@@ -331,7 +338,11 @@ internal object AppStateJson {
                 Decoded(
                     decoded.document.toPersistedAppState(),
                     migrated = decoded.migratedFrom != null,
-                    backupName = if (decoded.migratedFrom == 2) "commands.v2.bak.json" else null,
+                    backupName = when (decoded.migratedFrom) {
+                        2 -> "commands.v2.bak.json"
+                        3 -> "commands.v3.bak.json"
+                        else -> null
+                    },
                 )
             }
         } else {

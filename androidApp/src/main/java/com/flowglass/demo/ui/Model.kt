@@ -170,6 +170,9 @@ class AppState internal constructor(saved: PersistedAppState?) {
             engineGlobals = engineGlobals + globalWrites.mapValues {
                 kotlinx.serialization.json.JsonPrimitive(it.value?.toString().orEmpty())
             }
+            engineGlobalMeta = engineGlobalMeta + globalWrites.keys.associateWith { name ->
+                engineGlobalMeta[name] ?: com.flowglass.engine.GlobalVariableMeta()
+            }
         }
     }
 
@@ -185,6 +188,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
     var editorNotice by mutableStateOf<String?>(null)
     internal var engineRules by mutableStateOf(saved?.engineRules.orEmpty())
     internal var engineGlobals by mutableStateOf(saved?.engineGlobals.orEmpty())
+    internal var engineGlobalMeta by mutableStateOf(saved?.engineGlobalMeta.orEmpty())
     internal var engineUi by mutableStateOf(saved?.engineUi ?: com.flowglass.engine.RuleUiMetadata())
     /** 当前块编辑页路径；空表示指令根页。 */
     var blockPath by mutableStateOf<List<Long>>(emptyList())
@@ -497,9 +501,14 @@ class AppState internal constructor(saved: PersistedAppState?) {
         engineRules = engineRules.map { rule ->
             if (rule.id != id) rule else {
                 val index = rule.locals.indexOfFirst { it.name == name }
-                val variable = com.flowglass.engine.LocalVariable(
-                    name = name, type = type, initial = kotlinx.serialization.json.JsonPrimitive(value),
-                )
+                val previous = rule.locals.getOrNull(index)
+                val variable = if (previous != null) {
+                    previous.copy(type = type, initial = kotlinx.serialization.json.JsonPrimitive(value))
+                } else {
+                    com.flowglass.engine.LocalVariable(
+                        name = name, type = type, initial = kotlinx.serialization.json.JsonPrimitive(value),
+                    )
+                }
                 val locals = if (index >= 0) rule.locals.toMutableList().also { it[index] = variable }
                 else rule.locals + variable
                 rule.copy(locals = locals)
@@ -516,10 +525,12 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     fun setGlobal(name: String, value: String) {
         engineGlobals = engineGlobals + (name to kotlinx.serialization.json.JsonPrimitive(value))
+        engineGlobalMeta = engineGlobalMeta + (name to (engineGlobalMeta[name] ?: com.flowglass.engine.GlobalVariableMeta()))
     }
 
     fun removeGlobal(name: String) {
         engineGlobals = engineGlobals - name
+        engineGlobalMeta = engineGlobalMeta - name
     }
 
     fun moveItem(cmdId: Long, section: CommandSection, itemId: Long, delta: Int) =
@@ -719,6 +730,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         engineRules = converted.engineRules
         engineUi = converted.engineUi
         engineGlobals = converted.engineGlobals
+        engineGlobalMeta = converted.engineGlobalMeta
         running = converted.running
         mode = converted.mode
         engineStartedAt = converted.engineUi.startedAt
