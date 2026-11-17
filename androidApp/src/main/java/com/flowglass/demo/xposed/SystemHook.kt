@@ -7,10 +7,6 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
-import de.robv.android.xposed.callbacks.XC_LoadPackage
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -40,6 +36,7 @@ internal object SystemHook {
     private val loadedLimiter = BroadcastRateLimiter(LOADED_MIN_INTERVAL_MS)
     private val installedCounts = ConcurrentHashMap<SystemHookFamily, Int>()
     private val sequence = AtomicLong(0L)
+    @Volatile private var bridge: HookBridge? = null
     @Volatile private var systemContext: Context? = null
     @Volatile private var receiverRegistered = false
 
@@ -58,51 +55,48 @@ internal object SystemHook {
         )
     }
 
-    fun install(lpparam: XC_LoadPackage.LoadPackageParam) {
+    fun install(hookBridge: HookBridge, classLoader: ClassLoader) {
         safe("install") {
+            bridge = hookBridge
             dispatcher.warmUp()
             // Install detection points before any receiver can request a heartbeat, so the first
             // heartbeat always reports the real installed count (including zero).
-            hookForegroundCandidates(lpparam.classLoader)
-            hookProcessCandidates(lpparam.classLoader)
-            hookKeyguardCandidates(lpparam.classLoader)
-            hookMediaCandidates(lpparam.classLoader)
-            hookForegroundServiceCandidates(lpparam.classLoader)
-            hookSystemContext(lpparam.classLoader)
+            hookForegroundCandidates(classLoader)
+            hookProcessCandidates(classLoader)
+            hookKeyguardCandidates(classLoader)
+            hookMediaCandidates(classLoader)
+            hookForegroundServiceCandidates(classLoader)
+            hookSystemContext(classLoader)
         }
     }
 
+    private fun bridge(): HookBridge = bridge ?: error("HookBridge not installed")
+
     private fun hookSystemContext(classLoader: ClassLoader) {
-        val activityThread = XposedHelpers.findClass("android.app.ActivityThread", classLoader)
-        XposedBridge.hookAllMethods(activityThread, "systemMain", object : XC_MethodHook() {
-            override fun afterHookedMethod(param: MethodHookParam?) {
-                safe("systemMain callback") {
-                    postToMain("register state receiver (systemMain)", classLoader)
-                }
+        val activityThread = bridge().findClass("android.app.ActivityThread", classLoader)
+        bridge().hookAllMethods(activityThread, "systemMain", HookCallback { _, _, _ ->
+            safe("systemMain callback") {
+                postToMain("register state receiver (systemMain)", classLoader)
             }
         })
-        // Try immediately as well: on some LSPosed versions handleLoadPackage is already running
+        // Try immediately as well: some LSPosed versions handleLoadPackage is already running
         // after the system context exists, so systemMain may have been called before our hook.
         postToMain("register state receiver (initial)", classLoader)
         // Some ROMs install modules too late for systemMain; startBootstrapServices runs after
         // the system context exists and gives us a second, harmless registration attempt.
         runCatching {
-            val systemServer = XposedHelpers.findClass("com.android.server.SystemServer", classLoader)
-            XposedBridge.hookAllMethods(systemServer, "startBootstrapServices", object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam?) {
-                    safe("bootstrap callback") {
-                        postToMain("register state receiver (bootstrap)", classLoader)
-                    }
+            val systemServer = bridge().findClass("com.android.server.SystemServer", classLoader)
+            bridge().hookAllMethods(systemServer, "startBootstrapServices", HookCallback { _, _, _ ->
+                safe("bootstrap callback") {
+                    postToMain("register state receiver (bootstrap)", classLoader)
                 }
             })
         }.onFailure { log("bootstrap hook unavailable: ${it.javaClass.simpleName}: ${it.message}") }
         runCatching {
-            val ams = XposedHelpers.findClass("com.android.server.am.ActivityManagerService", classLoader)
-            XposedBridge.hookAllMethods(ams, "systemReady", object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam?) {
-                    safe("AMS systemReady callback") {
-                        postToMain("register state receiver (ams)", classLoader)
-                    }
+            val ams = bridge().findClass("com.android.server.am.ActivityManagerService", classLoader)
+            bridge().hookAllMethods(ams, "systemReady", HookCallback { _, _, _ ->
+                safe("AMS systemReady callback") {
+                    postToMain("register state receiver (ams)", classLoader)
                 }
             })
         }.onFailure { log("AMS systemReady hook unavailable: ${it.javaClass.simpleName}: ${it.message}") }
@@ -122,9 +116,9 @@ internal object SystemHook {
     private fun registerStateReceiver(classLoader: ClassLoader) {
         if (receiverRegistered) return
         val context = systemContext ?: runCatching {
-            val threadClass = XposedHelpers.findClass("android.app.ActivityThread", classLoader)
-            val thread = XposedHelpers.callStaticMethod(threadClass, "currentActivityThread")
-            XposedHelpers.callMethod(thread, "getSystemContext") as? Context
+            val threadClass = bridge().findClass("android.app.ActivityThread", classLoader)
+            val thread = bridge().callStaticMethod(threadClass, "currentActivityThread")
+            bridge().callMethod(thread, "getSystemContext") as? Context
         }.getOrNull() ?: return
         systemContext = context
         val filter = IntentFilter().apply {
@@ -203,16 +197,15 @@ internal object SystemHook {
     private fun hookCandidates(
         classLoader: ClassLoader,
         candidates: List<HookCandidate>,
-        hookFactory: (HookCandidate) -> XC_MethodHook,
+        hookFactory: (HookCandidate) -> HookCallback,
         family: SystemHookFamily?,
     ) {
         for (candidate in candidates) {
             var classFound = false
             try {
-                val clazz = XposedHelpers.findClass(candidate.className, classLoader)
+                val clazz = bridge().findClass(candidate.className, classLoader)
                 classFound = true
-                val methods = XposedBridge.hookAllMethods(clazz, candidate.methodName, hookFactory(candidate))
-                val count = methods.size
+                val count = bridge().hookAllMethods(clazz, candidate.methodName, hookFactory(candidate))
                 if (count > 0) {
                     val targetFamily = family ?: candidate.family
                     installedCounts.merge(targetFamily, count, Int::plus)
@@ -235,48 +228,57 @@ internal object SystemHook {
         log("hooks installed=${installedHooks()} active=${active.ifEmpty { "none" }}")
     }
 
-    private fun foregroundHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
-        override fun afterHookedMethod(param: MethodHookParam?) {
-            safe("foreground event ${candidate.label}") { observeForeground(candidate, param) }
+    private fun foregroundHook(candidate: HookCandidate): HookCallback =
+        HookCallback { thisObject, args, result ->
+            safe("foreground event ${candidate.label}") {
+                observeForeground(candidate, thisObject, args, result)
+            }
         }
-    }
 
-    private fun processHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
-        override fun afterHookedMethod(param: MethodHookParam?) {
-            safe("process event ${candidate.label}") { observeProcess(candidate, param) }
+    private fun processHook(candidate: HookCandidate): HookCallback =
+        HookCallback { thisObject, args, result ->
+            safe("process event ${candidate.label}") {
+                observeProcess(candidate, thisObject, args, result)
+            }
         }
-    }
 
-    private fun keyguardHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
-        override fun afterHookedMethod(param: MethodHookParam?) {
-            safe("keyguard event ${candidate.label}") { observeKeyguard(candidate, param) }
+    private fun keyguardHook(candidate: HookCandidate): HookCallback =
+        HookCallback { thisObject, args, result ->
+            safe("keyguard event ${candidate.label}") {
+                observeKeyguard(candidate, thisObject, args, result)
+            }
         }
-    }
 
-    private fun mediaHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
-        override fun afterHookedMethod(param: MethodHookParam?) {
-            safe("media event ${candidate.label}") { observeMedia(candidate, param) }
+    private fun mediaHook(candidate: HookCandidate): HookCallback =
+        HookCallback { thisObject, args, result ->
+            safe("media event ${candidate.label}") {
+                observeMedia(candidate, thisObject, args, result)
+            }
         }
-    }
 
-    private fun foregroundServiceHook(candidate: HookCandidate): XC_MethodHook = object : XC_MethodHook() {
-        override fun afterHookedMethod(param: MethodHookParam?) {
-            safe("foreground-service event ${candidate.label}") { observeForegroundService(candidate, param) }
+    private fun foregroundServiceHook(candidate: HookCandidate): HookCallback =
+        HookCallback { thisObject, args, result ->
+            safe("foreground-service event ${candidate.label}") {
+                observeForegroundService(candidate, thisObject, args, result)
+            }
         }
-    }
 
     /**
      * Runs on the hooked system-server thread while WMS/AMS locks may be held. It must not send a
      * broadcast or call into ActivityManager here; only copy plain data into the bounded queue.
      */
-    private fun observeForeground(candidate: HookCandidate, param: XC_MethodHook.MethodHookParam?) {
+    private fun observeForeground(
+        candidate: HookCandidate,
+        thisObject: Any?,
+        arguments: Array<Any?>,
+        result: Any?,
+    ) {
         if (!canEmit(SystemHookFamily.FOREGROUND)) return
-        val arguments = param?.args ?: return
         val record = when (candidate.source) {
             HookEventSource.FIRST_ARGUMENT_ACTIVITY -> arguments.getOrNull(0)
             HookEventSource.THIS_ACTIVITY_STATE -> {
                 if (!isResumedState(arguments.getOrNull(0))) return
-                param.thisObject
+                thisObject
             }
             else -> return
         } ?: run {
@@ -292,13 +294,17 @@ internal object SystemHook {
         emit(SystemHookFamily.FOREGROUND, SystemHookProtocol.EVENT_FOREGROUND, identity)
     }
 
-    private fun observeProcess(candidate: HookCandidate, param: XC_MethodHook.MethodHookParam?) {
+    private fun observeProcess(
+        candidate: HookCandidate,
+        thisObject: Any?,
+        arguments: Array<Any?>,
+        result: Any?,
+    ) {
         if (!canEmit(candidate.family)) return
-        val arguments = param?.args ?: return
         val identity = when (candidate.source) {
             HookEventSource.SECOND_ARGUMENT_APPLICATION -> {
                 // startProcessLocked returns null when the process was not actually started.
-                if (param.result == null) {
+                if (result == null) {
                     logSkip(candidate, "startProcessLocked returned null")
                     return
                 }
@@ -324,9 +330,14 @@ internal object SystemHook {
         emit(candidate.family, candidate.kind, identity)
     }
 
-    private fun observeKeyguard(candidate: HookCandidate, param: XC_MethodHook.MethodHookParam?) {
+    private fun observeKeyguard(
+        candidate: HookCandidate,
+        thisObject: Any?,
+        arguments: Array<Any?>,
+        result: Any?,
+    ) {
         if (!canEmit(SystemHookFamily.KEYGUARD)) return
-        val showing = param?.args?.getOrNull(0) as? Boolean ?: run {
+        val showing = arguments.getOrNull(0) as? Boolean ?: run {
             logSkip(candidate, "keyguard boolean unavailable")
             return
         }
@@ -339,9 +350,13 @@ internal object SystemHook {
         emit(SystemHookFamily.KEYGUARD, kind, null)
     }
 
-    private fun observeMedia(candidate: HookCandidate, param: XC_MethodHook.MethodHookParam?) {
+    private fun observeMedia(
+        candidate: HookCandidate,
+        thisObject: Any?,
+        arguments: Array<Any?>,
+        result: Any?,
+    ) {
         if (!canEmit(SystemHookFamily.MEDIA)) return
-        val arguments = param?.args ?: return
         val record = arguments.getOrNull(0) ?: run {
             logSkip(candidate, "media session record unavailable")
             return
@@ -359,7 +374,7 @@ internal object SystemHook {
             HookEventSource.FIRST_ARGUMENT_MEDIA_SESSION_WITH_PLAYBACK_STATE -> {
                 val playback = arguments.getOrNull(2) ?: return
                 val state = runCatching {
-                    XposedHelpers.callMethod(playback, "getState") as? Number
+                    bridge().callMethod(playback, "getState") as? Number
                 }.getOrNull()?.toInt() ?: return
                 when (state) {
                     MEDIA_STATE_PLAYING -> SystemHookProtocol.EVENT_MEDIA_PLAYING
@@ -374,9 +389,13 @@ internal object SystemHook {
         emit(SystemHookFamily.MEDIA, kind, identity)
     }
 
-    private fun observeForegroundService(candidate: HookCandidate, param: XC_MethodHook.MethodHookParam?) {
+    private fun observeForegroundService(
+        candidate: HookCandidate,
+        thisObject: Any?,
+        arguments: Array<Any?>,
+        result: Any?,
+    ) {
         if (!canEmit(SystemHookFamily.FOREGROUND_SERVICE)) return
-        val arguments = param?.args ?: return
         val record = arguments.getOrNull(0) ?: run {
             logSkip(candidate, "service record unavailable")
             return
@@ -431,17 +450,17 @@ internal object SystemHook {
 
     private fun isResumedState(state: Any?): Boolean {
         if (state == null) return false
-        val name = runCatching { XposedHelpers.callMethod(state, "name") as? String }.getOrNull()
+        val name = runCatching { bridge().callMethod(state, "name") as? String }.getOrNull()
         return name == "RESUMED"
     }
 
     private fun readActivityIdentity(record: Any?): HookIdentity? {
         if (record == null) return null
         val packageName = runCatching {
-            XposedHelpers.getObjectField(record, "packageName") as? String
+            bridge().getObjectField(record, "packageName") as? String
         }.getOrNull()
         val userId = when (val raw = runCatching {
-            XposedHelpers.getObjectField(record, "mUserId")
+            bridge().getObjectField(record, "mUserId")
         }.getOrNull()) {
             is Number -> raw.toInt()
             else -> null
@@ -452,10 +471,10 @@ internal object SystemHook {
     private fun readApplicationIdentity(info: Any?): HookIdentity? {
         if (info == null) return null
         val packageName = runCatching {
-            XposedHelpers.getObjectField(info, "packageName") as? String
+            bridge().getObjectField(info, "packageName") as? String
         }.getOrNull()
         val uid = when (val raw = runCatching {
-            XposedHelpers.getObjectField(info, "uid")
+            bridge().getObjectField(info, "uid")
         }.getOrNull()) {
             is Number -> raw.toInt()
             else -> null
@@ -465,18 +484,18 @@ internal object SystemHook {
 
     private fun readProcessIdentity(record: Any?): HookIdentity? {
         if (record == null) return null
-        val info = runCatching { XposedHelpers.getObjectField(record, "info") }.getOrNull()
+        val info = runCatching { bridge().getObjectField(record, "info") }.getOrNull()
         val packageName = runCatching {
-            XposedHelpers.getObjectField(info, "packageName") as? String
+            bridge().getObjectField(info, "packageName") as? String
         }.getOrNull()
         val uid = when (val raw = runCatching {
-            XposedHelpers.getObjectField(info, "uid")
+            bridge().getObjectField(info, "uid")
         }.getOrNull()) {
             is Number -> raw.toInt()
             else -> null
         } ?: return null
         val userId = when (val raw = runCatching {
-            XposedHelpers.getObjectField(record, "userId")
+            bridge().getObjectField(record, "userId")
         }.getOrNull()) {
             is Number -> raw.toInt()
             else -> uid / 100_000
@@ -487,15 +506,15 @@ internal object SystemHook {
     private fun readMediaIdentity(record: Any?): HookIdentity? {
         if (record == null) return null
         val packageName = runCatching {
-            XposedHelpers.callMethod(record, "getPackageName") as? String
+            bridge().callMethod(record, "getPackageName") as? String
         }.getOrNull() ?: runCatching {
-            XposedHelpers.getObjectField(record, "mPackageName") as? String
+            bridge().getObjectField(record, "mPackageName") as? String
         }.getOrNull()
         val userId = when (val raw = runCatching {
-            XposedHelpers.callMethod(record, "getUserId")
+            bridge().callMethod(record, "getUserId")
         }.getOrNull()) {
             is Number -> raw.toInt()
-            else -> runCatching { XposedHelpers.getObjectField(record, "mUserId") as? Number }
+            else -> runCatching { bridge().getObjectField(record, "mUserId") as? Number }
                 .getOrNull()?.toInt()
         }
         return HookIdentityReader.of(packageName, userId)
@@ -504,18 +523,18 @@ internal object SystemHook {
     private fun readServiceIdentity(record: Any?): HookIdentity? {
         if (record == null) return null
         val packageName = runCatching {
-            XposedHelpers.getObjectField(record, "packageName") as? String
+            bridge().getObjectField(record, "packageName") as? String
         }.getOrNull() ?: runCatching {
-            val appInfo = XposedHelpers.getObjectField(record, "appInfo")
-            XposedHelpers.getObjectField(appInfo, "packageName") as? String
+            val appInfo = bridge().getObjectField(record, "appInfo")
+            bridge().getObjectField(appInfo, "packageName") as? String
         }.getOrNull()
         val userId = when (val raw = runCatching {
-            XposedHelpers.getObjectField(record, "userId")
+            bridge().getObjectField(record, "userId")
         }.getOrNull()) {
             is Number -> raw.toInt()
             else -> runCatching {
-                val appInfo = XposedHelpers.getObjectField(record, "appInfo")
-                val uid = XposedHelpers.getObjectField(appInfo, "uid") as Number
+                val appInfo = bridge().getObjectField(record, "appInfo")
+                val uid = bridge().getObjectField(appInfo, "uid") as Number
                 uid.toInt() / 100_000
             }.getOrNull()
         }
@@ -626,7 +645,7 @@ internal object SystemHook {
     }
 
     private fun log(message: String) {
-        runCatching { XposedBridge.log("FlowGlass/SystemHook: $message") }
+        runCatching { bridge?.log(message) }
     }
 
     private fun startHeartbeat(context: Context?) {
