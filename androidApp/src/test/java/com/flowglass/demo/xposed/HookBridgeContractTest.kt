@@ -14,8 +14,8 @@ class HookBridgeContractTest {
     fun bridgeOnlyExposesReadAndObserveOperations() {
         val names = HookBridge::class.java.methods.map { it.name }.toSet()
         assertEquals(
-            setOf("getApiLevel", "log", "findClass", "hookAllMethods",
-                "getObjectField", "callMethod", "callStaticMethod"),
+            setOf("getApiLevel", "log", "findClass", "hookAllMethods", "hookMethod",
+                "getObjectField", "callMethod", "callStaticMethod", "readPreferences"),
             names,
         )
         assertFalse(names.any { it.contains("replace", ignoreCase = true) })

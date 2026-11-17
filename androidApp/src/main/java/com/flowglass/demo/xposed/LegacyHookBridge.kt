@@ -21,29 +21,37 @@ internal class LegacyHookBridge : HookBridge {
         XposedHelpers.findClass(name, loader)
 
     override fun hookAllMethods(clazz: Class<*>, methodName: String, callback: HookCallback): Int {
-        val methods = XposedBridge.hookAllMethods(
-            clazz,
-            methodName,
-            object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam?) {
-                    if (param == null) return
-                    try {
-                        callback.afterCall(
-                            thisObject = param.thisObject,
-                            args = param.args?.copyOf() ?: emptyArray(),
-                            result = param.result,
-                        )
-                    } catch (failure: Throwable) {
-                        // A callback failure must never escape into the target method (here,
-                        // system_server). The runtime normally guards its own callbacks too;
-                        // this is the adapter's independent last line of defence.
-                        log("callback failed: ${failure.javaClass.simpleName}: ${failure.message}")
-                    }
-                }
-            },
-        )
+        val methods = XposedBridge.hookAllMethods(clazz, methodName, afterHook(callback))
         return methods.size
     }
+
+    override fun hookMethod(method: java.lang.reflect.Method, callback: HookCallback): Boolean {
+        return try {
+            XposedBridge.hookMethod(method, afterHook(callback))
+            true
+        } catch (failure: Throwable) {
+            log("hook ${method.declaringClass.name}#${method.name} failed: ${failure.javaClass.simpleName}: ${failure.message}")
+            false
+        }
+    }
+
+    private fun afterHook(callback: HookCallback): XC_MethodHook =
+        object : XC_MethodHook() {
+            override fun afterHookedMethod(param: MethodHookParam?) {
+                if (param == null) return
+                try {
+                    callback.afterCall(
+                        thisObject = param.thisObject,
+                        args = param.args?.copyOf() ?: emptyArray(),
+                        result = param.result,
+                    )
+                } catch (failure: Throwable) {
+                    // A callback failure must never escape into the target method. The runtime
+                    // normally guards its own callbacks too; this is the adapter's last defence.
+                    log("callback failed: ${failure.javaClass.simpleName}: ${failure.message}")
+                }
+            }
+        }
 
     override fun getObjectField(instance: Any?, name: String): Any? =
         XposedHelpers.getObjectField(instance, name)
@@ -53,4 +61,16 @@ internal class LegacyHookBridge : HookBridge {
 
     override fun callStaticMethod(clazz: Class<*>, name: String, vararg args: Any?): Any? =
         XposedHelpers.callStaticMethod(clazz, name, *args)
+
+    override fun readPreferences(name: String): Map<String, String> {
+        return runCatching {
+            val prefs = de.robv.android.xposed.XSharedPreferences(MODULE_PACKAGE, name)
+            prefs.reload()
+            prefs.all.mapValues { (_, value) -> value?.toString().orEmpty() }
+        }.getOrDefault(emptyMap())
+    }
+
+    private companion object {
+        const val MODULE_PACKAGE = "com.flowglass.demo"
+    }
 }

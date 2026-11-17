@@ -34,29 +34,34 @@ internal class Api101HookBridge(
         var installed = 0
         for (method in clazz.declaredMethods) {
             if (method.name != methodName) continue
-            if (Modifier.isAbstract(method.modifiers) || Modifier.isNative(method.modifiers)) continue
-            try {
-                module.hook(method)
-                    .setExceptionMode(ExceptionMode.PROTECTIVE)
-                    .intercept { chain ->
-                        val result = chain.proceed()
-                        try {
-                            callback.afterCall(
-                                thisObject = chain.thisObject,
-                                args = chain.args.toTypedArray(),
-                                result = result,
-                            )
-                        } catch (failure: Throwable) {
-                            log("callback failed: ${failure.javaClass.simpleName}: ${failure.message}")
-                        }
-                        result
-                    }
-                installed++
-            } catch (failure: Throwable) {
-                log("hook ${clazz.name}#${method.name} failed: ${failure.javaClass.simpleName}: ${failure.message}")
-            }
+            if (hookMethod(method, callback)) installed++
         }
         return installed
+    }
+
+    override fun hookMethod(method: java.lang.reflect.Method, callback: HookCallback): Boolean {
+        if (Modifier.isAbstract(method.modifiers) || Modifier.isNative(method.modifiers)) return false
+        return try {
+            module.hook(method)
+                .setExceptionMode(ExceptionMode.PROTECTIVE)
+                .intercept { chain ->
+                    val result = chain.proceed()
+                    try {
+                        callback.afterCall(
+                            thisObject = chain.thisObject,
+                            args = chain.args.toTypedArray(),
+                            result = result,
+                        )
+                    } catch (failure: Throwable) {
+                        log("callback failed: ${failure.javaClass.simpleName}: ${failure.message}")
+                    }
+                    result
+                }
+            true
+        } catch (failure: Throwable) {
+            log("hook ${method.declaringClass.name}#${method.name} failed: ${failure.javaClass.simpleName}: ${failure.message}")
+            false
+        }
     }
 
     override fun getObjectField(instance: Any?, name: String): Any? {
@@ -86,6 +91,14 @@ internal class Api101HookBridge(
             ?: throw NoSuchMethodException("${clazz.name}.$name/${args.size}")
         method.isAccessible = true
         return method.invoke(null, *args)
+    }
+
+    override fun readPreferences(name: String): Map<String, String> {
+        return runCatching {
+            module.getRemotePreferences(name).all.mapValues { (_, value) ->
+                value?.toString().orEmpty()
+            }
+        }.getOrDefault(emptyMap())
     }
 
     private fun findMethod(

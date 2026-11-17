@@ -15,13 +15,19 @@ import io.github.libxposed.service.XposedServiceHelper
 internal object ModernModuleStatus {
     private const val TAG = "FlowGlass/ModuleStatus"
     private var installed = false
+    @Volatile private var current: XposedService? = null
+    @Volatile private var onBound: (() -> Unit)? = null
 
-    fun install() {
+    fun service(): XposedService? = current
+
+    fun install(onServiceBound: (() -> Unit)? = null) {
+        onBound = onServiceBound
         if (installed) return
         installed = true
         runCatching {
             XposedServiceHelper.registerListener(object : XposedServiceHelper.OnServiceListener {
                 override fun onServiceBind(service: XposedService) {
+                    current = service
                     runCatching {
                         ModuleStatus.markModern(
                             apiVersion = service.apiVersion,
@@ -33,9 +39,11 @@ internal object ModernModuleStatus {
                     }.onFailure { failure ->
                         runCatching { Log.w(TAG, "service metadata unavailable: ${failure.javaClass.simpleName}") }
                     }
+                    runCatching { onBound?.invoke() }
                 }
 
                 override fun onServiceDied(service: XposedService) {
+                    current = null
                     ModuleStatus.clearModern()
                 }
             })
