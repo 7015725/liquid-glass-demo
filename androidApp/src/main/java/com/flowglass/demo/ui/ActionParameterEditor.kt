@@ -56,7 +56,7 @@ internal fun ActionParameterEditor(
     commandTitle: String = "",
     onAuthorization: (Int) -> Unit = {},
     targets: List<String> = emptyList(),
-    variables: List<String> = emptyList(),
+    variables: List<VariableOption> = emptyList(),
     showDone: Boolean = true,
 ) {
     val meta = item.typeId?.let { id -> com.flowglass.engine.BuiltInComponents.registry().find(id) }
@@ -102,7 +102,7 @@ private fun SetVariableEditor(
     item: CommandItem,
     onParameter: (String) -> Unit,
     targets: List<String>,
-    variables: List<String>,
+    variables: List<VariableOption>,
 ) {
     var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
@@ -117,16 +117,19 @@ private fun SetVariableEditor(
 
     val name = fields["name"].orEmpty().trim().removeSurrounding("{", "}")
     val exists = name.isNotEmpty() && variables.any {
-        it.removePrefix("rule.").removePrefix("global.") == name
+        it.scope != com.flowglass.engine.VariableScope.BUILTIN && it.name == name
     }
     val scope = fields["scope"].orEmpty().ifEmpty { "local" }
     val type = fields["type"].orEmpty().ifEmpty { "text" }
+    val nameError = com.flowglass.engine.VariableName.error(name)
+        ?: if (!exists && variables.any { it.name == name }) "名字已被占用：$name" else null
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         T("变量名", 14.sp, FontWeight.SemiBold)
         ParameterTextField(name, "param-name") { update("name", it) }
         T("只填名字，例如 城市。已有变量直接改名即可；新变量会自动创建。", 12.sp,
             color = C.OnSurfaceVar, lineHeight = 18.sp)
+        nameError?.let { T(it, 12.sp, color = C.Bad) }
         if (error != null) T("参数无效：$error", 12.sp, color = C.Bad)
 
         for (spec in meta.params) {
@@ -136,7 +139,9 @@ private fun SetVariableEditor(
             if (spec.key == "op" && type != "number") continue
             if (spec.key == "value") {
                 T("内容", 14.sp, FontWeight.SemiBold)
-                ParameterTextField(fields[spec.key].orEmpty(), "param-value") { update(spec.key, it) }
+                VariableTextField(fields[spec.key].orEmpty(), "param-value", variables, multiline = false) {
+                    update(spec.key, it)
+                }
                 T("支持 {变量}。", 12.sp, color = C.OnSurfaceVar)
                 continue
             }
@@ -164,7 +169,7 @@ private fun MultiParameterEditor(
     onParameter: (String) -> Unit,
     onAuthorization: (Int) -> Unit,
     targets: List<String>,
-    variables: List<String>,
+    variables: List<VariableOption>,
 ) {
     var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }

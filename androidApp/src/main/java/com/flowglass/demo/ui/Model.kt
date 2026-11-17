@@ -532,11 +532,109 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun toggleCollapsed(cmdId: Long, itemId: Long) =
         editActions(cmdId) { items -> items.updateItem(itemId) { it.copy(collapsed = !it.collapsed) } }
 
-    private fun ruleIdFor(cmdId: Long): String? =
+    internal fun ruleIdFor(cmdId: Long): String? =
         engineUi.presentation.entries.firstOrNull { it.value.legacyId == cmdId }?.key
 
     fun localsOf(cmdId: Long): List<com.flowglass.engine.LocalVariable> =
         engineRules.firstOrNull { it.id == ruleIdFor(cmdId) }?.locals.orEmpty()
+
+    fun allCommands(): List<Cmd> = autoCmds + oneTaps
+
+    fun renameVariable(ownerId: Long?, oldName: String, newName: String, scope: com.flowglass.engine.VariableScope) {
+        if (oldName == newName) return
+        if (scope == com.flowglass.engine.VariableScope.BUILTIN) return
+        val localRuleId = if (scope == com.flowglass.engine.VariableScope.LOCAL) {
+            ownerId?.let(::ruleIdFor) ?: return
+        } else null
+        val renamed = { cmd: Cmd -> renameTokens(cmd, oldName, newName, scope) }
+        for (list in arrayOf(autoCmds, oneTaps)) {
+            for (index in list.indices) list[index] = renamed(list[index])
+        }
+        if (localRuleId != null) {
+            engineRules = engineRules.map { rule ->
+                if (rule.id != localRuleId) rule else rule.copy(
+                    locals = rule.locals.map { if (it.name == oldName) it.copy(name = newName) else it },
+                )
+            }
+        } else if (scope == com.flowglass.engine.VariableScope.GLOBAL) {
+            engineGlobals = engineGlobals.mapKeys { if (it.key == oldName) newName else it.key }
+            engineGlobalMeta = engineGlobalMeta.mapKeys { if (it.key == oldName) newName else it.key }
+        }
+    }
+
+    fun deleteVariable(ownerId: Long?, name: String, scope: com.flowglass.engine.VariableScope) {
+        if (scope == com.flowglass.engine.VariableScope.LOCAL && ownerId != null) {
+            val ruleId = ruleIdFor(ownerId) ?: return
+            engineRules = engineRules.map { rule ->
+                if (rule.id != ruleId) rule else rule.copy(locals = rule.locals.filterNot { it.name == name })
+            }
+        } else if (scope == com.flowglass.engine.VariableScope.GLOBAL) {
+            removeGlobal(name)
+        }
+    }
+
+    fun setVariableNote(ownerId: Long?, name: String, note: String, scope: com.flowglass.engine.VariableScope) {
+        if (scope == com.flowglass.engine.VariableScope.LOCAL && ownerId != null) {
+            val ruleId = ruleIdFor(ownerId) ?: return
+            engineRules = engineRules.map { rule ->
+                if (rule.id != ruleId) rule else rule.copy(
+                    locals = rule.locals.map { if (it.name == name) it.copy(note = note) else it },
+                )
+            }
+        } else if (scope == com.flowglass.engine.VariableScope.GLOBAL) {
+            val meta = engineGlobalMeta[name] ?: com.flowglass.engine.GlobalVariableMeta()
+            engineGlobalMeta = engineGlobalMeta + (name to meta.copy(note = note))
+        }
+    }
+
+    fun setVariableValue(ownerId: Long?, name: String, value: String, scope: com.flowglass.engine.VariableScope) {
+        if (scope == com.flowglass.engine.VariableScope.LOCAL && ownerId != null) {
+            val ruleId = ruleIdFor(ownerId) ?: return
+            engineRules = engineRules.map { rule ->
+                if (rule.id != ruleId) rule else rule.copy(
+                    locals = rule.locals.map {
+                        if (it.name == name) it.copy(initial = kotlinx.serialization.json.JsonPrimitive(value)) else it
+                    },
+                )
+            }
+        } else if (scope == com.flowglass.engine.VariableScope.GLOBAL) {
+            engineGlobals = engineGlobals + (name to kotlinx.serialization.json.JsonPrimitive(value))
+            engineGlobalMeta = engineGlobalMeta + (name to (engineGlobalMeta[name] ?: com.flowglass.engine.GlobalVariableMeta()))
+        }
+    }
+
+    private fun renameTokens(
+        cmd: Cmd,
+        oldName: String,
+        newName: String,
+        scope: com.flowglass.engine.VariableScope,
+    ): Cmd {
+        fun replace(text: String): String {
+            val tokens = if (scope == com.flowglass.engine.VariableScope.LOCAL) {
+                listOf("{${oldName}}" to "{${newName}}",
+                    "%{rule.${oldName}}" to "%{rule.${newName}}",
+                    "%{${oldName}}" to "%{${newName}}")
+            } else {
+                listOf("{${oldName}}" to "{${newName}}",
+                    "%{global.${oldName}}" to "%{global.${newName}}",
+                    "%{${oldName}}" to "%{${newName}}")
+            }
+            return tokens.fold(text) { acc, (from, to) -> acc.replace(from, to) }
+        }
+        fun item(value: CommandItem): CommandItem = value.copy(
+            parameter = replace(value.parameter),
+            children = value.children.map(::item),
+            conditions = value.conditions.map(::item),
+            branches = value.branches.map { branch ->
+                branch.copy(children = branch.children.map(::item), conditions = branch.conditions.map(::item))
+            },
+        )
+        return cmd.copy(
+            triggers = cmd.triggers.map(::item),
+            conditions = cmd.conditions.map(::item),
+            actions = cmd.actions.map(::item),
+        )
+    }
 
     fun setLocal(cmdId: Long, name: String, value: String, type: String = "text") {
         val id = ruleIdFor(cmdId) ?: run {
