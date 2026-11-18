@@ -148,6 +148,10 @@ internal object MethodHookInstaller {
                 // a hot target method must not turn our limiter into a broadcast storm.
                 val suppressed = limiter.suppressed()
                 if (suppressed == 1L) {
+                    android.util.Log.i(
+                        "FlowGlass/MethodHook",
+                        "限流：${spec.className}#${spec.methodName} 已抑制事件",
+                    )
                     emitter.emit(spec, TYPE_RATE, emptyMap(), MethodHookStatus.RATE_LIMITED, "限流中")
                 }
                 return@HookCallback
