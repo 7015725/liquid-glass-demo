@@ -38,11 +38,7 @@ import com.flowglass.engine.trigger.TriggerSourceRegistry
 import com.flowglass.engine.trigger.TriggerTypes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -113,10 +109,6 @@ internal class TriggerHost(
     private val onShouldStop: () -> Unit,
 ) {
     private val environment = AndroidTriggerEnvironment(context)
-    private val events = MutableSharedFlow<TriggerEvent>(
-        extraBufferCapacity = 64,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
     private val engine = ExecutionRuntime.engine(context)
     private val executor = object : TriggerExecutor {
         override fun isRunning(rule: TriggerRule): Boolean = state.activeExecutionCount(rule.cmdId) > 0
@@ -149,8 +141,12 @@ internal class TriggerHost(
         environment = environment,
         executor = executor,
         skipRecorder = TriggerSkipRecorder { rule, reason, detail, _ ->
-            state.recordSkippedRun(rule.cmdId, reason, detail)
-            AppRuntime.of(context).requestSave { state.snapshot() }
+            // The dispatcher runs on the serial worker. AppState is Compose-observed, so touch
+            // it (and the snapshot save) on the main thread only.
+            scope.launch(Dispatchers.Main.immediate) {
+                state.recordSkippedRun(rule.cmdId, reason, detail)
+                AppRuntime.of(context).requestSave { state.snapshot() }
+            }
         },
     )
     private val sourceRegistry = TriggerSourceRegistry(::installSource, ::uninstallSource)
@@ -172,13 +168,12 @@ internal class TriggerHost(
             "notification.text" to text,
         ))
     }
-    private var collectJob: Job? = null
     private var snapshotJob: Job? = null
+    private var eventWorker: TriggerEventWorker? = null
     private var started = false
-    private var collectorReady = false
     private val pendingEvents = ArrayDeque<TriggerEvent>()
     private var alarmSignature: String? = null
-    private var lastRules: List<TriggerRule> = emptyList()
+    @Volatile private var lastRules: List<TriggerRule> = emptyList()
 
     /** Routes a verified target-process event into the normal trigger dispatcher. */
     private val methodHookSink: (String, Map<String, String>) -> Unit = { hookId, variables ->
@@ -203,27 +198,28 @@ internal class TriggerHost(
         if (started) return
         started = true
         MethodHookEventSink.listener = methodHookSink
-        // Seed the rule set before any event is dispatched; a boot/alarm start otherwise races
-        // the first snapshotFlow emission and drops the event against an empty rule list.
+        // Read Compose state on the caller/main thread, then hand every rule decision and event
+        // to the serial worker. File/Root checks must never run on the main thread.
         val initial = state.triggerInput()
-        lastRules = eligibleRules(initial.rules)
-        reconcile(initial)
-        if (!started) return
-        while (pendingEvents.isNotEmpty()) handle(pendingEvents.removeFirst())
-        collectJob = scope.launch {
-            collectorReady = true
+        val worker = TriggerEventWorker(scope, handler = ::handle)
+        eventWorker = worker
+        worker.start {
+            lastRules = eligibleRules(initial.rules)
+            reconcile(initial)
+            if (!started) return@start
             while (pendingEvents.isNotEmpty()) handle(pendingEvents.removeFirst())
-            events.collect(::handle)
         }
-        scope.launch {
+        snapshotJob = scope.launch {
             snapshotFlow { state.triggerInput() }.collect { input ->
-                lastRules = eligibleRules(input.rules)
-                reconcile(input)
+                eventWorker?.submit {
+                    lastRules = eligibleRules(input.rules)
+                    reconcile(input)
+                }
             }
-        }.also { snapshotJob = it }
+        }
     }
 
-    private fun handle(event: TriggerEvent) {
+    private suspend fun handle(event: TriggerEvent) {
         val outcome = dispatcher.dispatch(event, lastRules)
         if (event.kind == TriggerKinds.TIME) {
             // A one-shot alarm must arm its next occurrence after this run. Only re-arm the
@@ -239,7 +235,9 @@ internal class TriggerHost(
             else syncAlarms(lastRules, canScheduleExactAlarms(context), force = true)
         }
         if (outcome.executions.isNotEmpty() || outcome.skips.isNotEmpty()) {
-            AppRuntime.of(context).requestSave { state.snapshot() }
+            scope.launch(Dispatchers.Main.immediate) {
+                AppRuntime.of(context).requestSave { state.snapshot() }
+            }
         }
     }
 
@@ -254,44 +252,45 @@ internal class TriggerHost(
             if (pendingEvents.size < 16) pendingEvents.addLast(event)
             return
         }
-        if (!collectorReady) pendingEvents.addLast(event) else events.tryEmit(event)
+        eventWorker?.emit(event)
     }
 
     fun stop(cancelAlarms: Boolean) {
         if (!started) {
-            if (cancelAlarms) alarms.cancelAll()
+            if (cancelAlarms) scope.launch(Dispatchers.Default) { alarms.cancelAll() }
             return
         }
         started = false
-        collectorReady = false
         MethodHookEventSink.listener = null
         pendingEvents.clear()
-        collectJob?.cancel()
-        collectJob = null
+        eventWorker?.stop()
+        eventWorker = null
         snapshotJob?.cancel()
         snapshotJob = null
         sourceRegistry.clear()
-        if (cancelAlarms) alarms.cancelAll()
+        if (cancelAlarms) scope.launch(Dispatchers.Default) { alarms.cancelAll() }
         alarmSignature = null
         dispatcher.reset()
-        TriggerStatus.reset()
         lastRules = emptyList()
+        scope.launch(Dispatchers.Main.immediate) { TriggerStatus.reset() }
     }
 
     /** Rebuild the foreground source after the system hook's first heartbeat. */
     fun refreshAppSource() {
         if (!started) return
-        // A heartbeat also proves that the system hook can receive config now. Re-send the
-        // current rule-derived subscription: an app that started before the hook registered its
-        // receiver may otherwise miss the process/crash families for the whole session.
-        SystemHookSettings.broadcastConfig(
-            context,
-            SystemHookSubscriptions.requiredFamilies(lastRules),
-            SystemHookSubscriptions.watchedPackages(lastRules),
-        )
-        if (TriggerSource.APP !in sourceRegistry.registered) return
-        uninstallSource(TriggerSource.APP)
-        installSource(TriggerSource.APP)
+        eventWorker?.submit {
+            // A heartbeat also proves that the system hook can receive config now. Re-send the
+            // current rule-derived subscription: an app that started before the hook registered its
+            // receiver may otherwise miss the process/crash families for the whole session.
+            SystemHookSettings.broadcastConfig(
+                context,
+                SystemHookSubscriptions.requiredFamilies(lastRules),
+                SystemHookSubscriptions.watchedPackages(lastRules),
+            )
+            if (TriggerSource.APP !in sourceRegistry.registered) return@submit
+            uninstallSource(TriggerSource.APP)
+            installSource(TriggerSource.APP)
+        }
     }
 
     private fun reconcile(input: TriggerInput) {
@@ -300,7 +299,7 @@ internal class TriggerHost(
             SystemHookSettings.clearSubscriptions(context)
             dispatcher.prune(emptyList())
             stop(cancelAlarms = true)
-            onShouldStop()
+            scope.launch(Dispatchers.Main.immediate) { onShouldStop() }
             return
         }
         SystemHookSettings.broadcastConfig(
@@ -315,18 +314,21 @@ internal class TriggerHost(
         val required = TriggerPlan.requiredSources(eligible)
         sourceRegistry.update(required)
         val exact = canScheduleExactAlarms(context)
-        TriggerStatus.exactAlarmAllowed = exact
         syncAlarms(eligible, exact)
-        TriggerStatus.serviceActive = true
-        TriggerStatus.listeningRules = listening.size
-        TriggerStatus.registeredSources = sourceRegistry.registered.size
-        TriggerStatus.listeningRuleIds = listening.map { it.cmdId }.toSet()
-        TriggerStatus.locationRulesActive = eligible.any { rule ->
+        val locationActive = eligible.any { rule ->
             rule.triggers.any {
                 it.typeId == TriggerTypes.LOCATION_ENTER || it.typeId == TriggerTypes.LOCATION_EXIT
             }
         }
-        onStatus(listening.size, sourceRegistry.registered.size)
+        scope.launch(Dispatchers.Main.immediate) {
+            TriggerStatus.exactAlarmAllowed = exact
+            TriggerStatus.serviceActive = true
+            TriggerStatus.listeningRules = listening.size
+            TriggerStatus.registeredSources = sourceRegistry.registered.size
+            TriggerStatus.listeningRuleIds = listening.map { it.cmdId }.toSet()
+            TriggerStatus.locationRulesActive = locationActive
+            onStatus(listening.size, sourceRegistry.registered.size)
+        }
     }
 
     private fun eligibleRules(rules: List<TriggerRule>): List<TriggerRule> =
