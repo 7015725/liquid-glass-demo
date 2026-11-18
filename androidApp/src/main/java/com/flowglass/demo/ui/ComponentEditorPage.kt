@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +36,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.flowglass.demo.xposed.ModernModuleStatus
+import com.flowglass.demo.xposed.ModuleStatus
+import com.flowglass.demo.xposed.method.MethodHookStatusRegistry
+import com.flowglass.engine.BuiltInComponents
+import com.flowglass.engine.methodhook.AppMethodCall
+import com.flowglass.engine.methodhook.MethodHookStatus
+import io.github.libxposed.service.XposedService
+import kotlinx.coroutines.launch
 import com.kyant.shapes.RoundedRectangle
 
 /**
@@ -119,9 +128,9 @@ private fun ComponentEditorPage(
             },
             targets = (state.autoCmds + state.oneTaps).map { it.title },
             variables = parameterVariables(state, cmd),
-            onOpenMethodHooks = { onAuthorization(SettingsPage.MethodHooks) },
             showDone = false,
         )
+        if (item.typeId == AppMethodCall.TYPE_ID) AppMethodCallStatus(cmd, item)
     }
 
     if (discardOpen) {
@@ -134,6 +143,93 @@ private fun ComponentEditorPage(
                 state.cancelComponentDraft()
             },
         )
+    }
+}
+
+@Composable
+private fun AppMethodCallStatus(cmd: Cmd, item: CommandItem) {
+    val meta = BuiltInComponents.registry().find(AppMethodCall.TYPE_ID) ?: return
+    val fields = remember(item.parameter) { ParameterForm.fields(meta, item.parameter) }
+    val rawTarget = fields[AppMethodCall.KEY_PACKAGE].orEmpty().trim()
+    val target = AppMethodCall.targetKey(rawTarget)
+    val hookId = AppMethodCall.hookId(cmd.id, item.id)
+    val composeScope = rememberCoroutineScope()
+    var scopeApproved by remember(rawTarget) { mutableStateOf(false) }
+    var message by remember(rawTarget) { mutableStateOf<String?>(null) }
+    LaunchedEffect(rawTarget) {
+        scopeApproved = target != null && ModuleStatus.scope().contains(target.first)
+    }
+    val active = ModuleStatus.isActive()
+    val modern = ModuleStatus.isModern()
+    val inScope = when {
+        target == null -> false
+        scopeApproved || ModuleStatus.scope().contains(target.first) -> true
+        else -> false
+    }
+    val installed = MethodHookStatusRegistry.snapshot()
+        .filter { it.hookId == hookId && target?.first == it.packageName }
+        .maxByOrNull { it.updatedAt }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedRectangle(24.dp)).background(C.Tonal).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        T("状态", 14.sp, FontWeight.SemiBold)
+        T("LSPosed：${if (active) "已激活" else "未激活"}", 13.sp,
+            color = if (active) C.GoodText else C.Bad)
+        T(
+            "目标作用域：" + when {
+                target == null -> "先选择目标应用"
+                inScope -> "已包含"
+                modern -> "未包含"
+                else -> "旧版接口无法读取，请手动确认"
+            },
+            13.sp, color = if (inScope) C.GoodText else C.OnSurfaceVar,
+        )
+        T(
+            "方法：" + when {
+                installed == null -> "等待目标应用启动后回报"
+                installed.status == MethodHookStatus.INSTALLED ->
+                    "已挂上${installed.detail?.takeIf { it.isNotBlank() }?.let { "（$it）" } ?: ""}"
+                installed.status == MethodHookStatus.NOT_FOUND -> "未找到方法"
+                installed.status == MethodHookStatus.AMBIGUOUS -> "有多个重载，请补充参数类型"
+                else -> "挂载失败${installed.detail?.takeIf { it.isNotBlank() }?.let { "：$it" } ?: ""}"
+            },
+            13.sp, color = if (installed?.status == MethodHookStatus.INSTALLED) C.GoodText else C.OnSurfaceVar,
+        )
+        message?.let { T(it, 12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp) }
+        if (target != null && !inScope) {
+            val pkg = target.first
+            if (modern) {
+                EditorPill("请求加入作用域", "请求加入作用域") {
+                    val service = ModernModuleStatus.service()
+                    if (service == null) {
+                        message = "请在 LSPosed 里为本模块勾选『$pkg』，然后重启该应用"
+                    } else {
+                        runCatching {
+                            service.requestScope(listOf(pkg), object : XposedService.OnScopeEventListener {
+                                override fun onScopeRequestApproved(scope: List<String>) {
+                                    composeScope.launch {
+                                        scopeApproved = true
+                                        message = "已加入作用域：$pkg"
+                                    }
+                                }
+
+                                override fun onScopeRequestFailed(reason: String) {
+                                    composeScope.launch {
+                                        message = "加入作用域失败：$reason；请在 LSPosed 里手动勾选『$pkg』后重启该应用"
+                                    }
+                                }
+                            })
+                        }.onFailure {
+                            message = "请在 LSPosed 里为本模块勾选『$pkg』，然后重启该应用"
+                        }
+                    }
+                }
+            } else {
+                T("请在 LSPosed 里为本模块勾选『$pkg』，然后重启该应用", 12.sp,
+                    color = C.OnSurfaceVar, lineHeight = 18.sp)
+            }
+        }
     }
 }
 

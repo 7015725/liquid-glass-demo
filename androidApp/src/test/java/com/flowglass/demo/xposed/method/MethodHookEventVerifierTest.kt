@@ -3,6 +3,7 @@ package com.flowglass.demo.xposed.method
 import com.flowglass.engine.methodhook.MethodHookRuntimeJson
 import com.flowglass.engine.methodhook.MethodHookSpec
 import com.flowglass.engine.methodhook.MethodHookStatus
+import com.flowglass.engine.methodhook.MethodHookVariables
 import com.flowglass.engine.methodhook.MethodHookWireEnvelope
 import com.flowglass.engine.methodhook.MethodHookWireJson
 import com.flowglass.engine.methodhook.MethodHookWirePacket
@@ -23,7 +24,6 @@ class MethodHookEventVerifierTest {
         userId = 0,
         className = "com.example.Target",
         methodName = "run",
-        paramCount = 1,
     )
     private val token = "secret-token"
     private var events = 0
@@ -77,7 +77,7 @@ class MethodHookEventVerifierTest {
             is MethodHookVerification.Accepted)
         assertTrue(verifier.verify(
             caller,
-            packet(MethodHookWireEnvelope.TYPE_EVENT, 1, variables = mapOf("钩子应用" to spec.packageName)),
+            packet(MethodHookWireEnvelope.TYPE_EVENT, 1, variables = mapOf(MethodHookVariables.APP to spec.packageName)),
             guard,
         ) is MethodHookVerification.Accepted)
         assertEquals(1, events)

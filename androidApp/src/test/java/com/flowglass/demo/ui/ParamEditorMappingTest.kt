@@ -16,7 +16,7 @@ class ParamEditorMappingTest {
     @Test fun everyBuiltInParameterResolvesToAConcreteEditor() {
         val all = registry.all()
         assertEquals("组件数量", 64, all.size)
-        assertEquals("参数数量", 87, all.sumOf { it.params.size })
+        assertEquals("参数数量", 91, all.sumOf { it.params.size })
         all.forEach { meta ->
             meta.params.forEach { spec ->
                 assertNotEquals(
@@ -50,10 +50,25 @@ class ParamEditorMappingTest {
         assertEquals(ParamSource.CURRENT_LOCATION, location.source)
     }
 
-    @Test fun methodHookTriggerUsesTheSavedHookPicker() {
-        val hook = requireNotNull(registry.find("trigger.method_hook")).params.single { it.key == "hook" }
-        assertEquals(ParamEditor.METHOD_HOOK, hook.resolvedEditor())
-        assertEquals(ParamSource.METHOD_HOOKS, hook.source)
+    @Test fun appMethodCallUsesInlineTriggerParameters() {
+        val meta = requireNotNull(registry.find("trigger.app_method_call"))
+        assertEquals("应用方法调用", meta.name)
+        assertEquals(5, meta.params.size)
+        assertEquals(ParamEditor.APPLICATION,
+            meta.params.single { it.key == "package" }.resolvedEditor())
+        assertEquals(ParamEditor.APP_METHOD_EXTRACTIONS,
+            meta.params.single { it.key == "extractions" }.resolvedEditor())
+        assertEquals("当指定应用里的某个方法被调用时触发（需 LSPosed）", meta.description)
+    }
+
+    @Test fun appMethodCallDefaultDraftDoesNotExposeSeparatorsInTheFirstField() {
+        val meta = requireNotNull(registry.find("trigger.app_method_call"))
+        val defaults = meta.params.associate { it.key to it.defaultValue }
+        val parameter = com.flowglass.engine.ParameterCodec.formatComponent(meta, defaults)
+        val fields = ParameterForm.fields(meta, parameter)
+        assertEquals("", fields["package"])
+        assertEquals("", fields["className"])
+        assertEquals("", fields["methodName"])
     }
 
     @Test fun dynamicSourcesAreDeclaredOnTheSpecNotTheComponentId() {

@@ -17,7 +17,7 @@ class ComponentAvailabilityTest {
     private val mixed = listOf(LayerSupport(ExecutionLayer.XPOSED), LayerSupport(ExecutionLayer.ROOT))
 
     private val systemTrigger = meta("trigger.app_process", "应用进程启动/结束", xposedOnly, Tier.XPOSED, ComponentKind.TRIGGER)
-    private val methodHook = meta("trigger.method_hook", "方法钩子", xposedOnly, Tier.XPOSED, ComponentKind.TRIGGER)
+    private val methodHook = meta("trigger.app_method_call", "应用方法调用", xposedOnly, Tier.XPOSED, ComponentKind.TRIGGER)
     private val rootAction = meta("action.force_stop", "强制停止应用", rootOnly, Tier.ROOT)
     private val normalAction = meta("action.http_request", "HTTP 请求", normalOnly)
 
@@ -62,7 +62,7 @@ class ComponentAvailabilityTest {
                 }
 
                 assertEquals("$at: 系统事件", expectedSystem, componentAvailability(systemTrigger, snap))
-                assertEquals("$at: 方法钩子", expectedMethod, componentAvailability(methodHook, snap))
+                assertEquals("$at: 应用方法调用", expectedMethod, componentAvailability(methodHook, snap))
                 assertEquals("$at: Root 动作", expectedRoot, componentAvailability(rootAction, snap))
                 assertEquals("$at: 普通动作", ComponentAvailability.Available, componentAvailability(normalAction, snap))
             }

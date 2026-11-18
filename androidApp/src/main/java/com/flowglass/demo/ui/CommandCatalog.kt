@@ -43,7 +43,7 @@ data class CommandItem(
                 parameter.split('|').filter { it.isNotEmpty() }.joinToString(" · ")
             "trigger.wifi", "trigger.bluetooth", "trigger.notification",
             "trigger.app_foreground", "trigger.app_process", "trigger.app_crash", "trigger.keyguard",
-            "trigger.media", "trigger.foreground_service", "trigger.headset", "trigger.method_hook" ->
+            "trigger.media", "trigger.foreground_service", "trigger.headset", "trigger.app_method_call" ->
                 parameter.split('|').filter { it.isNotEmpty() }.joinToString(" · ")
             "condition.app_process_state" -> parameter.split('|').joinToString(" · ")
             "condition.variable" -> ActionSummary.conditionText(this)
@@ -211,7 +211,7 @@ object CommandCatalog {
         "condition.network_type" -> Ic.Wifi
         "trigger.bluetooth_connected", "trigger.bluetooth", "trigger.headset", "action.bluetooth_switch" -> Ic.Bluetooth
         "trigger.application_started", "trigger.app_foreground", "action.launch_app",
-        "action.force_stop", "trigger.method_hook" -> Ic.Grid
+        "action.force_stop", "trigger.app_method_call" -> Ic.Grid
         "condition.dnd_state", "action.dnd_switch", "action.ringer_mode" -> Ic.Moon
         "action.set_brightness", "action.set_volume" -> Ic.Gauge
         "action.copy_clipboard" -> Ic.Copy

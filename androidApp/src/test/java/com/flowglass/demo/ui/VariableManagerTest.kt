@@ -1,7 +1,5 @@
 package com.flowglass.demo.ui
 
-import com.flowglass.demo.xposed.method.MethodHookCatalog
-import com.flowglass.demo.xposed.method.MethodHookStore
 import com.flowglass.engine.Rule
 import com.flowglass.engine.RulePresentation
 import com.flowglass.engine.RuleType
@@ -55,40 +53,54 @@ class VariableManagerTest {
     }
 
     @Test
-    fun methodHookExtractionsAreBuiltinsAndCannotBeReused() {
-        val app = RuntimeEnvironment.getApplication()
-        val store = MethodHookStore(File(app.filesDir, "method-hooks.json"))
-        store.load()
-        store.save(
-            listOf(
-                MethodHookSpec(
-                    id = "hook-1",
-                    packageName = "com.example.target",
-                    className = "com.example.Target",
-                    methodName = "submit",
-                    extractions = listOf(
+    fun appMethodCallExtractionsAreBuiltinsAndCannotBeReused() {
+        val meta = requireNotNull(
+            com.flowglass.engine.BuiltInComponents.registry().find("trigger.app_method_call"),
+        )
+        val params = mapOf(
+            "package" to JsonPrimitive("com.example.target"),
+            "className" to JsonPrimitive("com.example.Target"),
+            "methodName" to JsonPrimitive("submit"),
+            "paramTypes" to JsonPrimitive("java.lang.String"),
+            "extractions" to JsonPrimitive(
+                com.flowglass.engine.methodhook.AppMethodCall.encodeExtractions(
+                    listOf(
                         MethodExtraction("订单号", MethodExtractionSource.ARGUMENT, 0),
                         MethodExtraction("金额", MethodExtractionSource.RESULT),
                     ),
                 ),
             ),
         )
-        MethodHookCatalog.refresh(app)
-        try {
-            val state = stateWithAction("")
-            val options = VariableCatalog.forManager(state)
-            val order = options.single { it.name == "订单号" }
-            assertEquals(VariableScope.BUILTIN, order.scope)
-            assertTrue(order.note.contains("方法钩子"))
-            assertTrue(VariableCatalog.validateName(state, "订单号", null, VariableScope.GLOBAL)
-                .orEmpty().contains("方法钩子提供的内置变量"))
-            assertTrue(VariableCatalog.validateName(state, "钩子应用", null, VariableScope.GLOBAL)
-                .orEmpty().contains("内置变量"))
-        } finally {
-            val file = File(app.filesDir, "method-hooks.json")
-            listOf(file, File(file.path + ".bak"), File(file.path + ".new")).forEach { it.delete() }
-            MethodHookCatalog.refresh(app)
-        }
+        val state = stateWithAction("")
+        state.autoCmds.add(
+            Cmd(
+                id = 2,
+                auto = true,
+                ic = Ic.Bolt,
+                title = "下单通知",
+                desc = "",
+                triggers = listOf(
+                    CommandItem(
+                        id = 20,
+                        name = "应用方法调用",
+                        parameter = com.flowglass.engine.ParameterCodec.formatComponent(meta, params),
+                        ic = Ic.Grid,
+                        typeId = "trigger.app_method_call",
+                    ),
+                ),
+                actions = emptyList(),
+            ),
+        )
+        val options = VariableCatalog.forManager(state)
+        val order = options.single { it.name == "订单号" }
+        assertEquals(VariableScope.BUILTIN, order.scope)
+        assertTrue(order.note.contains("应用方法调用"))
+        assertTrue(options.none { it.name == "钩子应用" || it.name == "钩子标识" })
+        assertTrue(options.any { it.name == "调用应用" })
+        assertTrue(VariableCatalog.validateName(state, "订单号", null, VariableScope.GLOBAL)
+            .orEmpty().contains("应用方法调用提供的内置变量"))
+        assertTrue(VariableCatalog.validateName(state, "调用应用", null, VariableScope.GLOBAL)
+            .orEmpty().contains("内置变量"))
     }
 
     @Test
