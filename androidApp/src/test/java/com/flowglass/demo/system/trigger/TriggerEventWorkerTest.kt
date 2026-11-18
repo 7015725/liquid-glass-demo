@@ -80,8 +80,8 @@ class TriggerEventWorkerTest {
             }
         }
         val executor = object : TriggerExecutor {
-            override fun isRunning(rule: TriggerRule): Boolean = false
-            override fun execute(
+            override suspend fun isRunning(rule: TriggerRule): Boolean = false
+            override suspend fun execute(
                 rule: TriggerRule,
                 binding: com.flowglass.engine.trigger.TriggerBinding,
                 reason: String,
@@ -138,6 +138,72 @@ class TriggerEventWorkerTest {
         assertTrue(firstStarted.await(2, TimeUnit.SECONDS))
         assertTrue(bothDone.await(3, TimeUnit.SECONDS))
         assertEquals(listOf("1", "2"), received)
+        worker.stop()
+    }
+
+    @Test
+    fun eventFloodDoesNotDropRuleSyncControl() {
+        val firstStarted = CountDownLatch(1)
+        val releaseFirst = CountDownLatch(1)
+        val controlRan = CountDownLatch(1)
+        val events = java.util.concurrent.atomic.AtomicInteger()
+        val worker = TriggerEventWorker(scope, handler = {
+            if (events.incrementAndGet() == 1) {
+                firstStarted.countDown()
+                releaseFirst.await(3, TimeUnit.SECONDS)
+            }
+        })
+        worker.start()
+        repeat(200) {
+            worker.emit(TriggerEvent(TriggerKinds.SCREEN_ON, TriggerSource.SCREEN, 0, mapOf("n" to "$it")))
+        }
+        assertTrue(firstStarted.await(2, TimeUnit.SECONDS))
+        // The event queue is full at this point; rule sync must still be accepted and run.
+        worker.submit {
+            controlRan.countDown()
+        }
+        releaseFirst.countDown()
+        assertTrue("control command was dropped during an event flood", controlRan.await(5, TimeUnit.SECONDS))
+        worker.stop()
+    }
+
+    @Test
+    fun stopThenStartDoesNotRunCommandsQueuedBeforeStop() {
+        val blocked = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val oldCommand = java.util.concurrent.atomic.AtomicInteger()
+        val newCommand = CountDownLatch(1)
+        val worker = TriggerEventWorker(scope, handler = {
+            blocked.countDown()
+            release.await(3, TimeUnit.SECONDS)
+        })
+        worker.start()
+        worker.emit(TriggerEvent(TriggerKinds.SCREEN_ON, TriggerSource.SCREEN, 0))
+        assertTrue(blocked.await(2, TimeUnit.SECONDS))
+        worker.submit { oldCommand.incrementAndGet() }
+        worker.stop()
+        release.countDown()
+        worker.start()
+        worker.submit { newCommand.countDown() }
+        assertTrue(newCommand.await(5, TimeUnit.SECONDS))
+        // Give a leaked old command a chance to run before asserting none did.
+        Thread.sleep(100)
+        assertEquals(0, oldCommand.get())
+        worker.stop()
+    }
+
+    @Test
+    fun stopAfterFinalizerRunsOffMainThread() {
+        val finalized = CountDownLatch(1)
+        val onMain = java.util.concurrent.atomic.AtomicBoolean(false)
+        val worker = TriggerEventWorker(scope, handler = {})
+        worker.start()
+        worker.stopAfter {
+            onMain.set(Looper.myLooper() == Looper.getMainLooper())
+            finalized.countDown()
+        }
+        assertTrue(finalized.await(3, TimeUnit.SECONDS))
+        assertEquals(false, onMain.get())
         worker.stop()
     }
 }

@@ -28,7 +28,6 @@ import com.flowglass.engine.trigger.TriggerBinding
 import com.flowglass.engine.trigger.TriggerDispatcher
 import com.flowglass.engine.trigger.TriggerEnvironment
 import com.flowglass.engine.trigger.TriggerEvent
-import com.flowglass.engine.trigger.TriggerExecutor
 import com.flowglass.engine.trigger.TriggerKinds
 import com.flowglass.engine.trigger.NetworkType
 import com.flowglass.engine.trigger.TriggerPlan
@@ -39,10 +38,10 @@ import com.flowglass.engine.trigger.TriggerSource
 import com.flowglass.engine.trigger.TriggerSourceRegistry
 import com.flowglass.engine.trigger.TriggerTypes
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 internal data class TriggerInput(val running: Boolean, val rules: List<TriggerRule>, val permissionsEpoch: Int)
 
@@ -109,35 +108,31 @@ internal class TriggerHost(
     private val scope: CoroutineScope,
     private val onStatus: (listeningRules: Int, sources: Int) -> Unit,
     private val onShouldStop: () -> Unit,
+    private val mainDispatcher: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.Main.immediate,
 ) {
     private val environment = AndroidTriggerEnvironment(context)
     private val engine = ExecutionRuntime.engine(context)
-    private val executor = object : TriggerExecutor {
-        override fun isRunning(rule: TriggerRule): Boolean = state.activeExecutionCount(rule.cmdId) > 0
-
-        override fun activeCount(rule: TriggerRule): Int = state.activeExecutionCount(rule.cmdId)
-
-        override fun cancel(rule: TriggerRule) = state.cancelExecution(rule.cmdId)
-
-        override fun execute(
-            rule: TriggerRule,
-            binding: TriggerBinding,
-            reason: String,
-            variables: Map<String, Any?>,
-        ): Boolean {
-            val cmd = state.find(rule.cmdId) ?: return false
-            val job = state.executeWithPolicy(cmd, scope, reason, variables, rule.runMode) ?: return false
-            job.invokeOnCompletion {
-                dispatcher.onRunFinished(rule)
-                scope.launch {
-                    withContext(Dispatchers.Main.immediate) {
-                        AppRuntime.of(context).requestSave { state.snapshot() }
-                    }
-                }
+    private val executor = TriggerRuleExecutor(
+        mainDispatcher = mainDispatcher,
+        find = { state.find(it) },
+        activeCountFor = { state.activeExecutionCount(it) },
+        cancelFor = { state.cancelExecution(it) },
+        startFor = { cmd, rule, reason, variables ->
+            state.executeWithPolicy(cmd, scope, reason, variables, rule.runMode)
+        },
+        session = { runSession },
+        onFinished = { rule, sessionAtStart ->
+            // A run from before stop() must not touch the new dispatcher after a quick restart.
+            if (sessionAtStart == runSession) {
+                // Completion runs on an arbitrary thread. Put onRunFinished back on the serial
+                // worker so TriggerDispatcher is never touched concurrently.
+                eventWorker?.submit { dispatcher.onRunFinished(rule) }
             }
-            return true
-        }
-    }
+            scope.launch(mainDispatcher) {
+                AppRuntime.of(context).requestSave { state.snapshot() }
+            }
+        },
+    )
     private val dispatcher: TriggerDispatcher = TriggerDispatcher(
         clock = Clock { System.currentTimeMillis() },
         environment = environment,
@@ -145,7 +140,7 @@ internal class TriggerHost(
         skipRecorder = TriggerSkipRecorder { rule, reason, detail, _ ->
             // The dispatcher runs on the serial worker. AppState is Compose-observed, so touch
             // it (and the snapshot save) on the main thread only.
-            scope.launch(Dispatchers.Main.immediate) {
+            scope.launch(mainDispatcher) {
                 state.recordSkippedRun(rule.cmdId, reason, detail)
                 AppRuntime.of(context).requestSave { state.snapshot() }
             }
@@ -171,8 +166,13 @@ internal class TriggerHost(
         ))
     }
     private var snapshotJob: Job? = null
-    private var eventWorker: TriggerEventWorker? = null
-    private var started = false
+    @Volatile private var eventWorker: TriggerEventWorker? = null
+    @Volatile private var started = false
+    /** Completed when the previous worker has run its dispatcher reset finalizer. */
+    @Volatile private var pendingStop: Job? = null
+    /** Distinguishes runs from before a stop() from runs in the current session. */
+    @Volatile private var runSession = 0L
+    private val pendingLock = Any()
     private val pendingEvents = ArrayDeque<TriggerEvent>()
     private var alarmSignature: String? = null
     @Volatile private var lastRules: List<TriggerRule> = emptyList()
@@ -213,17 +213,26 @@ internal class TriggerHost(
     fun start() {
         if (started) return
         started = true
+        runSession += 1
         MethodHookEventSink.listener = methodHookSink
         // Read Compose state on the caller/main thread, then hand every rule decision and event
         // to the serial worker. File/Root checks must never run on the main thread.
         val initial = state.triggerInput()
+        val previousStop = pendingStop
+        pendingStop = null
         val worker = TriggerEventWorker(scope, handler = ::handle)
         eventWorker = worker
         worker.start {
+            // A stop() finalizer owns dispatcher.reset/source cleanup. If a new start races it,
+            // finish that cleanup before reconciling the new rule set.
+            previousStop?.join()
             lastRules = eligibleRules(initial.rules)
             reconcile(initial)
             if (!started) return@start
-            while (pendingEvents.isNotEmpty()) handle(pendingEvents.removeFirst())
+            val ready = synchronized(pendingLock) {
+                pendingEvents.toList().also { pendingEvents.clear() }
+            }
+            for (event in ready) handle(event)
         }
         snapshotJob = scope.launch {
             snapshotFlow { state.triggerInput() }.collect { input ->
@@ -251,21 +260,23 @@ internal class TriggerHost(
             else syncAlarms(lastRules, canScheduleExactAlarms(context), force = true)
         }
         if (outcome.executions.isNotEmpty() || outcome.skips.isNotEmpty()) {
-            scope.launch(Dispatchers.Main.immediate) {
+            scope.launch(mainDispatcher) {
                 AppRuntime.of(context).requestSave { state.snapshot() }
             }
         }
     }
 
     fun prime(events: List<TriggerEvent>) {
-        if (!started) pendingEvents.addAll(events)
+        if (!started) synchronized(pendingLock) { pendingEvents.addAll(events) }
     }
 
     fun emit(event: TriggerEvent) {
         if (!started) {
             // Keep an event that arrives between stopSelf and the queued restart; the start
             // path drains this queue. Bound it so an engine-off period cannot grow forever.
-            if (pendingEvents.size < 16) pendingEvents.addLast(event)
+            synchronized(pendingLock) {
+                if (pendingEvents.size < 16) pendingEvents.addLast(event)
+            }
             return
         }
         eventWorker?.emit(event)
@@ -277,18 +288,39 @@ internal class TriggerHost(
             return
         }
         started = false
+        runSession += 1
         MethodHookEventSink.listener = null
-        pendingEvents.clear()
-        eventWorker?.stop()
+        synchronized(pendingLock) { pendingEvents.clear() }
+        val worker = eventWorker
         eventWorker = null
         snapshotJob?.cancel()
         snapshotJob = null
-        sourceRegistry.clear()
-        if (cancelAlarms) scope.launch(Dispatchers.Default) { alarms.cancelAll() }
         alarmSignature = null
-        dispatcher.reset()
         lastRules = emptyList()
-        scope.launch(Dispatchers.Main.immediate) { TriggerStatus.reset() }
+
+        val cleanupDone = CompletableDeferred<Unit>()
+        val cleanup: suspend () -> Unit = {
+            try {
+                // All TriggerDispatcher calls stay on the worker. The finalizer is queued behind a
+                // command that may still be dispatching, so reset can never race dispatch/prune.
+                sourceRegistry.clear()
+                if (cancelAlarms) alarms.cancelAll()
+                dispatcher.reset()
+            } finally {
+                cleanupDone.complete(Unit)
+            }
+        }
+        if (worker == null || !worker.stopAfter(cleanup)) {
+            // No serial lane is active; direct reset is safe and is explicitly allowed by the
+            // host contract so a stopped worker cannot race a later main-thread stop().
+            sourceRegistry.clear()
+            if (cancelAlarms) scope.launch(Dispatchers.Default) { alarms.cancelAll() }
+            dispatcher.reset()
+            cleanupDone.complete(Unit)
+        } else {
+            pendingStop = cleanupDone
+        }
+        scope.launch(mainDispatcher) { TriggerStatus.reset() }
     }
 
     /** Rebuild the foreground source after the system hook's first heartbeat. */
@@ -315,7 +347,7 @@ internal class TriggerHost(
             SystemHookSettings.clearSubscriptions(context)
             dispatcher.prune(emptyList())
             stop(cancelAlarms = true)
-            scope.launch(Dispatchers.Main.immediate) { onShouldStop() }
+            scope.launch(mainDispatcher) { onShouldStop() }
             return
         }
         SystemHookSettings.broadcastConfig(
@@ -336,7 +368,7 @@ internal class TriggerHost(
                 it.typeId == TriggerTypes.LOCATION_ENTER || it.typeId == TriggerTypes.LOCATION_EXIT
             }
         }
-        scope.launch(Dispatchers.Main.immediate) {
+        scope.launch(mainDispatcher) {
             TriggerStatus.exactAlarmAllowed = exact
             TriggerStatus.serviceActive = true
             TriggerStatus.listeningRules = listening.size

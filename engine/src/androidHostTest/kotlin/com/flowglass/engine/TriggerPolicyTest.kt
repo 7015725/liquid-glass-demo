@@ -39,11 +39,11 @@ class TriggerPolicyTest {
         var cancels = 0
         val calls = mutableListOf<String>()
 
-        override fun isRunning(rule: TriggerRule): Boolean = active > 0
-        override fun activeCount(rule: TriggerRule): Int = active
-        override fun cancel(rule: TriggerRule) { cancels++ }
+        override suspend fun isRunning(rule: TriggerRule): Boolean = active > 0
+        override suspend fun activeCount(rule: TriggerRule): Int = active
+        override suspend fun cancel(rule: TriggerRule) { cancels++ }
 
-        override fun execute(
+        override suspend fun execute(
             rule: TriggerRule,
             binding: TriggerBinding,
             reason: String,
@@ -95,14 +95,14 @@ class TriggerPolicyTest {
             MatchSpec(mode = MatchMode.ALL, windowSeconds = 60),
         )
 
-        assertEquals(0, d.dispatch(screen(true, 0), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(screen(true, 0), listOf(r)).executions.size)
         clock.now = 1_000
-        assertEquals(1, d.dispatch(screen(false, 1_000), listOf(r)).executions.size)
+        assertEquals(1, d.dispatchNow(screen(false, 1_000), listOf(r)).executions.size)
 
         clock.now = 100_000
-        assertEquals(0, d.dispatch(screen(true, 100_000), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(screen(true, 100_000), listOf(r)).executions.size)
         clock.now = 161_000
-        assertEquals(0, d.dispatch(screen(false, 161_000), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(screen(false, 161_000), listOf(r)).executions.size)
     }
 
     @Test
@@ -120,9 +120,9 @@ class TriggerPolicyTest {
             MatchSpec(mode = MatchMode.ALL, windowSeconds = 60),
         )
 
-        assertEquals(1, d.dispatch(screen(true, 0), listOf(r)).executions.size)
+        assertEquals(1, d.dispatchNow(screen(true, 0), listOf(r)).executions.size)
         env.charging = false
-        assertEquals(0, d.dispatch(screen(true, 2_000), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(screen(true, 2_000), listOf(r)).executions.size)
     }
 
     @Test
@@ -131,7 +131,7 @@ class TriggerPolicyTest {
         val d = dispatcher(Clock(0), Env(), executor)
         val r = rule("drop", listOf(trigger("trigger.screen_on")), run = RunMode.DROP)
 
-        val outcome = d.dispatch(screen(true, 0), listOf(r))
+        val outcome = d.dispatchNow(screen(true, 0), listOf(r))
 
         assertEquals(0, outcome.executions.size)
         assertEquals(1, outcome.dropped)
@@ -144,7 +144,7 @@ class TriggerPolicyTest {
         val d = dispatcher(Clock(0), Env(), executor)
         val r = rule("restart", listOf(trigger("trigger.screen_on")), run = RunMode.RESTART)
 
-        assertTrue(d.dispatch(screen(true, 0), listOf(r)).executions.isNotEmpty())
+        assertTrue(d.dispatchNow(screen(true, 0), listOf(r)).executions.isNotEmpty())
         assertEquals(1, executor.cancels)
         assertEquals(listOf("restart"), executor.calls)
     }
@@ -156,10 +156,10 @@ class TriggerPolicyTest {
         val d = dispatcher(clock, Env(), executor)
         val r = rule("parallel", listOf(trigger("trigger.screen_on")), run = RunMode.PARALLEL)
 
-        assertTrue(d.dispatch(screen(true, 0), listOf(r)).executions.isNotEmpty())
+        assertTrue(d.dispatchNow(screen(true, 0), listOf(r)).executions.isNotEmpty())
         executor.active = 3
         clock.now = 3_000
-        val full = d.dispatch(screen(true, 3_000), listOf(r))
+        val full = d.dispatchNow(screen(true, 3_000), listOf(r))
         assertEquals(0, full.executions.size)
         assertEquals(1, full.dropped)
     }
@@ -175,7 +175,7 @@ class TriggerPolicyTest {
         var dropped = 0
         repeat(12) { index ->
             clock.now = index * 3_000L
-            val outcome = d.dispatch(screen(true, clock.now), listOf(r))
+            val outcome = d.dispatchNow(screen(true, clock.now), listOf(r))
             queued += outcome.queued
             dropped += outcome.dropped
         }
@@ -183,7 +183,7 @@ class TriggerPolicyTest {
         assertEquals(10, queued)
         assertEquals(2, dropped)
         executor.active = 0
-        d.onRunFinished(r)
+        d.onRunFinishedNow(r)
         assertEquals(1, executor.calls.size)
     }
 }

@@ -52,9 +52,9 @@ class TriggerEngineTest {
         val reasons = mutableListOf<String>()
         val variables = mutableListOf<Map<String, Any?>>()
 
-        override fun isRunning(rule: TriggerRule): Boolean = running
+        override suspend fun isRunning(rule: TriggerRule): Boolean = running
 
-        override fun execute(
+        override suspend fun execute(
             rule: TriggerRule,
             binding: TriggerBinding,
             reason: String,
@@ -108,12 +108,12 @@ class TriggerEngineTest {
         val d = dispatcher(clock, env, executor)
         val screenRule = rule("screen", listOf(trigger("trigger.screen_on")))
 
-        val on = d.dispatch(screenEvent(TriggerKinds.SCREEN_ON), listOf(screenRule))
+        val on = d.dispatchNow(screenEvent(TriggerKinds.SCREEN_ON), listOf(screenRule))
         assertEquals(1, on.executions.size)
         assertEquals("触发：screen_on", on.executions.single().reason)
         assertTrue(on.executions.single().variables["event.time"] is String)
-        assertEquals(0, d.dispatch(screenEvent(TriggerKinds.SCREEN_OFF), listOf(screenRule)).executions.size)
-        assertEquals(0, d.dispatch(screenEvent(TriggerKinds.USER_PRESENT), listOf(screenRule)).executions.size)
+        assertEquals(0, d.dispatchNow(screenEvent(TriggerKinds.SCREEN_OFF), listOf(screenRule)).executions.size)
+        assertEquals(0, d.dispatchNow(screenEvent(TriggerKinds.USER_PRESENT), listOf(screenRule)).executions.size)
     }
 
     @Test
@@ -129,7 +129,7 @@ class TriggerEngineTest {
             targetRuleId = "second", targetTriggerIndex = 0,
         )
 
-        val outcome = d.dispatch(event, listOf(first, second))
+        val outcome = d.dispatchNow(event, listOf(first, second))
 
         assertEquals(listOf("second"), outcome.executions.map { it.rule.id })
     }
@@ -141,13 +141,13 @@ class TriggerEngineTest {
         val d = dispatcher(clock, FakeEnvironment(), executor)
         val r = rule("r", listOf(trigger("trigger.screen_on")))
 
-        assertEquals(1, d.dispatch(screenEvent(at = 0), listOf(r)).executions.size)
+        assertEquals(1, d.dispatchNow(screenEvent(at = 0), listOf(r)).executions.size)
         clock.now = 1_500
-        val second = d.dispatch(screenEvent(at = 1_500), listOf(r))
+        val second = d.dispatchNow(screenEvent(at = 1_500), listOf(r))
         assertEquals(0, second.executions.size)
         assertEquals(1, second.debounced)
         clock.now = 2_000
-        assertEquals(1, d.dispatch(screenEvent(at = 2_000), listOf(r)).executions.size)
+        assertEquals(1, d.dispatchNow(screenEvent(at = 2_000), listOf(r)).executions.size)
         assertEquals(2, executor.calls.size)
     }
 
@@ -169,7 +169,7 @@ class TriggerEngineTest {
             ),
         )
 
-        val miss = d.dispatch(
+        val miss = d.dispatchNow(
             TriggerEvent(TriggerKinds.METHOD_CALL, TriggerSource.METHOD_HOOK, 0,
                 data = mapOf(
                     "app" to "com.example.target",
@@ -182,7 +182,7 @@ class TriggerEngineTest {
         assertEquals(0, miss.executions.size)
 
         clock.now = 3_000
-        val hit = d.dispatch(
+        val hit = d.dispatchNow(
             TriggerEvent(TriggerKinds.METHOD_CALL, TriggerSource.METHOD_HOOK, 3_000,
                 data = mapOf(
                     "app" to "com.example.target",
@@ -209,15 +209,15 @@ class TriggerEngineTest {
         val event = { level: Int -> batteryEvent(level, clock.now) }
 
         // First sample is the baseline, not a trigger.
-        assertEquals(0, d.dispatch(event(25), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event(25), listOf(r)).executions.size)
         clock.now = 3_000
-        assertEquals(1, d.dispatch(event(15), listOf(r)).executions.size)
+        assertEquals(1, d.dispatchNow(event(15), listOf(r)).executions.size)
         clock.now = 6_000
-        assertEquals(0, d.dispatch(event(10), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event(10), listOf(r)).executions.size)
         clock.now = 9_000
-        assertEquals(0, d.dispatch(event(25), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event(25), listOf(r)).executions.size)
         clock.now = 12_000
-        assertEquals(1, d.dispatch(event(15), listOf(r)).executions.size)
+        assertEquals(1, d.dispatchNow(event(15), listOf(r)).executions.size)
         assertEquals(2, executor.calls.size)
     }
 
@@ -243,7 +243,7 @@ class TriggerEngineTest {
             ),
         )
 
-        val first = d.dispatch(screenEvent(at = clock.now), listOf(r))
+        val first = d.dispatchNow(screenEvent(at = clock.now), listOf(r))
         assertEquals(0, first.executions.size)
         assertEquals(1, first.skips.size)
         assertEquals("条件不满足：charging", first.skips.single().detail)
@@ -252,15 +252,15 @@ class TriggerEngineTest {
         // Same failure 30s later is debounced by the 2s window? No: it is a fresh hit but the
         // one-minute log window drops it. 90s later the log entry is allowed again.
         clock.now = base + 30_000
-        assertEquals(0, d.dispatch(screenEvent(at = clock.now), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(screenEvent(at = clock.now), listOf(r)).executions.size)
         assertEquals(1, skips.records.size)
         clock.now = base + 90_000
-        assertEquals(0, d.dispatch(screenEvent(at = clock.now), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(screenEvent(at = clock.now), listOf(r)).executions.size)
         assertEquals(2, skips.records.size)
 
         env.charging = true
         clock.now = base + 120_000
-        assertEquals(1, d.dispatch(screenEvent(at = clock.now), listOf(r)).executions.size)
+        assertEquals(1, d.dispatchNow(screenEvent(at = clock.now), listOf(r)).executions.size)
     }
 
     @Test
@@ -272,12 +272,12 @@ class TriggerEngineTest {
         val r = rule("slow", listOf(trigger("trigger.screen_on")),
             conditions = listOf(trigger("condition.charging", "state" to "charging")))
 
-        d.dispatch(screenEvent(at = 0), listOf(r))
+        d.dispatchNow(screenEvent(at = 0), listOf(r))
         clock.now = 30_000
-        d.dispatch(screenEvent(at = 30_000), listOf(r))
+        d.dispatchNow(screenEvent(at = 30_000), listOf(r))
         assertEquals(1, skips.records.size)
         clock.now = 60_000
-        d.dispatch(screenEvent(at = 60_000), listOf(r))
+        d.dispatchNow(screenEvent(at = 60_000), listOf(r))
         assertEquals(2, skips.records.size)
     }
 
@@ -288,7 +288,7 @@ class TriggerEngineTest {
         val d = dispatcher(clock, FakeEnvironment(), executor)
         val r = rule("busy", listOf(trigger("trigger.screen_on")))
 
-        val outcome = d.dispatch(screenEvent(), listOf(r))
+        val outcome = d.dispatchNow(screenEvent(), listOf(r))
 
         assertEquals(0, outcome.executions.size)
         assertEquals(1, outcome.dropped)
@@ -310,17 +310,17 @@ class TriggerEngineTest {
             "trigger.charging", "charging", mapOf("state" to JsonPrimitive("stopped")),
         )))
 
-        assertEquals(0, d.dispatch(batteryEvent(25), listOf(low)).executions.size)
+        assertEquals(0, d.dispatchNow(batteryEvent(25), listOf(low)).executions.size)
         clock.now = 3_000
-        assertEquals(1, d.dispatch(batteryEvent(15), listOf(low)).executions.size)
-        assertEquals(1, d.dispatch(
+        assertEquals(1, d.dispatchNow(batteryEvent(15), listOf(low)).executions.size)
+        assertEquals(1, d.dispatchNow(
             TriggerEvent(TriggerKinds.POWER_CONNECTED, TriggerSource.POWER, 4_000),
             listOf(charging, stopped),
         ).executions.size)
         clock.now = 6_000
         assertEquals(
             listOf("stopped"),
-            d.dispatch(TriggerEvent(TriggerKinds.POWER_DISCONNECTED, TriggerSource.POWER, 6_000),
+            d.dispatchNow(TriggerEvent(TriggerKinds.POWER_DISCONNECTED, TriggerSource.POWER, 6_000),
                 listOf(charging, stopped)).executions.map { it.rule.id },
         )
     }
@@ -415,20 +415,20 @@ class TriggerEngineTest {
             mapOf("state" to state, "ssid" to ssid),
         )
 
-        assertEquals(0, d.dispatch(event("connected", "Home"), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event("connected", "Home"), listOf(r)).executions.size)
         clock.now = 3_000
-        assertEquals(0, d.dispatch(event("disconnected", "Home"), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event("disconnected", "Home"), listOf(r)).executions.size)
         clock.now = 6_000
-        assertEquals(1, d.dispatch(event("connected", "Home"), listOf(r)).executions.size)
+        assertEquals(1, d.dispatchNow(event("connected", "Home"), listOf(r)).executions.size)
         clock.now = 9_000
-        assertEquals(0, d.dispatch(event("disconnected", "Home"), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event("disconnected", "Home"), listOf(r)).executions.size)
         clock.now = 12_000
         // A different SSID is not the configured network.
-        assertEquals(0, d.dispatch(event("connected", "Cafe"), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event("connected", "Cafe"), listOf(r)).executions.size)
         clock.now = 15_000
-        assertEquals(0, d.dispatch(event("disconnected", "Cafe"), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event("disconnected", "Cafe"), listOf(r)).executions.size)
         clock.now = 18_000
-        assertEquals(1, d.dispatch(event("connected", "Home"), listOf(r)).executions.size)
+        assertEquals(1, d.dispatchNow(event("connected", "Home"), listOf(r)).executions.size)
     }
 
     @Test
@@ -446,13 +446,13 @@ class TriggerEngineTest {
         )
 
         // Baseline: the configured device is not connected.
-        assertEquals(0, d.dispatch(event("disconnected", "Sony"), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event("disconnected", "Sony"), listOf(r)).executions.size)
         clock.now = 3_000
-        assertEquals(0, d.dispatch(event("connected", "AirPods"), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event("connected", "AirPods"), listOf(r)).executions.size)
         clock.now = 6_000
-        assertEquals(1, d.dispatch(event("connected", "Sony WH-1000XM5"), listOf(r)).executions.size)
+        assertEquals(1, d.dispatchNow(event("connected", "Sony WH-1000XM5"), listOf(r)).executions.size)
         clock.now = 9_000
-        assertEquals(0, d.dispatch(event("connected", "Sony WH-1000XM5"), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event("connected", "Sony WH-1000XM5"), listOf(r)).executions.size)
     }
 
     @Test
@@ -469,13 +469,13 @@ class TriggerEngineTest {
             mapOf("state" to state, "ssid" to ssid),
         )
 
-        assertEquals(0, d.dispatch(event("connected", "Cafe"), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event("connected", "Cafe"), listOf(r)).executions.size)
         clock.now = 3_000
-        assertEquals(0, d.dispatch(event("disconnected", "Cafe"), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event("disconnected", "Cafe"), listOf(r)).executions.size)
         clock.now = 6_000
-        assertEquals(0, d.dispatch(event("connected", "Home"), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event("connected", "Home"), listOf(r)).executions.size)
         clock.now = 9_000
-        assertEquals(1, d.dispatch(event("disconnected", "Home"), listOf(r)).executions.size)
+        assertEquals(1, d.dispatchNow(event("disconnected", "Home"), listOf(r)).executions.size)
     }
 
     @Test
@@ -496,9 +496,9 @@ class TriggerEngineTest {
             mapOf("notification.app" to app, "notification.title" to title, "notification.text" to text),
         )
 
-        assertEquals(0, d.dispatch(event("com.example.chat", "普通消息", "123456"), listOf(r)).executions.size)
-        assertEquals(0, d.dispatch(event("com.other", "验证码", "123456"), listOf(r)).executions.size)
-        val hit = d.dispatch(event("com.example.chat", "【验证码】", "您的验证码是 123456"), listOf(r))
+        assertEquals(0, d.dispatchNow(event("com.example.chat", "普通消息", "123456"), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event("com.other", "验证码", "123456"), listOf(r)).executions.size)
+        val hit = d.dispatchNow(event("com.example.chat", "【验证码】", "您的验证码是 123456"), listOf(r))
         assertEquals(1, hit.executions.size)
         assertEquals("com.example.chat", hit.executions.single().variables["event.notification.app"])
         assertEquals("【验证码】", hit.executions.single().variables["event.notification.title"])
@@ -518,8 +518,8 @@ class TriggerEngineTest {
             mapOf("notification.app" to app, "notification.title" to "", "notification.text" to ""),
         )
 
-        assertEquals(0, d.dispatch(event("com.example.chat"), listOf(r)).executions.size)
-        val hit = d.dispatch(event("com.example.chat@10"), listOf(r))
+        assertEquals(0, d.dispatchNow(event("com.example.chat"), listOf(r)).executions.size)
+        val hit = d.dispatchNow(event("com.example.chat@10"), listOf(r))
         assertEquals(1, hit.executions.size)
         assertEquals("com.example.chat@10", hit.executions.single().variables["event.notification.app"])
     }
@@ -540,11 +540,11 @@ class TriggerEngineTest {
         )
 
         // First observation is the baseline for each binding.
-        assertEquals(0, d.dispatch(event("com.other"), listOf(enter, leave)).executions.size)
+        assertEquals(0, d.dispatchNow(event("com.other"), listOf(enter, leave)).executions.size)
         clock.now = 3_000
-        assertEquals(listOf("enter"), d.dispatch(event("com.target"), listOf(enter, leave)).executions.map { it.rule.id })
+        assertEquals(listOf("enter"), d.dispatchNow(event("com.target"), listOf(enter, leave)).executions.map { it.rule.id })
         clock.now = 6_000
-        assertEquals(listOf("leave"), d.dispatch(event("com.other"), listOf(enter, leave)).executions.map { it.rule.id })
+        assertEquals(listOf("leave"), d.dispatchNow(event("com.other"), listOf(enter, leave)).executions.map { it.rule.id })
     }
 
     @Test
@@ -563,10 +563,10 @@ class TriggerEngineTest {
             TriggerKinds.KEYGUARD, TriggerSource.SYSTEM, clock.now, mapOf("event" to state),
         )
 
-        assertEquals(listOf("locked"), d.dispatch(event("locked"), rules).executions.map { it.rule.id })
+        assertEquals(listOf("locked"), d.dispatchNow(event("locked"), rules).executions.map { it.rule.id })
         clock.now = 3_000
-        assertEquals(listOf("unlocked"), d.dispatch(event("unlocked"), rules).executions.map { it.rule.id })
-        assertEquals(0, d.dispatch(event("unknown"), rules).executions.size)
+        assertEquals(listOf("unlocked"), d.dispatchNow(event("unlocked"), rules).executions.map { it.rule.id })
+        assertEquals(0, d.dispatchNow(event("unknown"), rules).executions.size)
     }
 
     @Test
@@ -583,10 +583,10 @@ class TriggerEngineTest {
             kind, TriggerSource.SYSTEM, clock.now, mapOf("app" to app, "event" to "media"),
         )
 
-        assertEquals(listOf("playing"), d.dispatch(event(TriggerKinds.MEDIA_PLAYING, "com.music.app@0"), rules)
+        assertEquals(listOf("playing"), d.dispatchNow(event(TriggerKinds.MEDIA_PLAYING, "com.music.app@0"), rules)
             .executions.map { it.rule.id })
-        assertEquals(0, d.dispatch(event(TriggerKinds.MEDIA_PAUSED, "com.music.app"), rules).executions.size)
-        assertEquals(0, d.dispatch(event(TriggerKinds.MEDIA_PLAYING, "com.other.app"), rules).executions.size)
+        assertEquals(0, d.dispatchNow(event(TriggerKinds.MEDIA_PAUSED, "com.music.app"), rules).executions.size)
+        assertEquals(0, d.dispatchNow(event(TriggerKinds.MEDIA_PLAYING, "com.other.app"), rules).executions.size)
     }
 
     @Test
@@ -603,9 +603,9 @@ class TriggerEngineTest {
             kind, TriggerSource.SYSTEM, clock.now, mapOf("app" to "com.example.app@0", "event" to "fgs"),
         )
 
-        assertEquals(listOf("started"), d.dispatch(event(TriggerKinds.FOREGROUND_SERVICE_STARTED), rules)
+        assertEquals(listOf("started"), d.dispatchNow(event(TriggerKinds.FOREGROUND_SERVICE_STARTED), rules)
             .executions.map { it.rule.id })
-        assertEquals(0, d.dispatch(event(TriggerKinds.FOREGROUND_SERVICE_STOPPED), rules).executions.size)
+        assertEquals(0, d.dispatchNow(event(TriggerKinds.FOREGROUND_SERVICE_STOPPED), rules).executions.size)
     }
 
     @Test
@@ -621,11 +621,11 @@ class TriggerEngineTest {
         val r = rule("condition", listOf(trigger("trigger.screen_on")), conditions = listOf(condition))
         val event = screenEvent(at = 1_000)
 
-        assertEquals(0, d.dispatch(event, listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(event, listOf(r)).executions.size)
         env.processRunning = true
-        assertEquals(1, d.dispatch(event, listOf(r)).executions.size)
+        assertEquals(1, d.dispatchNow(event, listOf(r)).executions.size)
         env.processRunning = false
-        assertEquals(0, d.dispatch(screenEvent(at = 2_000), listOf(r)).executions.size)
+        assertEquals(0, d.dispatchNow(screenEvent(at = 2_000), listOf(r)).executions.size)
     }
 
     @Test
@@ -654,15 +654,15 @@ class TriggerEngineTest {
             kind, TriggerSource.SYSTEM, clock.now, mapOf("app" to app, "event" to kind),
         )
 
-        assertEquals(listOf("started"), d.dispatch(event(TriggerKinds.APP_PROCESS_STARTED, "com.target@10"), rules).executions.map { it.rule.id })
+        assertEquals(listOf("started"), d.dispatchNow(event(TriggerKinds.APP_PROCESS_STARTED, "com.target@10"), rules).executions.map { it.rule.id })
         clock.now = 3_000
-        assertEquals(listOf("ended"), d.dispatch(event(TriggerKinds.APP_PROCESS_ENDED, "com.target@10"), rules).executions.map { it.rule.id })
+        assertEquals(listOf("ended"), d.dispatchNow(event(TriggerKinds.APP_PROCESS_ENDED, "com.target@10"), rules).executions.map { it.rule.id })
         clock.now = 6_000
-        assertEquals(listOf("crash"), d.dispatch(event(TriggerKinds.APP_CRASH, "com.target@10"), rules).executions.map { it.rule.id })
+        assertEquals(listOf("crash"), d.dispatchNow(event(TriggerKinds.APP_CRASH, "com.target@10"), rules).executions.map { it.rule.id })
         clock.now = 9_000
-        assertEquals(listOf("anr"), d.dispatch(event(TriggerKinds.APP_ANR, "com.target@10"), rules).executions.map { it.rule.id })
-        assertEquals(0, d.dispatch(event(TriggerKinds.APP_PROCESS_STARTED, "com.other"), rules).executions.size)
-        assertEquals(0, d.dispatch(event(TriggerKinds.APP_PROCESS_STARTED, "com.target"), rules).executions.size)
+        assertEquals(listOf("anr"), d.dispatchNow(event(TriggerKinds.APP_ANR, "com.target@10"), rules).executions.map { it.rule.id })
+        assertEquals(0, d.dispatchNow(event(TriggerKinds.APP_PROCESS_STARTED, "com.other"), rules).executions.size)
+        assertEquals(0, d.dispatchNow(event(TriggerKinds.APP_PROCESS_STARTED, "com.target"), rules).executions.size)
     }
 
     @Test
@@ -687,17 +687,17 @@ class TriggerEngineTest {
             mapOf("state" to state, "kind" to kind),
         )
 
-        assertEquals(0, d.dispatch(btEvent("disconnected", "Buds"), listOf(bt)).executions.size)
+        assertEquals(0, d.dispatchNow(btEvent("disconnected", "Buds"), listOf(bt)).executions.size)
         clock.now = 3_000
-        assertEquals(1, d.dispatch(btEvent("connected", "Galaxy Buds"), listOf(bt)).executions.size)
+        assertEquals(1, d.dispatchNow(btEvent("connected", "Galaxy Buds"), listOf(bt)).executions.size)
         clock.now = 6_000
-        assertEquals(0, d.dispatch(btEvent("disconnected", "Galaxy Buds"), listOf(bt)).executions.size)
+        assertEquals(0, d.dispatchNow(btEvent("disconnected", "Galaxy Buds"), listOf(bt)).executions.size)
 
-        assertEquals(0, d.dispatch(headsetEvent("unplugged", "wired"), listOf(headset)).executions.size)
+        assertEquals(0, d.dispatchNow(headsetEvent("unplugged", "wired"), listOf(headset)).executions.size)
         clock.now = 9_000
-        assertEquals(1, d.dispatch(headsetEvent("plugged", "bluetooth"), listOf(headset)).executions.size)
+        assertEquals(1, d.dispatchNow(headsetEvent("plugged", "bluetooth"), listOf(headset)).executions.size)
         clock.now = 12_000
-        assertEquals(0, d.dispatch(headsetEvent("unplugged", "wired"), listOf(headset)).executions.size)
+        assertEquals(0, d.dispatchNow(headsetEvent("unplugged", "wired"), listOf(headset)).executions.size)
     }
 
     @Test
@@ -743,16 +743,16 @@ class TriggerEngineTest {
         )
 
         // First sample only establishes the baseline.
-        assertEquals(0, d.dispatch(event(31.0200, 121.0000), listOf(enter, exit)).executions.size)
+        assertEquals(0, d.dispatchNow(event(31.0200, 121.0000), listOf(enter, exit)).executions.size)
         clock.now = 3_000
-        assertEquals(listOf("enter"), d.dispatch(event(31.0030, 121.0000), listOf(enter, exit)).executions.map { it.rule.id })
+        assertEquals(listOf("enter"), d.dispatchNow(event(31.0030, 121.0000), listOf(enter, exit)).executions.map { it.rule.id })
         clock.now = 6_000
-        assertEquals(listOf("exit"), d.dispatch(event(31.0200, 121.0000), listOf(enter, exit)).executions.map { it.rule.id })
+        assertEquals(listOf("exit"), d.dispatchNow(event(31.0200, 121.0000), listOf(enter, exit)).executions.map { it.rule.id })
         clock.now = 9_000
-        assertEquals(listOf("enter"), d.dispatch(event(31.0030, 121.0000), listOf(enter, exit)).executions.map { it.rule.id })
+        assertEquals(listOf("enter"), d.dispatchNow(event(31.0030, 121.0000), listOf(enter, exit)).executions.map { it.rule.id })
         // Outside the configured 500 m radius is a leave, even though it is still near the point.
         clock.now = 12_000
-        assertEquals(listOf("exit"), d.dispatch(event(31.0200, 121.0000), listOf(enter, exit)).executions.map { it.rule.id })
+        assertEquals(listOf("exit"), d.dispatchNow(event(31.0200, 121.0000), listOf(enter, exit)).executions.map { it.rule.id })
     }
 
     @Test
@@ -769,12 +769,12 @@ class TriggerEngineTest {
                 TriggerComponent("condition.network_type", "网络类型", mapOf("network" to JsonPrimitive("wifi"))),
             ),
         )
-        assertEquals(1, d.dispatch(screenEvent(), listOf(r)).executions.size)
+        assertEquals(1, d.dispatchNow(screenEvent(), listOf(r)).executions.size)
 
         env.dnd = false
         env.network = NetworkType.MOBILE
         clock.now = 3_000
-        val skipped = d.dispatch(screenEvent(at = 3_000), listOf(r))
+        val skipped = d.dispatchNow(screenEvent(at = 3_000), listOf(r))
         assertEquals(0, skipped.executions.size)
         assertEquals("条件不满足：勿扰状态、网络类型", skipped.skips.single().detail)
     }

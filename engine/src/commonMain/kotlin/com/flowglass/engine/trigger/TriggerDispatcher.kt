@@ -24,16 +24,16 @@ interface TriggerEnvironment {
 }
 
 interface TriggerExecutor {
-    fun isRunning(rule: TriggerRule): Boolean
+    suspend fun isRunning(rule: TriggerRule): Boolean
 
     /** Number of active runs for the rule; parallel mode uses this to enforce its cap. */
-    fun activeCount(rule: TriggerRule): Int = if (isRunning(rule)) 1 else 0
+    suspend fun activeCount(rule: TriggerRule): Int = if (isRunning(rule)) 1 else 0
 
     /** Cancels active runs for RESTART. Hosts that cannot cancel synchronously may keep the default. */
-    fun cancel(rule: TriggerRule) {}
+    suspend fun cancel(rule: TriggerRule) {}
 
     /** Starts the rule and returns false when the repeat policy dropped this trigger. */
-    fun execute(rule: TriggerRule, binding: TriggerBinding, reason: String, variables: Map<String, Any?>): Boolean
+    suspend fun execute(rule: TriggerRule, binding: TriggerBinding, reason: String, variables: Map<String, Any?>): Boolean
 }
 
 fun interface TriggerSkipRecorder {
@@ -115,6 +115,8 @@ class TriggerDispatcher(
     private val skipRecorder: TriggerSkipRecorder,
     private val debounceMs: Long = 2_000,
     private val skipLogIntervalMs: Long = 60_000,
+    /** Optional diagnostics hook; tests use it to prove every access stays on the serial lane. */
+    private val onAccess: ((String) -> Unit)? = null,
 ) {
     private val lastFired = mutableMapOf<String, Long>()
     private val lastSkipLog = mutableMapOf<String, Long>()
@@ -122,7 +124,8 @@ class TriggerDispatcher(
     private val lastEvents = mutableMapOf<String, Long>()
     private val queues = mutableMapOf<String, ArrayDeque<TriggerExecution>>()
 
-    fun dispatch(event: TriggerEvent, rules: List<TriggerRule>): DispatchOutcome {
+    suspend fun dispatch(event: TriggerEvent, rules: List<TriggerRule>): DispatchOutcome {
+        onAccess?.invoke("dispatch")
         val now = clock.nowEpochMs()
         val offset = environment.zoneOffsetMinutes(now)
         val enabled = rules.filter { it.enabled }
@@ -215,7 +218,8 @@ class TriggerDispatcher(
      * Called by the host when a run completes. A queued trigger starts immediately if the rule is
      * idle; the queue is bounded so a burst cannot grow without limit.
      */
-    fun onRunFinished(rule: TriggerRule) {
+    suspend fun onRunFinished(rule: TriggerRule) {
+        onAccess?.invoke("onRunFinished")
         val queue = queues[rule.id] ?: return
         while (queue.isNotEmpty() && executor.activeCount(rule) == 0) {
             val next = queue.removeFirst()
@@ -239,6 +243,7 @@ class TriggerDispatcher(
 
     /** Forget debounce/state history when the host re-registers after an explicit stop. */
     fun reset() {
+        onAccess?.invoke("reset")
         lastFired.clear()
         lastSkipLog.clear()
         states.clear()
@@ -248,6 +253,7 @@ class TriggerDispatcher(
 
     /** Drops state for rules that are no longer listening, so a re-enable starts from a baseline. */
     fun prune(rules: List<TriggerRule>) {
+        onAccess?.invoke("prune")
         val keys = rules.flatMap { TriggerPlan.bindings(it) }.map { it.key }.toSet()
         states.removeMissing(keys)
         lastFired.keys.retainAll(keys + rules.map { "${it.id}#all" })
