@@ -312,9 +312,17 @@ internal object SystemHook {
             }
             HookEventSource.FIRST_ARGUMENT_PROCESS -> readProcessIdentity(arguments.getOrNull(0))
             HookEventSource.SECOND_ARGUMENT_PROCESS -> readProcessIdentity(arguments.getOrNull(1))
+            HookEventSource.PROCESS_START_ARGUMENTS ->
+                readProcessStartIdentity(arguments, result)
             HookEventSource.CLEANUP_PROCESS_RECORD -> {
                 // A restarting app is not an exit; it immediately gets a new process.
                 if (arguments.getOrNull(2) == true) return
+                readProcessIdentity(arguments.getOrNull(0))
+            }
+            HookEventSource.PROCESS_DIED_RECORD -> {
+                // handleAppDiedLocked(ProcessRecord, restarting, allowRestart): a crash/restart
+                // is not an exit. The cleanup callback may arrive separately for a real exit.
+                if (arguments.getOrNull(1) == true) return
                 readProcessIdentity(arguments.getOrNull(0))
             }
             else -> null
@@ -480,6 +488,28 @@ internal object SystemHook {
             else -> null
         } ?: return null
         return HookIdentityReader.of(packageName, uid / 100_000)
+    }
+
+    /**
+     * ProcessList#startProcessLocked is overloaded on Android 10/11:
+     *  - String processName + ApplicationInfo (the real start path, returns ProcessRecord)
+     *  - ProcessRecord + HostingRecord (returns boolean/void)
+     *  - HostingRecord + entryPoint + ProcessRecord (returns boolean)
+     *
+     * Do not assume argument positions. Try the layouts that carry an ApplicationInfo or a
+     * ProcessRecord, but require a non-null/non-false result so a no-op/on-hold call does not
+     * become a false "process started" event.
+     */
+    private fun readProcessStartIdentity(arguments: Array<Any?>, result: Any?): HookIdentity? {
+        when (result) {
+            null -> return null
+            is Boolean -> if (!result) return null
+            else -> Unit
+        }
+        readApplicationIdentity(arguments.getOrNull(1))?.let { return it }
+        readProcessIdentity(arguments.getOrNull(0))?.let { return it }
+        readProcessIdentity(arguments.getOrNull(2))?.let { return it }
+        return null
     }
 
     private fun readProcessIdentity(record: Any?): HookIdentity? {
