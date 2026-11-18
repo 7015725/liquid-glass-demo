@@ -47,6 +47,7 @@ class MethodHookEventVerifierTest {
         status: String? = null,
         packetToken: String = token,
         packetBody: ((String) -> String)? = null,
+        packetHookId: String = spec.id,
     ): String {
         val envelope = MethodHookWireEnvelope(
             hookId = spec.id,
@@ -64,7 +65,7 @@ class MethodHookEventVerifierTest {
         val signedBody = packetBody?.invoke(body) ?: body
         return MethodHookWireJson.encodePacket(
             MethodHookWirePacket(
-                hookId = spec.id,
+                hookId = packetHookId,
                 body = signedBody,
                 mac = MethodHookHmac.sign(packetToken, signedBody),
             )
@@ -109,6 +110,17 @@ class MethodHookEventVerifierTest {
             packet(MethodHookWireEnvelope.TYPE_EVENT, 1, variables = mapOf("未声明" to "x")),
             guard,
         ) is MethodHookVerification.Rejected)
+    }
+
+    @Test
+    fun unknownHookIdIsRejectedBeforeAnyEventIsDelivered() {
+        val result = verifier.verify(
+            caller,
+            packet(MethodHookWireEnvelope.TYPE_EVENT, 1, packetHookId = "call-forged"),
+            guard,
+        )
+        assertTrue(result is MethodHookVerification.Rejected)
+        assertEquals(0, events)
     }
 
     @Test

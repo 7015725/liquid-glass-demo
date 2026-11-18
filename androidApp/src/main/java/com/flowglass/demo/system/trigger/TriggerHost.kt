@@ -192,6 +192,7 @@ internal class TriggerHost(
                     source = TriggerSource.METHOD_HOOK,
                     atEpochMs = System.currentTimeMillis(),
                     data = AppMethodCall.eventData(
+                        hookId = hookId,
                         packageName = variables[MethodHookVariables.APP].orEmpty(),
                         userId = variables[MethodHookVariables.USER]?.toIntOrNull() ?: 0,
                         className = variables[MethodHookVariables.METHOD]

@@ -3,6 +3,7 @@ package com.flowglass.engine.trigger
 import com.flowglass.engine.Clock
 import com.flowglass.engine.MatchSpec
 import com.flowglass.engine.RunMode
+import com.flowglass.engine.methodhook.AppMethodCall
 import kotlin.math.asin
 import kotlin.math.cos
 import kotlin.math.pow
@@ -70,6 +71,8 @@ data class TriggerComponent(
     val typeId: String,
     val name: String,
     val params: Map<String, JsonElement> = emptyMap(),
+    /** Stable item id from the persisted command, used for exact trigger bindings. */
+    val id: Long? = null,
 )
 
 /** A host-side, already-normalised view of one enabled automatic command. */
@@ -434,6 +437,9 @@ object TriggerMatcher {
 
     private fun matchesMethodHook(binding: TriggerBinding, event: TriggerEvent): Boolean {
         if (binding.component.typeId != TriggerTypes.APP_METHOD_CALL) return false
+        val itemId = binding.component.id ?: return false
+        val expectedHookId = AppMethodCall.hookId(binding.rule.cmdId, itemId)
+        if (event.data["hook.id"] != expectedHookId) return false
         val target = binding.component.params["package"]?.stringValue()?.trim().orEmpty()
         if (target.isEmpty() || !sameApp(target, event.data["app"].orEmpty())) return false
         val className = binding.component.params["className"]?.stringValue()?.trim().orEmpty()

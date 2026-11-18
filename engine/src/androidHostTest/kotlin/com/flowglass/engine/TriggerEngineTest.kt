@@ -15,10 +15,12 @@ import com.flowglass.engine.trigger.TriggerSkipRecorder
 import com.flowglass.engine.trigger.TriggerSource
 import com.flowglass.engine.trigger.TriggerSourceRegistry
 import com.flowglass.engine.trigger.TriggerTypes
+import com.flowglass.engine.methodhook.AppMethodCall
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -156,22 +158,20 @@ class TriggerEngineTest {
         val clock = FakeClock(0)
         val executor = RecordingExecutor()
         val d = dispatcher(clock, FakeEnvironment(), executor)
-        val r = rule(
-            "hook",
-            listOf(
-                trigger(
-                    TriggerTypes.APP_METHOD_CALL,
-                    "package" to "com.example.target",
-                    "className" to "com.example.Target",
-                    "methodName" to "submit",
-                    "paramTypes" to "java.lang.String",
-                ),
-            ),
-        )
+        val component = trigger(
+            TriggerTypes.APP_METHOD_CALL,
+            "package" to "com.example.target",
+            "className" to "com.example.Target",
+            "methodName" to "submit",
+            "paramTypes" to "java.lang.String",
+        ).copy(id = 17)
+        val r = rule("hook", listOf(component))
+        val hookId = AppMethodCall.hookId(r.cmdId, 17)
 
         val miss = d.dispatch(
             TriggerEvent(TriggerKinds.METHOD_CALL, TriggerSource.METHOD_HOOK, 0,
                 data = mapOf(
+                    "hook.id" to hookId,
                     "app" to "com.example.target",
                     "method.class" to "com.example.Target",
                     "method.name" to "submit",
@@ -185,6 +185,7 @@ class TriggerEngineTest {
         val hit = d.dispatch(
             TriggerEvent(TriggerKinds.METHOD_CALL, TriggerSource.METHOD_HOOK, 3_000,
                 data = mapOf(
+                    "hook.id" to hookId,
                     "app" to "com.example.target",
                     "method.class" to "com.example.Target",
                     "method.name" to "submit",
@@ -195,6 +196,96 @@ class TriggerEngineTest {
         assertEquals(1, hit.executions.size)
         assertEquals("A-1", hit.executions.single().variables["订单号"])
         assertTrue(hit.executions.single().variables["event.time"] is String)
+    }
+
+    @Test
+    fun twoHooksForTheSameMethodEachRunOnceWithTheirOwnExtraction() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        fun methodRule(id: String, cmdId: Long, itemId: Long) = TriggerRule(
+            id = id,
+            cmdId = cmdId,
+            name = id,
+            enabled = true,
+            triggers = listOf(
+                trigger(
+                    TriggerTypes.APP_METHOD_CALL,
+                    "package" to "com.example.target",
+                    "className" to "com.example.Target",
+                    "methodName" to "submit",
+                ).copy(id = itemId),
+            ),
+        )
+        val a = methodRule("a", 11, 101)
+        val b = methodRule("b", 12, 102)
+        val event = { hookId: String, variables: Map<String, String> ->
+            TriggerEvent(
+                TriggerKinds.METHOD_CALL,
+                TriggerSource.METHOD_HOOK,
+                0,
+                data = AppMethodCall.eventData(
+                    hookId = hookId,
+                    packageName = "com.example.target",
+                    userId = 0,
+                    className = "com.example.Target",
+                    methodName = "submit",
+                    signature = "submit()",
+                ),
+                methodHookVariables = variables,
+            )
+        }
+
+        val first = d.dispatch(
+            event(AppMethodCall.hookId(11, 101), mapOf("A 的变量" to "A-1")),
+            listOf(a, b),
+        )
+        assertEquals(listOf("a"), first.executions.map { it.rule.id })
+        assertEquals("A-1", first.executions.single().variables["A 的变量"])
+        assertFalse(first.executions.single().variables.containsKey("B 的变量"))
+
+        val second = d.dispatch(
+            event(AppMethodCall.hookId(12, 102), mapOf("B 的变量" to "B-1")),
+            listOf(a, b),
+        )
+        assertEquals(listOf("b"), second.executions.map { it.rule.id })
+        assertEquals("B-1", second.executions.single().variables["B 的变量"])
+        assertFalse(second.executions.single().variables.containsKey("A 的变量"))
+    }
+
+    @Test
+    fun unknownHookIdDoesNotRunAnyRule() {
+        val executor = RecordingExecutor()
+        val d = dispatcher(FakeClock(0), FakeEnvironment(), executor)
+        val r = TriggerRule(
+            id = "a", cmdId = 11, name = "a", enabled = true,
+            triggers = listOf(
+                trigger(
+                    TriggerTypes.APP_METHOD_CALL,
+                    "package" to "com.example.target",
+                    "className" to "com.example.Target",
+                    "methodName" to "submit",
+                ).copy(id = 101),
+            ),
+        )
+        val outcome = d.dispatch(
+            TriggerEvent(
+                TriggerKinds.METHOD_CALL,
+                TriggerSource.METHOD_HOOK,
+                0,
+                data = AppMethodCall.eventData(
+                    hookId = "call-forged",
+                    packageName = "com.example.target",
+                    userId = 0,
+                    className = "com.example.Target",
+                    methodName = "submit",
+                    signature = "submit()",
+                ),
+            ),
+            listOf(r),
+        )
+        assertEquals(0, outcome.executions.size)
+        assertTrue(executor.calls.isEmpty())
     }
 
     @Test

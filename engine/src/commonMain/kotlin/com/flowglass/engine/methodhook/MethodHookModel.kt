@@ -164,12 +164,14 @@ object AppMethodCall {
 
     /** Runtime event data used by the trigger matcher; fixed UI names still come from variables. */
     fun eventData(
+        hookId: String,
         packageName: String,
         userId: Int,
         className: String,
         methodName: String,
         signature: String,
     ): Map<String, String> = mapOf(
+        "hook.id" to hookId,
         "app" to if (userId == 0) packageName else "$packageName@$userId",
         "app.user" to userId.toString(),
         "method.class" to className,
