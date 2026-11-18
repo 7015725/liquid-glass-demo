@@ -168,11 +168,11 @@ class AppState internal constructor(saved: PersistedAppState?) {
                             previous != null -> previous.initial
                             definition.initial is kotlinx.serialization.json.JsonElement ->
                                 definition.initial as kotlinx.serialization.json.JsonElement
-                            else -> kotlinx.serialization.json.JsonPrimitive(definition.initial?.toString().orEmpty())
+                            else -> com.flowglass.engine.VariableValues.toJson(definition.initial)
                         }
                         val next = com.flowglass.engine.LocalVariable(
                             name = definition.name,
-                            type = definition.type.name.lowercase(),
+                            type = definition.type.storageKey,
                             initial = initial,
                             resetEachRun = definition.resetEachRun,
                             note = previous?.note.orEmpty(),
@@ -187,8 +187,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
         if (globals.isNotEmpty()) {
             engineGlobalMeta = engineGlobalMeta + globals.associate { definition ->
                 definition.name to (engineGlobalMeta[definition.name]?.copy(
-                    type = definition.type.name.lowercase(),
-                ) ?: com.flowglass.engine.GlobalVariableMeta(definition.type.name.lowercase()))
+                    type = definition.type.storageKey,
+                ) ?: com.flowglass.engine.GlobalVariableMeta(definition.type.storageKey))
             }
         }
     }
@@ -199,12 +199,13 @@ class AppState internal constructor(saved: PersistedAppState?) {
                 if (rule.id != ruleId) rule else {
                     var locals = rule.locals
                     for ((name, value) in ruleWrites) {
-                        val text = value?.toString().orEmpty()
+                        val element = com.flowglass.engine.VariableValues.toJson(value)
                         val index = locals.indexOfFirst { it.name == name }
                         locals = if (index >= 0) locals.toMutableList().also {
-                            it[index] = it[index].copy(initial = kotlinx.serialization.json.JsonPrimitive(text))
+                            it[index] = it[index].copy(initial = element)
                         } else locals + com.flowglass.engine.LocalVariable(
-                            name = name, type = "text", initial = kotlinx.serialization.json.JsonPrimitive(text),
+                            name = name, type = com.flowglass.engine.VariableValues.inferType(value).storageKey,
+                            initial = element,
                         )
                     }
                     rule.copy(locals = locals)
@@ -213,7 +214,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         }
         if (globalWrites.isNotEmpty()) {
             engineGlobals = engineGlobals + globalWrites.mapValues {
-                kotlinx.serialization.json.JsonPrimitive(it.value?.toString().orEmpty())
+                com.flowglass.engine.VariableValues.toJson(it.value)
             }
             engineGlobalMeta = engineGlobalMeta + globalWrites.keys.associateWith { name ->
                 engineGlobalMeta[name] ?: com.flowglass.engine.GlobalVariableMeta()
@@ -574,6 +575,22 @@ class AppState internal constructor(saved: PersistedAppState?) {
         }
     }
 
+    fun setVariableType(ownerId: Long?, name: String, type: com.flowglass.engine.VariableType, scope: com.flowglass.engine.VariableScope) {
+        if (scope == com.flowglass.engine.VariableScope.LOCAL && ownerId != null) {
+            val ruleId = ruleIdFor(ownerId) ?: return
+            engineRules = engineRules.map { rule ->
+                if (rule.id != ruleId) rule else rule.copy(
+                    locals = rule.locals.map {
+                        if (it.name == name) it.copy(type = type.storageKey) else it
+                    },
+                )
+            }
+        } else if (scope == com.flowglass.engine.VariableScope.GLOBAL) {
+            val meta = engineGlobalMeta[name] ?: com.flowglass.engine.GlobalVariableMeta()
+            engineGlobalMeta = engineGlobalMeta + (name to meta.copy(type = type.storageKey))
+        }
+    }
+
     fun setVariableNote(ownerId: Long?, name: String, note: String, scope: com.flowglass.engine.VariableScope) {
         if (scope == com.flowglass.engine.VariableScope.LOCAL && ownerId != null) {
             val ruleId = ruleIdFor(ownerId) ?: return
@@ -589,17 +606,27 @@ class AppState internal constructor(saved: PersistedAppState?) {
     }
 
     fun setVariableValue(ownerId: Long?, name: String, value: String, scope: com.flowglass.engine.VariableScope) {
+        val rawType = if (scope == com.flowglass.engine.VariableScope.LOCAL) {
+            val ruleId = ownerId?.let(::ruleIdFor) ?: return
+            engineRules.firstOrNull { it.id == ruleId }?.locals?.firstOrNull { it.name == name }?.type
+        } else if (scope == com.flowglass.engine.VariableScope.GLOBAL) {
+            engineGlobalMeta[name]?.type
+        } else null
+        val type = com.flowglass.engine.VariableType.fromStorage(rawType)
+            ?: com.flowglass.engine.VariableType.TEXT
+        val parsed = runCatching { com.flowglass.engine.VariableValues.parse(value, type) }.getOrNull() ?: return
+        val json = com.flowglass.engine.VariableValues.toJson(parsed)
         if (scope == com.flowglass.engine.VariableScope.LOCAL && ownerId != null) {
             val ruleId = ruleIdFor(ownerId) ?: return
             engineRules = engineRules.map { rule ->
                 if (rule.id != ruleId) rule else rule.copy(
                     locals = rule.locals.map {
-                        if (it.name == name) it.copy(initial = kotlinx.serialization.json.JsonPrimitive(value)) else it
+                        if (it.name == name) it.copy(initial = json) else it
                     },
                 )
             }
         } else if (scope == com.flowglass.engine.VariableScope.GLOBAL) {
-            engineGlobals = engineGlobals + (name to kotlinx.serialization.json.JsonPrimitive(value))
+            engineGlobals = engineGlobals + (name to json)
             engineGlobalMeta = engineGlobalMeta + (name to (engineGlobalMeta[name] ?: com.flowglass.engine.GlobalVariableMeta()))
         }
     }
@@ -611,15 +638,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         scope: com.flowglass.engine.VariableScope,
     ): Cmd {
         fun replace(text: String): String {
-            val tokens = if (scope == com.flowglass.engine.VariableScope.LOCAL) {
-                listOf("{${oldName}}" to "{${newName}}",
-                    "%{rule.${oldName}}" to "%{rule.${newName}}",
-                    "%{${oldName}}" to "%{${newName}}")
-            } else {
-                listOf("{${oldName}}" to "{${newName}}",
-                    "%{global.${oldName}}" to "%{global.${newName}}",
-                    "%{${oldName}}" to "%{${newName}}")
-            }
+            val tokens = listOf("{${oldName}}" to "{${newName}}")
             return tokens.fold(text) { acc, (from, to) -> acc.replace(from, to) }
         }
         fun item(value: CommandItem): CommandItem = value.copy(
@@ -681,11 +700,15 @@ class AppState internal constructor(saved: PersistedAppState?) {
         note: String,
         value: String,
     ) {
+        val variableType = com.flowglass.engine.VariableType.fromStorage(type) ?: return
+        val initial = com.flowglass.engine.VariableValues.toJson(
+            com.flowglass.engine.VariableValues.parse(value, variableType),
+        )
         when (scope) {
             com.flowglass.engine.VariableScope.GLOBAL -> {
-                engineGlobals = engineGlobals + (name to kotlinx.serialization.json.JsonPrimitive(value))
+                engineGlobals = engineGlobals + (name to initial)
                 engineGlobalMeta = engineGlobalMeta + (
-                    name to com.flowglass.engine.GlobalVariableMeta(type = type, note = note)
+                    name to com.flowglass.engine.GlobalVariableMeta(type = variableType.storageKey, note = note)
                 )
             }
             com.flowglass.engine.VariableScope.LOCAL -> {
@@ -694,8 +717,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
                     if (rule.id != ruleId) rule else rule.copy(
                         locals = rule.locals.filterNot { it.name == name } + com.flowglass.engine.LocalVariable(
                             name = name,
-                            type = type,
-                            initial = kotlinx.serialization.json.JsonPrimitive(value),
+                            type = variableType.storageKey,
+                            initial = initial,
                             note = note,
                         ),
                     )

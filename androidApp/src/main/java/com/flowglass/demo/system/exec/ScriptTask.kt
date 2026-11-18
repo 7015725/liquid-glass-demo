@@ -19,6 +19,7 @@ import org.mozilla.javascript.ClassShutter
 import org.mozilla.javascript.Context as RhinoContext
 import org.mozilla.javascript.ContextFactory
 import org.mozilla.javascript.EvaluatorException
+import org.mozilla.javascript.NativeArray
 import org.mozilla.javascript.Scriptable
 import org.mozilla.javascript.ScriptableObject
 import java.net.URL
@@ -143,7 +144,7 @@ internal object ScriptTask {
         deadline: Long,
     ) {
         for ((name, value) in bindings) {
-            ScriptableObject.putProperty(scope, name, jsValue(value))
+            ScriptableObject.putProperty(scope, name, jsValue(cx, scope, value))
             (scope as? ScriptableObject)?.setAttributes(name, ScriptableObject.READONLY)
         }
         fun put(name: String, fn: (Array<Any?>) -> Any?) {
@@ -159,11 +160,11 @@ internal object ScriptTask {
             if (logs.length < MAX_LOG_CHARS) logs.append(line).append('\n')
             null
         }
-        put("get") { args -> readVariable(variables, RhinoContext.toString(args.firstOrNull())) }
+        put("get") { args -> readVariable(cx, scope, variables, RhinoContext.toString(args.firstOrNull())) }
         put("set") { args ->
             val name = RhinoContext.toString(args.firstOrNull())
             val value = args.getOrNull(1)
-            variables?.write(name, jsValue(value))
+            variables?.write(name, fromJsValue(value))
             value
         }
         put("toast") { args ->
@@ -195,18 +196,43 @@ internal object ScriptTask {
         }
     }
 
-    private fun readVariable(variables: ScriptVariableAccess?, name: String): Any? {
+    private fun readVariable(
+        cx: RhinoContext,
+        scope: Scriptable,
+        variables: ScriptVariableAccess?,
+        name: String,
+    ): Any? {
         if (variables == null) return null
-        return jsValue(variables.read(name))
+        return jsValue(cx, scope, variables.read(name))
     }
 
-    private fun jsValue(value: Any?): Any? = when (value) {
+    private fun jsValue(cx: RhinoContext, scope: Scriptable, value: Any?): Any? = when (value) {
         null -> null
         is Boolean, is String -> value
         is Double -> if (value == value.toLong().toDouble()) value.toLong() else value
         is Float -> if (value == value.toLong().toFloat()) value.toLong() else value
         is Number -> value
+        is kotlinx.serialization.json.JsonNull -> null
+        is kotlinx.serialization.json.JsonPrimitive -> when {
+            value.isString -> value.content
+            value.content == "true" -> true
+            value.content == "false" -> false
+            else -> value.content.toLongOrNull() ?: value.content
+        }
+        is kotlinx.serialization.json.JsonArray ->
+            cx.newArray(scope, value.map { jsValue(cx, scope, it) }.toTypedArray())
+        is List<*> -> cx.newArray(scope, value.map { jsValue(cx, scope, it) }.toTypedArray())
+        is Array<*> -> cx.newArray(scope, value.map { jsValue(cx, scope, it) }.toTypedArray())
         else -> value.toString()
+    }
+
+    private fun fromJsValue(value: Any?): Any? = when (value) {
+        is NativeArray -> (0 until value.length.toInt()).map { fromJsValue(value.get(it, value)) }
+        is Array<*> -> value.map(::fromJsValue)
+        is Double -> if (value == value.toLong().toDouble()) value.toLong() else value
+        is Float -> if (value == value.toLong().toFloat()) value.toLong() else value
+        is CharSequence -> value.toString()
+        else -> value
     }
 
     private fun http(method: String, rawUrl: String, body: String?): String {

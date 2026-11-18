@@ -26,7 +26,10 @@ class ComponentLayerDeclarationTest {
     @Test
     fun engineInternalComponentsOnlyDeclareNormal() {
         BuiltInComponents.all
-            .filter { it.kind == ComponentKind.CONDITION || it.block != null }
+            .filter {
+                (it.kind == ComponentKind.CONDITION && it.typeId != "condition.variable") ||
+                    (it.block != null && it.typeId != "condition.variable")
+            }
             .forEach { meta ->
                 assertEquals(
                     listOf(ExecutionLayer.NORMAL),
@@ -34,6 +37,12 @@ class ComponentLayerDeclarationTest {
                     "${meta.typeId} 是 engine 内部组件，只能声明普通层",
                 )
             }
+        val variable = BuiltInComponents.registry().find("condition.variable")!!
+        assertEquals(
+            listOf(ExecutionLayer.ROOT, ExecutionLayer.NORMAL),
+            variable.supports.map { it.layer },
+            "变量判断的文件检查必须声明 Root -> 普通两层",
+        )
     }
 
     @Test

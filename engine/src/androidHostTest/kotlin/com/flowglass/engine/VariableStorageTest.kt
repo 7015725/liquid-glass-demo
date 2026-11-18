@@ -27,7 +27,7 @@ class VariableStorageTest {
                     locals = listOf(
                         LocalVariable(
                             name = "count",
-                            type = "number",
+                            type = "int",
                             initial = kotlinx.serialization.json.JsonPrimitive(1),
                             note = "累计次数",
                         ),

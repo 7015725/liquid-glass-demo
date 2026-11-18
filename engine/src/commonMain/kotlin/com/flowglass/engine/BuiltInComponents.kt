@@ -228,17 +228,28 @@ object BuiltInComponents {
             listOf(param("state", "勿扰状态", "off", ParamType.ENUM, options = listOf(
                 ParamOption("on", "已开启"), ParamOption("off", "已关闭")))),
             permissions = listOf("dnd"), supports = normalSupport("dnd")),
-        ComponentMeta("condition.var_compare", "变量比较", "流程控制", ComponentKind.CONDITION,
+        ComponentMeta("condition.variable", "变量判断", "流程控制", ComponentKind.CONDITION,
             listOf(
-                param("left", "左侧", "%{run.x}", ParamType.TEXT, required = true,
-                    hint = "支持 %{变量} 或字面量。"),
-                param("op", "比较", "eq", ParamType.ENUM, options = listOf(
-                    ParamOption("eq", "等于"), ParamOption("ne", "不等于"),
+                param("left", "变量", "", ParamType.TEXT,
+                    hint = "从内置、局部或全局变量中选择，也可手动填写 {名字}；文件判断可直接填写路径。"),
+                param("op", "判断方式", "eq", ParamType.ENUM, options = listOf(
                     ParamOption("gt", "大于"), ParamOption("ge", "大于等于"),
                     ParamOption("lt", "小于"), ParamOption("le", "小于等于"),
-                    ParamOption("contains", "包含"))),
-                param("right", "右侧", "", ParamType.TEXT),
-            ), supports = normalLayer),
+                    ParamOption("eq", "等于"), ParamOption("ne", "不等于"),
+                    ParamOption("contains", "包含"), ParamOption("not_contains", "不包含"),
+                    ParamOption("unset", "未设置"), ParamOption("set", "已设置"),
+                    ParamOption("empty", "为空"), ParamOption("not_empty", "不为空"),
+                    ParamOption("file_exists", "文件存在"), ParamOption("file_not_exists", "文件不存在"),
+                )),
+                param("right", "比较值", "", ParamType.TEXT,
+                    hint = "只有需要第二个值的判断才显示；文本不需要加引号。"),
+            ),
+            description = "按整数、真假、文本、状态或文件判断变量；文件判断优先使用 Root 执行层。",
+            supports = listOf(
+                LayerSupport(ExecutionLayer.ROOT),
+                LayerSupport(ExecutionLayer.NORMAL),
+            ),
+        ),
     )
 
     val all: List<ComponentMeta> = triggers + conditions + BuiltInActions.metadata + BuiltInBlocks.metadata

@@ -69,11 +69,12 @@ object BuiltInBlocks {
                 ParamSpec("name", "变量名", ParamType.TEXT, true, JsonPrimitive(""),
                     hint = "只填名字，例如 城市；新变量会自动创建。"),
                 ParamSpec("type", "类型", ParamType.ENUM, false, JsonPrimitive("text"), options = listOf(
-                    ParamOption("text", "文本"), ParamOption("number", "数字"),
-                    ParamOption("boolean", "真假"), ParamOption("list", "列表"),
+                    ParamOption("int", "整数"), ParamOption("boolean", "真假"),
+                    ParamOption("text", "文本"), ParamOption("int_list", "整数列表"),
+                    ParamOption("boolean_list", "真假列表"), ParamOption("text_list", "文本列表"),
                 )),
                 ParamSpec("value", "内容", ParamType.TEXT, false, JsonPrimitive(""),
-                    hint = "支持 {变量}。"),
+                    hint = "列表用逗号或换行分隔，也接受 [1,2,3]。"),
                 ParamSpec("op", "运算", ParamType.ENUM, false, JsonPrimitive("set"), options = listOf(
                     ParamOption("set", "设为"), ParamOption("add", "加"), ParamOption("sub", "减"),
                     ParamOption("mul", "乘"), ParamOption("div", "除"),

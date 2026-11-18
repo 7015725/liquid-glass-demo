@@ -70,7 +70,7 @@ object ParamTemplate {
             if (token != null) {
                 val value = variables[token.name]
                 if (value == null) out.append(text, index, token.end + 1)
-                else out.append(transform(value.toString()))
+                else out.append(transform(VariableValues.text(value)))
                 index = token.end + 1
             } else {
                 out.append(text[index])
@@ -324,7 +324,7 @@ object ParamTemplate {
         if (names.isEmpty()) return out.toString()
         val prefix = StringBuilder()
         for ((name, fg) in names) {
-            prefix.append(fg).append('=').append(shellQuote(variables.getValue(name).toString())).append('\n')
+            prefix.append(fg).append('=').append(shellQuote(VariableValues.text(variables.getValue(name)))).append('\n')
         }
         return prefix.toString() + out.toString()
     }

@@ -15,7 +15,7 @@ C2（编辑器界面）两个 PR，C2 基于 C1。
 | 执行器 | `RuleExecutor` 内部改成递归解释器，外层签名不变；共享 `RunBudget` |
 | 上限 | 1000 次/循环、10000 步/运行（跨调用累计）、5 层调用深度、保存时环检测；不设墙钟，长跑由用户停止 |
 | 停止 | 每次运行持有 `Job`，取消即触发 `CancellationCheckpoint`；日志记「已手动停止」而非失败 |
-| 条件 | 抽出 `ConditionEvaluator` 给触发器和块共用，新增 `condition.var_compare` |
+| 条件 | 抽出 `ConditionEvaluator` 给触发器和块共用，新增 `condition.variable` |
 | 变量 | 运行级 `RunContext.variables`、指令级 `Rule.locals`、全局 `RuleDocument.globals`，用 `run./rule./global.` 前缀区分 |
 | 编辑 | 递归渲染 + 16dp/级缩进 + 折叠 + 长按拖动整块；不完整块就地提示、禁止启用（可保存草稿） |
 | 版本 | C1 = `0.7.0-alpha1` / `versionCode 19`；C2 = `0.7.0-alpha2` / `versionCode 20` |
@@ -94,13 +94,13 @@ data class RuleBranch(
     "actions": [
       { "type": "action.set_var", "params": { "name": "run.retry", "op": "set", "value": "0" } },
       { "type": "block.loop", "params": { "mode": "while", "max": 5 },
-        "conditions": [{ "type": "condition.var_compare",
-                         "params": { "left": "%{run.retry}", "op": "<", "right": "5" } }],
+        "conditions": [{ "type": "condition.variable",
+                         "params": { "left": "{retry}", "op": "lt", "right": "5" } }],
         "children": [
         { "type": "action.http_request", "params": { "request": "GET https://api.example/status" },
           "onError": "continue" },
         { "type": "block.if", "params": {}, "children": [
-          { "type": "action.post_notification", "params": { "content": "%{http.body}" } }
+          { "type": "action.post_notification", "params": { "content": "{HTTP响应}" } }
         ], "branches": [
           { "conditions": [], "children": [
             { "type": "action.delay", "params": { "duration": 2000 } }
@@ -238,30 +238,26 @@ interface ConditionEvaluator {
 
 - 触发器路径：`TriggerConditions.evaluate` 改为调用同一个 `evaluate`，行为不变（回归测试锁住）。
 - 任务路径：块条件传当前 `RunContext.variables`，所以能读 `run.` 变量。
-- 触发器路径：传入事件变量（`event.*`，如 `event.time`、`event.battery`），条件里可以直接用
-  `%{event.battery}`；不传整个 `RunContext`，因为触发器侧没有 Rule。
+- 触发器路径：传入事件变量（如 `{电池电量}`、`{触发时间}`），条件里可以直接使用内置变量；不传整个 `RunContext`，因为触发器侧没有 Rule。
 - 现有 5 个条件之外，`condition.dnd_state` / `condition.network_type` 目前是 `comingSoon = true`
   （编辑器不可选，引擎里也恒为 false）。块的条件列表要沿用同一过滤，不把 `comingSoon` 组件放进去；
   否则会出现「选了但永远不成立」。补实现留到后续 PR。
-- 新增 `condition.var_compare`：`left`（支持 `%{x}` 或字面量）、`op`（`= != > >= < <= contains`）、
+- 新增 `condition.variable`：`left`（变量选择或字面量路径）、`op`（`gt` / `ge` / `lt` / `le` / `eq` / `ne` / `contains` / `not_contains` / `unset` / `set` / `empty` / `not_empty` / `file_exists` / `file_not_exists`）、
   `right`。两边都能解析成数字时按数值比较，否则按字符串比较；未定义变量 → 不成立，detail 写明变量名。
 
 ### 3.2 变量作用域
 
 | 作用域 | 语法 | 存储 | 生命周期 | 上限 |
 | --- | --- | --- | --- | --- |
-| 运行级 | `%{run.x}`，裸 `%{x}` 等价 | `RunContext.variables`（内存） | 一次运行；串联调用时子运行拿只读快照 | 100 个键 |
-| 事件级（只读） | `%{event.x}` | 触发器事件数据（`time`、`battery`、`wifi` 等） | 单次触发；运行期间不变 | — |
-| 指令级 | `%{rule.x}` | `Rule.locals`（commands.json） | 跨运行保留；`resetEachRun = true` 时每次运行重置为 `initial` | 50 个键/规则 |
-| 全局 | `%{global.x}` | `RuleDocument.globals: Map<String, JsonElement>` | 跨规则、跨运行；设置页可清空 | 100 个键、总计 16KB |
+| 局部 | `{x}` | `Rule.locals`（commands.json） | 运行内；`resetEachRun = true` 时每次运行重置为 `initial` | 50 个键/规则 |
+| 全局 | `{x}` | `RuleDocument.globals: Map<String, JsonElement>` | 跨规则、跨运行；设置页可清空 | 100 个键、总计 16KB |
+| 内置（只读） | `{x}` | 运行时提供 | 单次运行/当前事件 | — |
 
-- 裸 `%{x}` 继续解析到运行级，保证 v1 的 `%{last}`、`%{shell.stdout}`、`%{http.body}` 不变。
-- `Rule.locals` 字段已经存在（`name/type/initial/resetEachRun`），执行器目前完全没用；本次把它
-  接进 `RunContext` 的初始化：运行开始时按 `locals` 建表，`resetEachRun` 决定是否覆盖。
-- 指令级与全局变量在运行结束时写回（**成功或失败都写**，手动停止不写，崩溃不写）；写回按
-  键合并到现有值，不整表覆盖，避免把并发运行刚写入的键抹掉。
-- `action.set_var` 的 `name` 允许带前缀（`global.x` / `rule.x`），不带前缀默认写运行级。
-- 变量名规则沿用 `%{name}`：`A-Za-z0-9_.-`，大小写敏感；三种作用域重名互不覆盖（前缀不同）。
+- 所有变量统一写成 `{名字}`，没有 `%{}`、`global.`、`rule.`、`run.`、`event.` 等旧前缀；解析顺序为局部 → 全局 → 内置。
+- `Rule.locals` 的 `type` 为 `int` / `boolean` / `text` / `int_list` / `boolean_list` / `text_list`；`resetEachRun` 决定运行开始时是否重置为 `initial`。
+- 指令级与全局变量在运行结束时写回（**成功或失败都写**，手动停止不写，崩溃不写）；写回按键合并到现有值，不整表覆盖，避免把并发运行刚写入的键抹掉。
+- `action.set_var` 的 `name` 只写名字；由 `scope`（`local` / `global`）决定范围，`type` 决定值类型。
+- 变量名允许中文，不允许空格和点，大小写敏感，长度 1–64。
 
 ## 4. 编辑页
 
@@ -323,7 +319,7 @@ interface ConditionEvaluator {
    sidecar 改 id 映射。
 2. 递归执行器：块语义、`RunBudget`（只计步数，无墙钟）、`BreakSignal`/`StopSignal`、
    日志 `path/nodeId`、`ExecutionEngine` 反查修正；块级 `onError` 只有 STOP / CONTINUE。
-3. 条件：`ConditionEvaluator` 抽取 + `condition.var_compare` + 事件变量 + 四个作用域的初始化/写回
+3. 条件：`ConditionEvaluator` 抽取 + `condition.variable` + 事件变量 + 四个作用域的初始化/写回
    （运行级 / 事件级 / 指令级 / 全局；结束时按键合并）。
 4. 串联：`action.run_rule` 同步（共享预算 + 结构化并发）与异步（独立 `AppState.execute` 运行）
    + `RuleCaller` + 保存/加载环检测 + 深度限制。
@@ -347,7 +343,7 @@ interface ConditionEvaluator {
 1. 递归渲染 + 缩进引导线 + 折叠（持久化）。
 2. 长按拖动整块（含禁止拖入子树、拖出循环的提示）+ `⋯` 菜单兜底。
 3. 不完整块的就地提示、顶部校验横幅、未通过校验时禁止启用。
-4. 变量面板：三个作用域的列表、编辑、清理；`%{…}` 插入提示。
+4. 变量面板：三个作用域的列表、编辑、清理；`{…}` 插入提示。
 5. 串联选择器：目标指令列表（含搜索、被删目标标记）、同步/异步开关、成环时的错误展示与跳转。
 6. 运行中停止入口的完整 UI（卡片、编辑页、历史面板）。
 
@@ -359,7 +355,7 @@ interface ConditionEvaluator {
 
 ### 可选 C3（全局变量与调用返回值，0.7.0-alpha3）
 
-`globals` 的完整 UI、跨指令返回值（`%{call.result}`）、变量历史与清理策略。本文只定存储和上限，
+`globals` 的完整 UI、跨指令返回值（例如 `{上一步结果}`）、变量历史与清理策略。本文只定存储和上限，
 实现留到 C3，避免 C2 过大。
 
 ## 6. 测试与验收

@@ -98,13 +98,11 @@ private fun NewVariableDialog(state: AppState, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var value by remember { mutableStateOf("") }
-    var type by remember { mutableStateOf(0) }
+    var type by remember { mutableStateOf(com.flowglass.engine.VariableType.TEXT) }
     var commandIndex by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     val commands = state.allCommands()
     val target = commands.getOrNull(commandIndex)
-    val typeKeys = listOf("text", "number", "boolean", "list")
-    val typeLabels = listOf("文本", "数字", "真假", "列表")
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
@@ -137,16 +135,20 @@ private fun NewVariableDialog(state: AppState, onDismiss: () -> Unit) {
                 T("备注", 12.sp, color = C.OnSurfaceVar)
                 ParameterTextField(note, "new-variable-note") { note = it }
                 T("类型", 12.sp, color = C.OnSurfaceVar)
-                FilterChips(typeLabels, type, onSelect = { type = it })
+                VariableTypePicker(type, onSelect = { type = it })
                 T("初始值", 12.sp, color = C.OnSurfaceVar)
                 ParameterTextField(value, "new-variable-value") { value = it }
                 error?.let { T(it, 12.sp, color = C.Bad) }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     EditorPill("创建", "创建变量") {
+                        val parseError = runCatching {
+                            com.flowglass.engine.VariableValues.parse(value, type)
+                        }.exceptionOrNull()?.message
                         val invalid = VariableCatalog.validateName(
                             state, name.trim(), target?.id, scope,
                             ignoreOwner = if (scope == VariableScope.LOCAL) target?.id else null,
-                        ) ?: if (scope == VariableScope.LOCAL && target == null) "请先创建一条指令" else null
+                        ) ?: if (scope == VariableScope.LOCAL && target == null) "请先创建一条指令"
+                        else parseError
                         if (invalid != null) {
                             error = invalid
                         } else {
@@ -154,7 +156,7 @@ private fun NewVariableDialog(state: AppState, onDismiss: () -> Unit) {
                                 scope = scope,
                                 commandId = if (scope == VariableScope.LOCAL) target?.id else null,
                                 name = name.trim(),
-                                type = typeKeys[type],
+                                type = type.storageKey,
                                 note = note,
                                 value = value,
                             )
@@ -173,6 +175,7 @@ private fun VariableDetailDialog(state: AppState, option: VariableOption, onDism
     var name by remember(option) { mutableStateOf(option.name) }
     var note by remember(option) { mutableStateOf(option.note) }
     var value by remember(option) { mutableStateOf(option.value) }
+    var type by remember(option) { mutableStateOf(option.type) }
     var error by remember(option) { mutableStateOf<String?>(null) }
     var confirmDelete by remember(option) { mutableStateOf(false) }
     val editable = option.scope != VariableScope.BUILTIN
@@ -198,6 +201,8 @@ private fun VariableDetailDialog(state: AppState, option: VariableOption, onDism
                     T(option.note, 13.sp, color = C.OnSurfaceVar)
                 }
                 if (option.scope == VariableScope.GLOBAL || option.scope == VariableScope.LOCAL) {
+                    T("类型", 12.sp, color = C.OnSurfaceVar)
+                    VariableTypePicker(type, onSelect = { type = it }, tagPrefix = "variable-detail-type")
                     T("当前值 / 初始值", 12.sp, color = C.OnSurfaceVar)
                     ParameterTextField(value, "variable-value") { value = it }
                 }
@@ -228,12 +233,18 @@ private fun VariableDetailDialog(state: AppState, option: VariableOption, onDism
                                         ignoreOwner = if (option.scope == VariableScope.LOCAL) option.ownerId else null,
                                         ignoreName = option.name,
                                     )
+                                val parseError = runCatching {
+                                    com.flowglass.engine.VariableValues.parse(value, type)
+                                }.exceptionOrNull()?.message
                                 if (invalid != null) {
                                     error = invalid
+                                } else if (parseError != null) {
+                                    error = parseError
                                 } else {
                                     if (nextName != option.name) {
                                         state.renameVariable(option.ownerId, option.name, nextName, option.scope)
                                     }
+                                    state.setVariableType(option.ownerId, nextName, type, option.scope)
                                     state.setVariableNote(option.ownerId, nextName, note, option.scope)
                                     state.setVariableValue(option.ownerId, nextName, value, option.scope)
                                     onDismiss()

@@ -154,6 +154,25 @@ class LayerImplementationCoverageTest {
     }
 
     @Test
+    fun conditionsPreferRootThenNormal() {
+        val condition = meta(
+            "condition.test",
+            ComponentKind.CONDITION,
+            ExecutionLayer.ROOT,
+            ExecutionLayer.NORMAL,
+        )
+        val rootReady = LayerResolver {
+            LayerStatusSnapshot(normal = LayerState.READY, root = LayerState.READY, rootInfo = rootInfo)
+        }
+        val normalOnly = LayerResolver {
+            LayerStatusSnapshot(normal = LayerState.READY, root = LayerState.UNAVAILABLE)
+        }
+
+        assertEquals(ExecutionLayer.ROOT, rootReady.select(condition)?.layer)
+        assertEquals(ExecutionLayer.NORMAL, normalOnly.select(condition)?.layer)
+    }
+
+    @Test
     fun undeclaredLayerIsNeverSelected() {
         val resolver = LayerResolver {
             LayerStatusSnapshot(

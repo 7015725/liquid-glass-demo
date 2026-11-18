@@ -63,13 +63,13 @@ class VariableSetActionTest {
     @Test
     fun newLocalIsCreatedEvenWhenTheRunValueIsNotRetained() = runSuspend {
         val sink = Sink()
-        val log = executor(sink).run(rule(set("计数", "41", "number")), "测试")
+        val log = executor(sink).run(rule(set("计数", "41", "int")), "测试")
         assertEquals(StepStatus.SUCCESS, log.status)
         assertTrue(sink.ruleWrites.isEmpty(), "retain=false must not write the run value")
         val definition = sink.ruleDefinitions.single()
         assertEquals("计数", definition.name)
         assertEquals(VariableScope.LOCAL, definition.scope)
-        assertEquals(VariableType.NUMBER, definition.type)
+        assertEquals(VariableType.INT, definition.type)
         assertTrue(definition.resetEachRun)
         assertEquals(41L, definition.initial)
     }
@@ -77,8 +77,8 @@ class VariableSetActionTest {
     @Test
     fun retainedLocalWritesBackAndStartsFromStoredValue() = runSuspend {
         val sink = Sink()
-        val doc = rule(set("计数", "1", "number", "add", retain = "true")).copy(
-            locals = listOf(LocalVariable("计数", "number", JsonPrimitive(5), resetEachRun = false)),
+        val doc = rule(set("计数", "1", "int", "add", retain = "true")).copy(
+            locals = listOf(LocalVariable("计数", "int", JsonPrimitive(5), resetEachRun = false)),
         )
         val log = executor(sink).run(doc, "测试")
         assertEquals(StepStatus.SUCCESS, log.status)
@@ -88,8 +88,8 @@ class VariableSetActionTest {
     @Test
     fun nonRetainedLocalStaysAtItsInitialValueForTheNextRun() = runSuspend {
         val sink = Sink()
-        val doc = rule(set("计数", "1", "number", "add")).copy(
-            locals = listOf(LocalVariable("计数", "number", JsonPrimitive(5), resetEachRun = true)),
+        val doc = rule(set("计数", "1", "int", "add")).copy(
+            locals = listOf(LocalVariable("计数", "int", JsonPrimitive(5), resetEachRun = true)),
         )
         val log = executor(sink).run(doc, "测试")
         assertEquals(StepStatus.SUCCESS, log.status)
@@ -99,7 +99,7 @@ class VariableSetActionTest {
     @Test
     fun newGlobalCarriesItsDefinitionAndValue() = runSuspend {
         val sink = Sink()
-        val log = executor(sink).run(rule(set("总数", "9", "number", scope = "global")), "测试")
+        val log = executor(sink).run(rule(set("总数", "9", "int", scope = "global")), "测试")
         assertEquals(StepStatus.SUCCESS, log.status)
         assertEquals(mapOf("总数" to 9L), sink.globalWrites)
         assertEquals(VariableScope.GLOBAL, sink.globalDefinitions.single().scope)
@@ -107,9 +107,9 @@ class VariableSetActionTest {
 
     @Test
     fun invalidNumberFailsTheStepWithAReason() = runSuspend {
-        val log = executor().run(rule(set("计数", "不是数字", "number")), "测试")
+        val log = executor().run(rule(set("计数", "不是整数", "int")), "测试")
         assertEquals(StepStatus.FAILURE, log.status)
-        assertTrue(log.steps.single().detail.contains("不是数字"))
+        assertTrue(log.steps.single().detail.contains("不是整数"))
     }
 
     @Test
@@ -117,6 +117,31 @@ class VariableSetActionTest {
         val log = executor().run(rule(set("触发时间", "x")), "测试")
         assertEquals(StepStatus.FAILURE, log.status)
         assertTrue(log.steps.single().detail.contains("只读"))
+    }
+
+    @Test
+    fun listAndBooleanValuesAreStoredAsTypedData() = runSuspend {
+        val sink = Sink()
+        val log = executor(sink).run(
+            rule(
+                set("列表", "1,2\n3", "int_list"),
+                set("开关", "真", "boolean"),
+            ),
+            "测试",
+        )
+        assertEquals(StepStatus.SUCCESS, log.status)
+        assertEquals(listOf(1L, 2L, 3L), sink.ruleDefinitions.first { it.name == "列表" }.initial)
+        assertEquals(true, sink.ruleDefinitions.first { it.name == "开关" }.initial)
+    }
+
+    @Test
+    fun integerDivisionTruncatesTowardZero() = runSuspend {
+        val sink = Sink()
+        val doc = rule(set("计数", "2", "int", "div", retain = "true")).copy(
+            locals = listOf(LocalVariable("计数", "int", JsonPrimitive(5), resetEachRun = false)),
+        )
+        assertEquals(StepStatus.SUCCESS, executor(sink).run(doc, "测试").status)
+        assertEquals(mapOf("计数" to 2L), sink.ruleWrites)
     }
 
     private fun runSuspend(block: suspend () -> Unit) {

@@ -41,6 +41,12 @@ internal class CommandStore(private val file: File) {
             }
         } catch (error: Exception) {
             blocked = true
+            if (error.message?.contains("数据格式已更新") == true) {
+                return@synchronized StoreLoad(
+                    null,
+                    "数据格式已更新，请清除应用数据或重新安装。原文件已保留；为避免覆盖，暂不保存修改。",
+                )
+            }
             // 带上简短原因，现场反馈截图即可定位是哪一类解码失败；不含路径与堆栈。
             val reason = error.message?.replace('\n', ' ')?.take(80)?.takeIf { it.isNotBlank() }
             StoreLoad(null, "本地数据读取失败${reason?.let { "（$it）" }.orEmpty()}，原文件已保留；为避免覆盖，暂不保存修改。")

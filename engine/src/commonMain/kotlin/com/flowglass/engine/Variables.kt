@@ -5,8 +5,24 @@ import com.flowglass.engine.methodhook.MethodHookVariables
 /** Which table a user-visible variable belongs to. */
 enum class VariableScope { BUILTIN, LOCAL, GLOBAL }
 
-/** Storage/editor type of a variable. V1 keeps this advisory; values are not forced at runtime. */
-enum class VariableType { TEXT, NUMBER, BOOLEAN, LIST }
+/** The six storage/editor types. Values are converted at every boundary. */
+enum class VariableType {
+    INT,
+    BOOLEAN,
+    TEXT,
+    INT_LIST,
+    BOOLEAN_LIST,
+    TEXT_LIST;
+
+    val storageKey: String get() = name.lowercase()
+
+    val isList: Boolean get() = this == INT_LIST || this == BOOLEAN_LIST || this == TEXT_LIST
+
+    companion object {
+        fun fromStorage(raw: String?): VariableType? =
+            values().firstOrNull { it.storageKey == raw?.trim()?.lowercase() }
+    }
+}
 
 /** One built-in or event variable described for insertion and the management page. */
 data class VariableSpec(
@@ -74,7 +90,7 @@ object BuiltInVariables {
             "脚本动作的返回值", legacyKey = "script.result"),
         VariableSpec("触发时间", VariableScope.BUILTIN, VariableType.TEXT,
             "本次触发的时间（HH:mm）", legacyKey = "event.time", source = "event"),
-        VariableSpec("电池电量", VariableScope.BUILTIN, VariableType.NUMBER,
+        VariableSpec("电池电量", VariableScope.BUILTIN, VariableType.INT,
             "触发时的电池电量（0–100）", legacyKey = "event.battery", source = "event"),
         VariableSpec("WiFi名称", VariableScope.BUILTIN, VariableType.TEXT,
             "当前连接的 WiFi 名称", source = "wifi"),
@@ -92,7 +108,7 @@ object BuiltInVariables {
             "耳机插入或拔出", source = "headset"),
         VariableSpec("通知应用", VariableScope.BUILTIN, VariableType.TEXT,
             "发出通知的应用包名；分身会带 @用户", source = "notification"),
-        VariableSpec("通知用户", VariableScope.BUILTIN, VariableType.NUMBER,
+        VariableSpec("通知用户", VariableScope.BUILTIN, VariableType.INT,
             "通知所属的 Android 用户 ID", source = "notification"),
         VariableSpec("通知标题", VariableScope.BUILTIN, VariableType.TEXT,
             "收到的通知标题", source = "notification"),
@@ -100,17 +116,17 @@ object BuiltInVariables {
             "收到的通知正文", source = "notification"),
         VariableSpec("应用包名", VariableScope.BUILTIN, VariableType.TEXT,
             "事件所属应用包名；分身会带 @用户", source = "app"),
-        VariableSpec("应用用户", VariableScope.BUILTIN, VariableType.NUMBER,
+        VariableSpec("应用用户", VariableScope.BUILTIN, VariableType.INT,
             "事件所属的 Android 用户 ID", source = "app"),
-        VariableSpec("纬度", VariableScope.BUILTIN, VariableType.NUMBER,
+        VariableSpec("纬度", VariableScope.BUILTIN, VariableType.TEXT,
             "位置事件的纬度", source = "location"),
-        VariableSpec("经度", VariableScope.BUILTIN, VariableType.NUMBER,
+        VariableSpec("经度", VariableScope.BUILTIN, VariableType.TEXT,
             "位置事件的经度", source = "location"),
         VariableSpec("系统事件", VariableScope.BUILTIN, VariableType.TEXT,
             "系统钩子事件的类型", source = "system"),
         VariableSpec(MethodHookVariables.APP, VariableScope.BUILTIN, VariableType.TEXT,
             "方法钩子事件：目标应用包名", source = "method_hook"),
-        VariableSpec(MethodHookVariables.USER, VariableScope.BUILTIN, VariableType.NUMBER,
+        VariableSpec(MethodHookVariables.USER, VariableScope.BUILTIN, VariableType.INT,
             "方法钩子事件：目标应用的 Android 用户 ID", source = "method_hook"),
         VariableSpec(MethodHookVariables.PROCESS, VariableScope.BUILTIN, VariableType.TEXT,
             "方法钩子事件：实际触发进程名", source = "method_hook"),

@@ -36,7 +36,7 @@ class CanonicalLegacyMatrixTest {
             "condition.time_range" to "08:00–22:00", "condition.weekday" to "工作日",
             "condition.battery_range" to "20%–80%", "condition.charging" to "充电中",
             "condition.screen_state" to "已亮屏", "condition.network_type" to "WiFi",
-            "condition.dnd_state" to "已关闭", "condition.var_compare" to "%{run.x}|等于|",
+            "condition.dnd_state" to "已关闭",
             "action.wifi_switch" to "开启", "action.bluetooth_switch" to "开启",
             "action.dnd_switch" to "开启", "action.set_brightness" to "50%",
             "action.set_volume" to "50%", "action.launch_app" to "应用包名",
@@ -52,7 +52,7 @@ class CanonicalLegacyMatrixTest {
         )
         // Task-chain blocks did not exist in v0.5, so they have no legacy text form.
         val legacyComponents = BuiltInComponents.all.filter {
-            it.block == null &&
+            it.block == null && it.typeId != "condition.variable" &&
                 it.typeId !in setOf(
                     "action.script", // introduced in 0.8, no v0.5 form
                     "action.force_stop", // alpha11, root-only

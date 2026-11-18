@@ -46,6 +46,7 @@ data class CommandItem(
             "trigger.media", "trigger.foreground_service", "trigger.headset", "trigger.method_hook" ->
                 parameter.split('|').filter { it.isNotEmpty() }.joinToString(" · ")
             "condition.app_process_state" -> parameter.split('|').joinToString(" · ")
+            "condition.variable" -> ActionSummary.conditionText(this)
             else -> parameter
         }
         return if (text.isEmpty()) name else "$name：$text"

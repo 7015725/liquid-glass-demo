@@ -83,7 +83,7 @@ internal fun VariableTextField(
 }
 
 @Composable
-private fun VariableListDialog(variables: List<VariableOption>, onDismiss: () -> Unit, onPick: (VariableOption) -> Unit) {
+internal fun VariableListDialog(variables: List<VariableOption>, onDismiss: () -> Unit, onPick: (VariableOption) -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
             Column(
