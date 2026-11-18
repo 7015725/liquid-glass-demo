@@ -37,11 +37,12 @@ internal object ActionSummary {
         "condition.network_type" ->
             field(item, "network") ?: item.parameter.ifBlank { item.name }
         "condition.battery_range" -> "电量 " + (field(item, "range") ?: item.parameter).ifBlank { "未设置" }
-        "condition.var_compare" -> listOfNotNull(
-            field(item, "left")?.takeIf { it.isNotBlank() },
-            field(item, "op"),
-            field(item, "right")?.takeIf { it.isNotBlank() },
-        ).joinToString(" ").ifBlank { item.name }
+        "condition.variable" -> {
+            val left = field(item, "left")?.takeIf { it.isNotBlank() }
+            if (left == null) "请选择变量"
+            else listOfNotNull(left, field(item, "op"), field(item, "right")?.takeIf { it.isNotBlank() })
+                .joinToString(" ")
+        }
         else -> parameterText(item).ifBlank { item.name }
     }
 
@@ -112,6 +113,11 @@ internal object ActionSummary {
         val op = field(item, "op") ?: "赋值"
         val value = field(item, "value").orEmpty()
         return when (op) {
+            "设为" -> if (value.isBlank()) "$name 设为空" else "$name 设为 $value"
+            "加" -> "$name 加 $value".trimEnd()
+            "减" -> "$name 减 $value".trimEnd()
+            "乘" -> "$name 乘 $value".trimEnd()
+            "除" -> "$name 除 $value".trimEnd()
             "赋值" -> if (value.isBlank()) "$name 设为空" else "$name 设为 $value"
             "追加文本" -> "$name 追加 $value".trimEnd()
             else -> "$name $op $value".trimEnd()

@@ -31,7 +31,7 @@ object VariableCatalog {
                     scope = VariableScope.LOCAL,
                     type = typeOf(local.type),
                     note = local.note,
-                    value = plain(local.initial.toString()),
+                    value = displayValue(local.initial, typeOf(local.type)),
                     references = references(state, local.name, VariableScope.LOCAL, null),
                     ownerId = cmdId,
                     ownerTitle = state.find(cmdId)?.title.orEmpty(),
@@ -52,7 +52,7 @@ object VariableCatalog {
                         scope = VariableScope.LOCAL,
                         type = typeOf(local.type),
                         note = local.note,
-                        value = plain(local.initial.toString()),
+                        value = displayValue(local.initial, typeOf(local.type)),
                         references = references(state, local.name, VariableScope.LOCAL, owner?.id),
                         ownerId = owner?.id,
                         ownerTitle = owner?.title.orEmpty(),
@@ -84,14 +84,7 @@ object VariableCatalog {
     }
 
     fun references(state: AppState, name: String, scope: VariableScope, ownerId: Long?): Int {
-        val tokens = when (scope) {
-            VariableScope.BUILTIN -> {
-                val legacy = BuiltInVariables.byName[name]?.legacyKey
-                listOf("{${name}}") + listOfNotNull(legacy?.let { "%{$it}" })
-            }
-            VariableScope.LOCAL -> listOf("{${name}}", "%{rule.${name}}", "%{$name}")
-            VariableScope.GLOBAL -> listOf("{${name}}", "%{global.${name}}", "%{$name}")
-        }
+        val tokens = listOf("{${name}}")
         return state.allCommands().sumOf { cmd ->
             if (scope == VariableScope.LOCAL && ownerId != null && cmd.id != ownerId) 0
             else (cmd.triggers + cmd.conditions + cmd.actions).allItems().sumOf { item ->
@@ -101,10 +94,12 @@ object VariableCatalog {
     }
 
     fun typeLabel(type: VariableType): String = when (type) {
-        VariableType.TEXT -> "文本"
-        VariableType.NUMBER -> "数字"
+        VariableType.INT -> "整数"
         VariableType.BOOLEAN -> "真假"
-        VariableType.LIST -> "列表"
+        VariableType.TEXT -> "文本"
+        VariableType.INT_LIST -> "整数列表"
+        VariableType.BOOLEAN_LIST -> "真假列表"
+        VariableType.TEXT_LIST -> "文本列表"
     }
 
     fun scopeLabel(scope: VariableScope): String = when (scope) {
@@ -158,17 +153,18 @@ object VariableCatalog {
             scope = VariableScope.GLOBAL,
             type = typeOf(meta?.type),
             note = meta?.note.orEmpty(),
-            value = plain(value.toString()),
+            value = displayValue(value, typeOf(meta?.type)),
             references = references(state, name, VariableScope.GLOBAL, null),
         )
     }
 
-    private fun typeOf(raw: String?): VariableType = when (raw?.lowercase()) {
-        "number", "int", "long", "float", "double" -> VariableType.NUMBER
-        "boolean", "bool" -> VariableType.BOOLEAN
-        "list", "array", "json" -> VariableType.LIST
-        else -> VariableType.TEXT
-    }
+    private fun typeOf(raw: String?): VariableType =
+        VariableType.fromStorage(raw) ?: VariableType.TEXT
 
-    private fun plain(raw: String): String = raw.removeSurrounding("\"")
+    private fun displayValue(value: kotlinx.serialization.json.JsonElement, type: VariableType): String =
+        runCatching {
+            com.flowglass.engine.VariableValues.uiText(
+                com.flowglass.engine.VariableValues.fromJson(value, type),
+            )
+        }.getOrElse { value.toString().removeSurrounding("\"") }
 }

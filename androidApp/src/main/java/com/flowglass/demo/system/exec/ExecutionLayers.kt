@@ -178,7 +178,7 @@ class LayerResolver(
         val priority = when (kind) {
             ComponentKind.ACTION -> listOf(ExecutionLayer.ROOT, ExecutionLayer.NORMAL)
             ComponentKind.TRIGGER -> listOf(ExecutionLayer.XPOSED, ExecutionLayer.ROOT, ExecutionLayer.NORMAL)
-            ComponentKind.CONDITION -> listOf(ExecutionLayer.NORMAL)
+            ComponentKind.CONDITION -> listOf(ExecutionLayer.ROOT, ExecutionLayer.NORMAL)
         }
         val status = statusProvider()
         return priority.firstNotNullOfOrNull { layer ->

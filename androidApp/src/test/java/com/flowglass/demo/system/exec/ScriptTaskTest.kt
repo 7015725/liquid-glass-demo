@@ -52,14 +52,14 @@ class ScriptTaskTest {
         val (access, map) = variables()
         val result = ScriptTask.run(
             RuntimeEnvironment.getApplication(),
-            command(task("set('run.count', Number(get('run.count') || 0) + 1); set('global.last', 'ok'); get('run.count') + '-done';")),
-            task("set('run.count', Number(get('run.count') || 0) + 1); set('global.last', 'ok'); get('run.count') + '-done';"),
+            command(task("set('count', Number(get('count') || 0) + 1); set('last', 'ok'); get('count') + '-done';")),
+            task("set('count', Number(get('count') || 0) + 1); set('last', 'ok'); get('count') + '-done';"),
             access,
         )
 
         assertTrue(result.detail, result.status == StepStatus.SUCCESS)
-        assertEquals(1L, map["run.count"])
-        assertEquals("ok", map["global.last"])
+        assertEquals(1L, map["count"])
+        assertEquals("ok", map["last"])
         assertEquals("1-done", result.output)
     }
 
@@ -134,6 +134,22 @@ class ScriptTaskTest {
 
         assertTrue(result.detail, result.status == StepStatus.SUCCESS)
         assertEquals("1", result.output)
+    }
+
+    @Test
+    fun listsRoundTripAsJavaScriptArrays() {
+        val (access, map) = variables()
+        map["列表"] = listOf(1L, 2L, 3L)
+        val result = ScriptTask.run(
+            RuntimeEnvironment.getApplication(),
+            command(task("var a = get('列表'); set('复制', a); a.length + ':' + a[1];")),
+            task("var a = get('列表'); set('复制', a); a.length + ':' + a[1];"),
+            access,
+        )
+
+        assertTrue(result.detail, result.status == StepStatus.SUCCESS)
+        assertEquals("3:2", result.output)
+        assertEquals(listOf(1L, 2L, 3L), map["复制"])
     }
 
     @Test

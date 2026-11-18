@@ -166,6 +166,8 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
             caller = caller,
             sink = sinkFor(rule),
             environment = environment,
+            conditionLayerSelector = { meta -> layerResolver.select(meta, com.flowglass.engine.ComponentKind.CONDITION)?.layer },
+            globalVariableMeta = document.globalMeta,
             // Cooperative: delay() lets a stop cancel the poll immediately instead of blocking a
             // Dispatchers.Default thread for up to the 1 hour timeout.
             sleeper = { kotlinx.coroutines.delay(it) },
@@ -340,4 +342,7 @@ private class AndroidConditionEnvironment(private val context: Context) : Condit
             else -> com.flowglass.engine.trigger.NetworkType.NONE
         }
     }.getOrDefault(com.flowglass.engine.trigger.NetworkType.NONE)
+
+    override fun fileExists(path: String, layer: com.flowglass.engine.ExecutionLayer?): Boolean? =
+        ConditionFileAccess.exists(path, layer)
 }

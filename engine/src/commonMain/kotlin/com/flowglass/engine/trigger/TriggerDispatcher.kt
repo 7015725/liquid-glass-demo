@@ -3,6 +3,7 @@ package com.flowglass.engine.trigger
 import com.flowglass.engine.BuiltInVariables
 
 import com.flowglass.engine.Clock
+import com.flowglass.engine.ExecutionLayer
 import com.flowglass.engine.MatchMode
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.intOrNull
@@ -19,6 +20,7 @@ interface TriggerEnvironment {
     fun isDndOn(): Boolean? = null
     fun networkType(): NetworkType = NetworkType.NONE
     fun appProcessRunning(packageName: String, userId: Int): Boolean? = null
+    fun fileExists(path: String): Boolean? = null
 }
 
 interface TriggerExecutor {
@@ -81,6 +83,8 @@ object TriggerConditions {
             override fun networkType(): NetworkType = environment.networkType()
             override fun appProcessRunning(packageName: String, userId: Int): Boolean? =
                 environment.appProcessRunning(packageName, userId)
+            override fun fileExists(path: String, layer: ExecutionLayer?): Boolean? =
+                environment.fileExists(path)
         }
         val failed = conditions.mapNotNull { condition ->
             val passed = com.flowglass.engine.Conditions.evaluate(

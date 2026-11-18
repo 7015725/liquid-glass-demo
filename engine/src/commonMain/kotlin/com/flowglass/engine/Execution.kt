@@ -137,6 +137,7 @@ internal class RunScopes(
     rule: Rule,
     initial: Map<String, Any?>,
     globals: Map<String, Any?>,
+    globalVariableMeta: Map<String, GlobalVariableMeta> = emptyMap(),
 ) {
     val event: MutableMap<String, Any?> = linkedMapOf()
     val builtins: MutableMap<String, Any?> = linkedMapOf()
@@ -146,11 +147,15 @@ internal class RunScopes(
     private val ruleDirty = linkedSetOf<String>()
     private val globalDirty = linkedSetOf<String>()
     private val localMeta = rule.locals.associateBy { it.name }.toMutableMap()
+    private val globalMeta = globalVariableMeta.toMutableMap()
     private val createdLocals = linkedMapOf<String, VariableDefinition>()
     private val createdGlobals = linkedMapOf<String, VariableDefinition>()
 
     init {
-        for (local in rule.locals) ruleVars[local.name] = local.initial.toPlainValue()
+        for (local in rule.locals) {
+            val type = VariableType.fromStorage(local.type) ?: throw IllegalArgumentException("未知变量类型：${local.type}")
+            ruleVars[local.name] = VariableValues.fromJson(local.initial, type)
+        }
         for ((key, value) in initial) {
             when {
                 key.startsWith("event.") -> event[key.removePrefix("event.")] = value
@@ -158,15 +163,24 @@ internal class RunScopes(
                 else -> run[key] = value
             }
         }
+        for ((name, value) in globals) {
+            val type = VariableType.fromStorage(globalMeta[name]?.type)
+            if (value is kotlinx.serialization.json.JsonElement && type != null) {
+                global[name] = VariableValues.fromJson(value, type)
+            }
+        }
     }
 
     fun flattened(): Map<String, Any?> = buildMap {
-        putAll(builtins)
-        event.forEach { (k, v) -> put("event.$k", v) }
-        global.forEach { (k, v) -> put(k, v); put("global.$k", v) }
-        ruleVars.forEach { (k, v) -> put(k, v); put("rule.$k", v) }
+        // Bare names resolve local -> global -> builtin, matching the documented order.
+        // Run keys are the lowest-priority compatibility bucket; explicit prefixes below stay
+        // unambiguous.
         putAll(run)
         run.forEach { (k, v) -> put("run.$k", v) }
+        global.forEach { (k, v) -> put(k, v); put("global.$k", v) }
+        ruleVars.forEach { (k, v) -> put(k, v); put("rule.$k", v) }
+        putAll(builtins)
+        event.forEach { (k, v) -> put("event.$k", v) }
     }
 
     fun names(): Set<String> = flattened().keys
@@ -192,8 +206,8 @@ internal class RunScopes(
     }
 
     /**
-     * New-style SET_VAR. Bare names resolve local, then global, then built-in; absent names are
-     * created in [scope]. [retain] applies only to a newly created local variable.
+     * SET_VAR resolves a bare name local -> global; absent names are created in [scope].
+     * [retain] applies to a newly created local variable.
      */
     fun setNamed(
         rawName: String,
@@ -217,8 +231,7 @@ internal class RunScopes(
             else -> trimmed.removePrefix("run.")
         }
         require(key.isNotEmpty()) { "变量名不能为空" }
-        if (prefix == null && key in builtins) throw IllegalArgumentException("内置变量「$key」只读，不能修改")
-        if (prefix == null && BuiltInVariables.byName.containsKey(key)) {
+        if (prefix == null && (key in builtins || BuiltInVariables.byName.containsKey(key))) {
             throw IllegalArgumentException("内置变量「$key」只读，不能修改")
         }
 
@@ -244,12 +257,12 @@ internal class RunScopes(
         if (isLocal) {
             ruleDirty += key
             val previous = localMeta[key]
-            if (!existing || previous?.type != nextType.name.lowercase()) {
+            if (!existing || previous?.type != nextType.storageKey) {
                 val reset = if (existing) previous?.resetEachRun ?: false else !retain
                 localMeta[key] = LocalVariable(
                     name = key,
-                    type = nextType.name.lowercase(),
-                    initial = kotlinx.serialization.json.JsonPrimitive(next.toString()),
+                    type = nextType.storageKey,
+                    initial = VariableValues.toJson(next),
                     resetEachRun = reset,
                     note = previous?.note.orEmpty(),
                 )
@@ -259,27 +272,27 @@ internal class RunScopes(
             globalDirty += key
             createdGlobals[key] = VariableDefinition(key, VariableScope.GLOBAL, nextType, false, next)
         }
-        return next.toString()
+        return VariableValues.text(next)
     }
 
-    /** Script `set(name, value)`: absent bare names become local, run-only variables. */
+    /** Script `set(name, value)`: an existing variable keeps its declared type. */
     fun writeScript(name: String, value: Any?): Any? {
         val trimmed = clean(name)
         require(trimmed.isNotEmpty()) { "变量名不能为空" }
         if (trimmed.startsWith("global.")) {
             val key = trimmed.removePrefix("global.")
             require(key.isNotEmpty()) { "变量名不能为空" }
-            global[key] = value
+            val type = VariableType.fromStorage(globalMeta[key]?.type) ?: VariableValues.inferType(value)
+            val converted = VariableValues.fromScript(value, type)
+            global[key] = converted
             globalDirty += key
-            createdGlobals[key] = VariableDefinition(key, VariableScope.GLOBAL, inferType(value), false, value)
-            return value
+            createdGlobals[key] = VariableDefinition(key, VariableScope.GLOBAL, type, false, converted)
+            return converted
         }
         if (trimmed.startsWith("rule.")) {
             val key = trimmed.removePrefix("rule.")
             require(key.isNotEmpty()) { "变量名不能为空" }
-            ruleVars[key] = value
-            ruleDirty += key
-            return value
+            return writeLocalScript(key, value)
         }
         if (trimmed.startsWith("run.")) {
             val key = trimmed.removePrefix("run.")
@@ -291,64 +304,33 @@ internal class RunScopes(
         if (trimmed in builtins || BuiltInVariables.byName.containsKey(trimmed)) {
             throw IllegalArgumentException("内置变量「$trimmed」只读，不能修改")
         }
-        if (ruleVars.containsKey(trimmed)) {
-            ruleVars[trimmed] = value
-            ruleDirty += trimmed
-        } else if (global.containsKey(trimmed)) {
-            global[trimmed] = value
+        if (ruleVars.containsKey(trimmed)) return writeLocalScript(trimmed, value)
+        if (global.containsKey(trimmed)) {
+            val type = VariableType.fromStorage(globalMeta[trimmed]?.type) ?: VariableValues.inferType(value)
+            val converted = VariableValues.fromScript(value, type)
+            global[trimmed] = converted
             globalDirty += trimmed
-        } else {
-            ruleVars[trimmed] = value
-            ruleDirty += trimmed
-            localMeta[trimmed] = LocalVariable(
-                name = trimmed,
-                type = inferType(value).name.lowercase(),
-                initial = kotlinx.serialization.json.JsonPrimitive(value?.toString().orEmpty()),
-                resetEachRun = true,
-            )
-            createdLocals[trimmed] = VariableDefinition(trimmed, VariableScope.LOCAL, inferType(value), true, value)
+            createdGlobals[trimmed] = VariableDefinition(trimmed, VariableScope.GLOBAL, type, false, converted)
+            return converted
         }
-        return value
+        return writeLocalScript(trimmed, value, create = true)
     }
 
-    /** Legacy SET_VAR path for documents written before the `type/scope/retain` fields existed. */
-    fun set(name: String, value: String, op: String): String {
-        val trimmed = name.trim()
-        require(trimmed.isNotEmpty()) { "变量名不能为空" }
-        require(Regex("[A-Za-z0-9_.-]+").matches(trimmed)) { "变量名只能包含字母、数字、_ . -" }
-        val (target, key) = when {
-            trimmed.startsWith("global.") -> global to trimmed.removePrefix("global.")
-            trimmed.startsWith("rule.") -> ruleVars to trimmed.removePrefix("rule.")
-            trimmed.startsWith("run.") -> run to trimmed.removePrefix("run.")
-            else -> run to trimmed
+    private fun writeLocalScript(key: String, value: Any?, create: Boolean = false): Any? {
+        val type = VariableType.fromStorage(localMeta[key]?.type) ?: VariableValues.inferType(value)
+        val converted = VariableValues.fromScript(value, type)
+        ruleVars[key] = converted
+        ruleDirty += key
+        if (create && !localMeta.containsKey(key)) {
+            localMeta[key] = LocalVariable(
+                name = key,
+                type = type.storageKey,
+                initial = VariableValues.toJson(converted),
+                resetEachRun = true,
+            )
+            createdLocals[key] = VariableDefinition(key, VariableScope.LOCAL, type, true, converted)
         }
-        require(key.isNotEmpty()) { "变量名不能为空" }
-        if (target === run && (key in builtins || BuiltInVariables.byName.containsKey(key))) {
-            throw IllegalArgumentException("内置变量「$key」只读，不能修改")
-        }
-        val next = when (op) {
-            "set" -> value
-            "append" -> (target[key]?.toString().orEmpty()) + value
-            "add", "sub", "mul", "div" -> {
-                val left = target[key]?.toString()?.trim()?.toDoubleOrNull()
-                    ?: throw IllegalArgumentException("变量 $key 不是数字")
-                val right = value.trim().toDoubleOrNull()
-                    ?: throw IllegalArgumentException("值不是数字")
-                if (op == "div" && right == 0.0) throw IllegalArgumentException("不能除以零")
-                val result = when (op) {
-                    "add" -> left + right
-                    "sub" -> left - right
-                    "mul" -> left * right
-                    else -> left / right
-                }
-                if (result == result.toLong().toDouble()) result.toLong().toString() else result.toString()
-            }
-            else -> throw IllegalArgumentException("未知运算：$op")
-        }
-        target[key] = next
-        if (target === ruleVars) ruleDirty += key
-        if (target === global) globalDirty += key
-        return next
+        return converted
     }
 
     private fun clean(raw: String): String {
@@ -357,54 +339,23 @@ internal class RunScopes(
     }
 
     private fun applyOperation(current: Any?, raw: String, type: VariableType, op: String, hasCurrent: Boolean): Any {
-        if (type != VariableType.NUMBER && op != "set") {
-            throw IllegalArgumentException("只有数字类型支持加、减、乘、除")
+        if (type != VariableType.INT && op != "set") {
+            throw IllegalArgumentException("只有整数类型支持加、减、乘、除")
         }
-        if (op == "set") return coerce(raw, type)
+        if (op == "set") return VariableValues.parse(raw, type)
         if (!hasCurrent) throw IllegalArgumentException("变量还不存在，不能做运算")
-        val left = current?.toString()?.trim()?.toDoubleOrNull()
-            ?: throw IllegalArgumentException("变量不是数字")
-        val right = raw.trim().toDoubleOrNull() ?: throw IllegalArgumentException("内容不是数字")
-        if (op == "div" && right == 0.0) throw IllegalArgumentException("不能除以零")
-        val result = when (op) {
+        val left = VariableValues.parseInt(current)
+        val right = VariableValues.parseInt(raw)
+        if (op == "div" && right == 0L) throw IllegalArgumentException("不能除以 0")
+        return when (op) {
             "add" -> left + right
             "sub" -> left - right
             "mul" -> left * right
             "div" -> left / right
             else -> throw IllegalArgumentException("未知运算：$op")
         }
-        return if (result == result.toLong().toDouble()) result.toLong() else result
     }
 
-    private fun coerce(raw: String, type: VariableType): Any = when (type) {
-        VariableType.TEXT -> raw
-        VariableType.NUMBER -> raw.trim().toDoubleOrNull()?.let { if (it == it.toLong().toDouble()) it.toLong() else it }
-            ?: throw IllegalArgumentException("内容不是数字")
-        VariableType.BOOLEAN -> when (raw.trim().lowercase()) {
-            "true", "1", "是", "开" -> true
-            "false", "0", "否", "关" -> false
-            else -> throw IllegalArgumentException("内容不是真假值（true/false）")
-        }
-        VariableType.LIST -> {
-            val element = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(raw) }.getOrNull()
-            if (element !is kotlinx.serialization.json.JsonArray) {
-                throw IllegalArgumentException("内容不是列表（JSON 数组）")
-            }
-            element
-        }
-    }
-
-    private fun inferType(value: Any?): VariableType = when (value) {
-        is Boolean -> VariableType.BOOLEAN
-        is Number -> VariableType.NUMBER
-        is kotlinx.serialization.json.JsonArray, is List<*> -> VariableType.LIST
-        else -> VariableType.TEXT
-    }
-}
-
-private fun kotlinx.serialization.json.JsonElement.toPlainValue(): Any? = when (this) {
-    is JsonPrimitive -> if (isString) content else content.toDoubleOrNull() ?: content
-    is JsonObject, is JsonArray -> toString()
 }
 
 class RuleExecutor(
@@ -416,6 +367,10 @@ class RuleExecutor(
     private val sink: VariableSink = VariableSink.Noop,
     private val maxSteps: Int = 10_000,
     private val environment: ConditionEnvironment? = null,
+    /** Host-selected layer for conditions; null lets the environment choose its normal path. */
+    private val conditionLayerSelector: ((ComponentMeta) -> ExecutionLayer?)? = null,
+    /** Type metadata for globals; values alone cannot tell an empty list from empty text. */
+    private val globalVariableMeta: Map<String, GlobalVariableMeta> = emptyMap(),
     /**
      * Wait poll. The host injects a cancellable `delay`; `Thread.sleep` stays as the fallback for
      * pure-JVM hosts so a long wait never blocks a coroutine dispatcher on Android.
@@ -435,7 +390,7 @@ class RuleExecutor(
         val monotonicStart = kotlin.time.TimeSource.Monotonic.markNow()
         val steps = mutableListOf<StepResult>()
         val context = RunContext(rule, reason)
-        val scopes = RunScopes(rule, initialVariables, globals)
+        val scopes = RunScopes(rule, initialVariables, globals, globalVariableMeta)
         context.scriptVariables = object : ScriptVariableAccess {
             override fun read(name: String): Any? = scopes.read(name)
             override fun write(name: String, value: Any?) {
@@ -607,21 +562,28 @@ class RuleExecutor(
         record: (StepStatus, String) -> Unit,
     ): SequenceOutcome {
         val variables = scopes.flattened()
-        fun passes(conditions: List<RuleComponent>) =
-            conditions.isNotEmpty() && conditions.all { evaluate(it, variables) }
+        fun results(conditions: List<RuleComponent>): List<ConditionEvaluation> =
+            conditions.map { evaluate(it, variables) }
+        fun passes(conditions: List<RuleComponent>): Boolean {
+            val evaluated = results(conditions)
+            return conditions.isNotEmpty() && evaluated.all { it.passed }
+        }
         val branchIndex: Int
         val children: List<RuleComponent>
+        var missed: ConditionEvaluation? = null
         when {
             passes(node.conditions) -> { branchIndex = -1; children = node.children }
             else -> {
+                missed = results(node.conditions).firstOrNull { !it.passed }
                 val elseIf = node.branches.indexOfFirst { it.conditions.isNotEmpty() && passes(it.conditions) }
                 if (elseIf >= 0) {
                     branchIndex = elseIf; children = node.branches[elseIf].children
                 } else {
                     val elseBranch = node.branches.indexOfFirst { it.conditions.isEmpty() }
                     if (elseBranch < 0) {
-                        record(StepStatus.SKIPPED, "没有命中的分支")
-                        return SequenceOutcome(StepStatus.SKIPPED, "没有命中的分支")
+                        val detail = "没有命中的分支" + missed?.detail?.takeIf { it.isNotBlank() }?.let { "：$it" }.orEmpty()
+                        record(StepStatus.SKIPPED, detail)
+                        return SequenceOutcome(StepStatus.SKIPPED, detail)
                     }
                     branchIndex = elseBranch; children = node.branches[elseBranch].children
                 }
@@ -634,7 +596,7 @@ class RuleExecutor(
             branchIndex < 0 -> "条件命中"
             node.branches.getOrNull(branchIndex)?.conditions?.isNotEmpty() == true -> "否则如果命中"
             else -> "进入否则"
-        }
+        } + missed?.detail?.takeIf { it.isNotBlank() }?.let { "：$it" }.orEmpty()
         record(outcome.status, if (outcome.status == StepStatus.FAILURE) outcome.detail else picked)
         return outcome
     }
@@ -654,12 +616,17 @@ class RuleExecutor(
         val limit = if (whileMode) MAX_LOOP else requested.coerceIn(0, MAX_LOOP)
         var iterations = 0
         var failure: SequenceOutcome? = null
+        var lastConditionDetail = ""
         try {
             while (iterations < limit) {
                 if (whileMode) {
                     val variables = scopes.flattened()
-                    val pass = node.conditions.isNotEmpty() && node.conditions.all { evaluate(it, variables) }
-                    if (!pass) break
+                    val evaluated = node.conditions.map { evaluate(it, variables) }
+                    val pass = node.conditions.isNotEmpty() && evaluated.all { it.passed }
+                    if (!pass) {
+                        lastConditionDetail = evaluated.firstOrNull { !it.passed }?.detail.orEmpty()
+                        break
+                    }
                 }
                 iterations++
                 // The iteration index is runtime state, not part of the tree: step paths stay
@@ -679,8 +646,9 @@ class RuleExecutor(
             return it
         }
         if (iterations == 0) {
-            record(StepStatus.SKIPPED, "循环体未执行")
-            return SequenceOutcome(StepStatus.SKIPPED, "循环体未执行")
+            val detail = "循环体未执行" + lastConditionDetail.takeIf { it.isNotBlank() }?.let { "：$it" }.orEmpty()
+            record(StepStatus.SKIPPED, detail)
+            return SequenceOutcome(StepStatus.SKIPPED, detail)
         }
         record(StepStatus.SUCCESS, "循环 $iterations 次")
         return SequenceOutcome(StepStatus.SUCCESS, "循环 $iterations 次")
@@ -701,15 +669,18 @@ class RuleExecutor(
         while (true) {
             cancellationCheckpoint.ensureActive()
             val variables = scopes.flattened()
-            if (node.conditions.all { evaluate(it, variables) }) {
+            val evaluated = node.conditions.map { evaluate(it, variables) }
+            if (evaluated.all { it.passed }) {
                 record(StepStatus.SUCCESS, "条件已成立")
                 return SequenceOutcome(StepStatus.SUCCESS, "条件已成立")
             }
             val elapsed = started.elapsedNow().inWholeMilliseconds
             if (elapsed >= timeout) {
                 val names = node.conditions.joinToString("、") { it.type.substringAfter('.') }
-                record(StepStatus.FAILURE, "等待超时：$names")
-                return SequenceOutcome(StepStatus.FAILURE, "等待超时：$names")
+                val reason = evaluated.firstOrNull { !it.passed }?.detail?.takeIf { it.isNotBlank() }
+                val detail = "等待超时：$names" + reason?.let { "（$it）" }.orEmpty()
+                record(StepStatus.FAILURE, detail)
+                return SequenceOutcome(StepStatus.FAILURE, detail)
             }
             sleeper(minOf(poll, timeout - elapsed).coerceAtLeast(1))
         }
@@ -724,23 +695,15 @@ class RuleExecutor(
         val value = ParamTemplate.expand(node.params["value"]?.stringValue().orEmpty(), scopes.flattened())
         val op = node.params["op"]?.stringValue() ?: "set"
         return try {
-            val stored = if (node.params.containsKey("type") || node.params.containsKey("scope") ||
-                node.params.containsKey("retain")
-            ) {
-                val type = VariableType.values().firstOrNull {
-                    it.name.lowercase() == (node.params["type"]?.stringValue() ?: "text")
-                } ?: throw IllegalArgumentException("未知变量类型")
-                val scope = when (node.params["scope"]?.stringValue() ?: "local") {
-                    "global" -> VariableScope.GLOBAL
-                    "local" -> VariableScope.LOCAL
-                    else -> throw IllegalArgumentException("未知保存范围")
-                }
-                val retain = (node.params["retain"]?.stringValue() ?: "false") == "true"
-                scopes.setNamed(name, value, type, op, scope, retain)
-            } else {
-                // Documents written before the type/scope fields keep the old run-scope behavior.
-                scopes.set(name, value, op)
+            val type = VariableType.fromStorage(node.params["type"]?.stringValue())
+                ?: throw IllegalArgumentException("未知变量类型")
+            val scope = when (node.params["scope"]?.stringValue() ?: "local") {
+                "global" -> VariableScope.GLOBAL
+                "local" -> VariableScope.LOCAL
+                else -> throw IllegalArgumentException("未知保存范围")
             }
+            val retain = (node.params["retain"]?.stringValue() ?: "false") == "true"
+            val stored = scopes.setNamed(name, value, type, op, scope, retain)
             record(StepStatus.SUCCESS, "$name = ${stored.ifEmpty { "(空)" }}")
             SequenceOutcome(StepStatus.SUCCESS, "$name = $stored")
         } catch (invalid: IllegalArgumentException) {
@@ -779,13 +742,17 @@ class RuleExecutor(
         return SequenceOutcome(outcome.status, outcome.detail)
     }
 
-    private fun evaluate(condition: RuleComponent, variables: Map<String, Any?>): Boolean =
-        Conditions.evaluate(
+    private fun evaluate(condition: RuleComponent, variables: Map<String, Any?>): ConditionEvaluation {
+        val meta = registry.find(condition.type)
+        val layer = meta?.let { conditionLayerSelector?.invoke(it) }
+        return Conditions.evaluateDetailed(
             condition,
             variables,
             environment ?: DefaultEnvironment,
             clock.nowEpochMs(),
+            layer,
         )
+    }
 
     private companion object {
         /**

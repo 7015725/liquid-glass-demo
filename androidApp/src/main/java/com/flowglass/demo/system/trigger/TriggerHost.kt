@@ -14,6 +14,7 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.compose.runtime.snapshotFlow
 import com.flowglass.demo.system.SystemHookSettings
+import com.flowglass.demo.system.exec.ConditionFileAccess
 import com.flowglass.demo.system.exec.ExecutionRuntime
 import com.flowglass.demo.ui.AppRuntime
 import com.flowglass.demo.ui.AppState
@@ -74,6 +75,8 @@ internal class AndroidTriggerEnvironment(private val context: Context) : Trigger
 
     override fun appProcessRunning(packageName: String, userId: Int): Boolean? =
         SystemEventCache.isProcessRunning(packageName, userId)
+
+    override fun fileExists(path: String): Boolean? = ConditionFileAccess.exists(path)
 
     override fun isDndOn(): Boolean? {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return null

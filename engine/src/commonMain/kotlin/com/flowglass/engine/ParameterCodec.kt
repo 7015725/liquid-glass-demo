@@ -300,6 +300,16 @@ object ParameterCodec {
     fun validateDocument(document: RuleDocument) {
         val metadata = BuiltInComponents.all.associateBy { it.typeId }
         fun walk(component: RuleComponent) {
+            require(component.type != "condition.var_compare") {
+                "数据格式已更新，请清除应用数据或重新安装"
+            }
+            if (component.type == "action.set_var") {
+                require(
+                    component.params.containsKey("type") &&
+                        component.params.containsKey("scope") &&
+                        component.params.containsKey("retain"),
+                ) { "数据格式已更新，请清除应用数据或重新安装" }
+            }
             if (component.type == "action.post_notification") {
                 val title = component.params["title"]
                 require(title == null || title is JsonPrimitive && title.isString && '|' !in title.content) {
@@ -311,7 +321,7 @@ object ParameterCodec {
             }
             component.conditions.forEach(::walk)
             component.children.forEach(::walk)
-            component.branches.forEach { branch -> branch.children.forEach(::walk) }
+            component.branches.forEach { branch -> branch.conditions.forEach(::walk); branch.children.forEach(::walk) }
         }
         for (rule in document.rules) {
             (rule.triggers + rule.conditions + rule.actions).forEach(::walk)

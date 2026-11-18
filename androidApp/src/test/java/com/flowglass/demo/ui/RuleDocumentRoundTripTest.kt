@@ -69,7 +69,7 @@ class RuleDocumentRoundTripTest {
                 conditionMatch = com.flowglass.engine.MatchSpec(mode = MatchMode.ALL, windowSeconds = 91),
                 triggers = listOf(RuleComponent("trigger.time", mapOf("time" to JsonPrimitive("08:00"), "extension" to values[4]))),
                 conditions = listOf(RuleComponent("condition.weekday", mapOf("days" to JsonPrimitive("workday"), "extension" to values[3]))),
-                locals = listOf(com.flowglass.engine.LocalVariable("payload", "object", values[4], true)),
+                locals = listOf(com.flowglass.engine.LocalVariable("payload", "text", values[4], true)),
                 actions = actions,
             )),
             ui = RuleUiMetadata(),
@@ -139,7 +139,7 @@ class RuleDocumentRoundTripTest {
             runMode = RunMode.QUEUE, actions = listOf(untouched, edited),
             triggerMatch = com.flowglass.engine.MatchSpec(windowSeconds = 17),
             conditionMatch = com.flowglass.engine.MatchSpec(mode = MatchMode.ALL, windowSeconds = 29),
-            locals = listOf(com.flowglass.engine.LocalVariable("n", "integer", JsonPrimitive(7))),
+            locals = listOf(com.flowglass.engine.LocalVariable("n", "int", JsonPrimitive(7))),
         )
         val store = open(base.copy(rules = listOf(rule), ui = RuleUiMetadata()))
         val app = store.load().appState()

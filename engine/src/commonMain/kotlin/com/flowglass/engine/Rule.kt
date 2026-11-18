@@ -84,13 +84,25 @@ data class LocalVariable(
     val resetEachRun: Boolean = false,
     /** User note shown by the variable manager and the insertion dialog. */
     val note: String = "",
-)
+) {
+    init {
+        require(VariableType.fromStorage(type) != null) {
+            "数据格式已更新，请清除应用数据或重新安装"
+        }
+    }
+}
 
 @Serializable
 data class GlobalVariableMeta(
     val type: String = "text",
     val note: String = "",
-)
+) {
+    init {
+        require(VariableType.fromStorage(type) != null) {
+            "数据格式已更新，请清除应用数据或重新安装"
+        }
+    }
+}
 
 @Serializable
 data class RulePresentation(
@@ -249,4 +261,4 @@ object RuleJson {
     )
 }
 
-const val CURRENT_FORMAT_VERSION = 4
+const val CURRENT_FORMAT_VERSION = 5

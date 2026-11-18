@@ -67,7 +67,9 @@ internal fun ActionParameterEditor(
     }
 
     if (meta.params.size > 1) {
-        if (item.typeId == "action.set_var") {
+        if (item.typeId == "condition.variable") {
+            VariableConditionEditor(meta, item, onParameter, variables)
+        } else if (item.typeId == "action.set_var") {
             SetVariableEditor(meta, item, onParameter, targets, variables)
         } else {
             MultiParameterEditor(meta, item, onParameter, onAuthorization, targets, variables)
@@ -106,7 +108,15 @@ private fun SetVariableEditor(
     targets: List<String>,
     variables: List<VariableOption>,
 ) {
-    var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
+    var fields by remember(item.id) {
+        mutableStateOf(
+            ParameterForm.fields(meta, item.parameter).let { initial ->
+                if (variableTypeOfField(initial["type"].orEmpty()) != com.flowglass.engine.VariableType.INT) {
+                    initial + ("op" to "set")
+                } else initial
+            },
+        )
+    }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
 
     fun update(key: String, value: String) {
@@ -117,12 +127,23 @@ private fun SetVariableEditor(
             .onFailure { error = it.message?.replace('\n', ' ')?.take(120) }
     }
 
+    fun selectType(next: com.flowglass.engine.VariableType) {
+        val nextFields = fields + ("type" to next.storageKey) +
+            if (next == com.flowglass.engine.VariableType.INT) emptyMap() else mapOf("op" to "set")
+        fields = nextFields
+        ParameterForm.compose(meta, nextFields)
+            .onSuccess { onParameter(it); error = null }
+            .onFailure { error = it.message?.replace('\n', ' ')?.take(120) }
+    }
     val name = fields["name"].orEmpty().trim().removeSurrounding("{", "}")
     val exists = name.isNotEmpty() && variables.any {
         it.scope != com.flowglass.engine.VariableScope.BUILTIN && it.name == name
     }
-    val scope = fields["scope"].orEmpty().ifEmpty { "local" }
-    val type = fields["type"].orEmpty().ifEmpty { "text" }
+    val scope = when (fields["scope"].orEmpty()) {
+        "所有指令", "global" -> "global"
+        else -> "local"
+    }
+    val type = variableTypeOfField(fields["type"].orEmpty())
     val nameError = com.flowglass.engine.VariableName.error(name)
         ?: if (!exists && variables.any { it.name == name }) "名字已被占用：$name" else null
 
@@ -138,13 +159,25 @@ private fun SetVariableEditor(
             if (spec.key == "name") continue
             if (exists && (spec.key == "scope" || spec.key == "retain")) continue
             if (spec.key == "retain" && scope != "local") continue
-            if (spec.key == "op" && type != "number") continue
+            if (spec.key == "op" && type != com.flowglass.engine.VariableType.INT) {
+                T("操作", 14.sp, FontWeight.SemiBold)
+                T("设为", 14.sp, color = C.OnSurfaceVar)
+                continue
+            }
+            if (spec.key == "type") {
+                T("类型", 14.sp, FontWeight.SemiBold)
+                VariableTypePicker(type, onSelect = { selectType(it) }, tagPrefix = "set-var-type")
+                continue
+            }
             if (spec.key == "value") {
                 T("内容", 14.sp, FontWeight.SemiBold)
-                VariableTextField(fields[spec.key].orEmpty(), "param-value", variables, multiline = false) {
+                VariableTextField(fields[spec.key].orEmpty(), "param-value", variables, multiline = type.isList) {
                     update(spec.key, it)
                 }
-                T("支持 {变量}。", 12.sp, color = C.OnSurfaceVar)
+                T(
+                    if (type.isList) "列表用英文逗号或换行分隔，也接受 [1,2,3]。" else "支持 {变量}。",
+                    12.sp, color = C.OnSurfaceVar,
+                )
                 continue
             }
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

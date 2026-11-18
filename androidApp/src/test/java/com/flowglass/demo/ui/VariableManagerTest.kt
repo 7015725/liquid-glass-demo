@@ -93,22 +93,22 @@ class VariableManagerTest {
 
     @Test
     fun renamingAGlobalUpdatesAllReferencesAndItsValueKey() {
-        val state = stateWithAction("去{城市}，旧写法 %{global.城市}")
+        val state = stateWithAction("去{城市}")
         state.engineGlobals = mapOf("城市" to JsonPrimitive("北京"))
         state.engineGlobalMeta = mapOf("城市" to com.flowglass.engine.GlobalVariableMeta(note = "目的地"))
 
         state.renameVariable(null, "城市", "地点", VariableScope.GLOBAL)
 
-        assertEquals("去{地点}，旧写法 %{global.地点}", state.autoCmds.single().actions.single().parameter)
+        assertEquals("去{地点}", state.autoCmds.single().actions.single().parameter)
         assertEquals(setOf("地点"), state.engineGlobals.keys)
         assertEquals("目的地", state.engineGlobalMeta.getValue("地点").note)
     }
 
     @Test
-    fun referenceCountCoversBothSyntaxes() {
-        val state = stateWithAction("{城市} %{global.城市}")
+    fun referenceCountUsesTheSingleBraceSyntax() {
+        val state = stateWithAction("{城市} 和 {城市}")
         state.engineGlobals = mapOf("城市" to JsonPrimitive("北京"))
-        assertEquals(2, VariableCatalog.references(state, "城市", VariableScope.GLOBAL, null))
+        assertEquals(1, VariableCatalog.references(state, "城市", VariableScope.GLOBAL, null))
     }
 
     @Test
@@ -135,10 +135,10 @@ class VariableManagerTest {
         state.engineUi = RuleUiMetadata(
             presentation = mapOf("rule-1" to RulePresentation(legacyId = 1)),
         )
-        state.createVariable(VariableScope.LOCAL, 1, "次数", "number", "运行次数", "3")
+        state.createVariable(VariableScope.LOCAL, 1, "次数", "int", "运行次数", "3")
         val local = state.localsOf(1).single()
         assertEquals("次数", local.name)
-        assertEquals("number", local.type)
+        assertEquals("int", local.type)
         assertEquals("运行次数", local.note)
         assertEquals("3", local.initial.toString().trim('"'))
     }
@@ -150,7 +150,7 @@ class VariableManagerTest {
             Rule(id = "rule-1", name = "测试指令", type = RuleType.MANUAL, enabled = true),
         )
         state.engineUi = RuleUiMetadata(presentation = mapOf("rule-1" to RulePresentation(legacyId = 1)))
-        state.createVariable(VariableScope.LOCAL, 1, "次数", "number", "运行次数", "3")
+        state.createVariable(VariableScope.LOCAL, 1, "次数", "int", "运行次数", "3")
         state.deleteVariable(null, "次数", VariableScope.LOCAL)
         assertTrue(state.engineRules.single().locals.isEmpty())
     }

@@ -50,7 +50,7 @@ class TaskChainTest {
     }
 
     private fun condition(left: String, right: String) = RuleComponent(
-        "condition.var_compare",
+        "condition.variable",
         params = mapOf("left" to JsonPrimitive(left), "op" to JsonPrimitive("eq"), "right" to JsonPrimitive(right)),
     )
 
@@ -79,7 +79,7 @@ class TaskChainTest {
         val elseLog = mutableListOf<String>()
         val (elseMeta, elseAction) = echo(elseLog, "else")
         val block = ifBlock(
-            conditions = listOf(condition("%{run.x}", "yes")),
+            conditions = listOf(condition("{x}", "yes")),
             children = listOf(RuleComponent("a.then")),
             branches = listOf(RuleBranch(children = listOf(RuleComponent("a.else")))),
         )
@@ -99,7 +99,7 @@ class TaskChainTest {
         val (thenMeta, thenAction) = echo(thenLog, "then")
         val (elseMeta, elseAction) = echo(elseLog, "else")
         val block = ifBlock(
-            conditions = listOf(condition("%{run.x}", "yes")),
+            conditions = listOf(condition("{x}", "yes")),
             children = listOf(RuleComponent("a.then")),
             branches = listOf(RuleBranch(children = listOf(RuleComponent("a.else")))),
         )
@@ -139,14 +139,16 @@ class TaskChainTest {
     fun whileLoopStopsWhenTheConditionFails() = runSuspend {
         // run.x becomes "stop" on the first iteration: the second check ends the loop.
         val body = listOf(RuleComponent("action.set_var", params = mapOf(
-            "name" to JsonPrimitive("x"), "op" to JsonPrimitive("set"), "value" to JsonPrimitive("%{run.y}"),
+            "name" to JsonPrimitive("x"), "type" to JsonPrimitive("text"),
+            "op" to JsonPrimitive("set"), "value" to JsonPrimitive("{y}"),
+            "scope" to JsonPrimitive("local"), "retain" to JsonPrimitive("false"),
         )))
         val block = RuleComponent(
             "block.loop",
             params = mapOf("mode" to JsonPrimitive("while")),
             children = body,
-            conditions = listOf(RuleComponent("condition.var_compare", params = mapOf(
-                "left" to JsonPrimitive("%{run.x}"), "op" to JsonPrimitive("eq"), "right" to JsonPrimitive("go"),
+            conditions = listOf(RuleComponent("condition.variable", params = mapOf(
+                "left" to JsonPrimitive("{x}"), "op" to JsonPrimitive("eq"), "right" to JsonPrimitive("go"),
             ))),
         )
         val result = executor(emptyMap())
@@ -220,7 +222,7 @@ class TaskChainTest {
             "block.loop",
             params = mapOf("mode" to JsonPrimitive("while")),
             children = listOf(RuleComponent("a.tick")),
-            conditions = listOf(condition("%{run.x}", "x")),
+            conditions = listOf(condition("{x}", "x")),
         )
         val result = executor(mapOf("a.tick" to action), metas = listOf(meta("a.tick")))
             .run(rule(block), "测试", mapOf("x" to "x"))
@@ -238,10 +240,14 @@ class TaskChainTest {
         )
         val body = listOf(
             RuleComponent("action.set_var", params = mapOf(
-                "name" to JsonPrimitive("rule.counter"), "op" to JsonPrimitive("add"), "value" to JsonPrimitive("2"),
+                "name" to JsonPrimitive("rule.counter"), "type" to JsonPrimitive("int"),
+                "op" to JsonPrimitive("add"), "value" to JsonPrimitive("2"),
+                "scope" to JsonPrimitive("local"), "retain" to JsonPrimitive("true"),
             )),
             RuleComponent("action.set_var", params = mapOf(
-                "name" to JsonPrimitive("global.total"), "op" to JsonPrimitive("set"), "value" to JsonPrimitive("9"),
+                "name" to JsonPrimitive("global.total"), "type" to JsonPrimitive("int"),
+                "op" to JsonPrimitive("set"), "value" to JsonPrimitive("9"),
+                "scope" to JsonPrimitive("global"), "retain" to JsonPrimitive("false"),
             )),
         )
         val rule = rule(*body.toTypedArray()).copy(
@@ -249,8 +255,8 @@ class TaskChainTest {
         )
         val result = executor(actions, sink = sink).run(rule, "测试", globals = mapOf("total" to "1"))
         assertEquals(StepStatus.SUCCESS, result.status)
-        assertEquals(mapOf("counter" to "5"), ruleWrites)
-        assertEquals(mapOf("total" to "9"), globalWrites)
+        assertEquals(mapOf("counter" to 5L), ruleWrites)
+        assertEquals(mapOf("total" to 9L), globalWrites)
     }
 
     @Test
@@ -344,7 +350,7 @@ class TaskChainTest {
     fun blockLevelRetryAndHomelessBreakAreRejected() {
         val retry = RuleComponent(
             "block.if", onError = OnError.RETRY,
-            conditions = listOf(condition("%{run.x}", "x")),
+            conditions = listOf(condition("{x}", "x")),
             children = listOf(RuleComponent("a.tick")),
         )
         val breakOutside = RuleComponent("block.break")
@@ -417,11 +423,11 @@ class TaskChainTest {
             val (elseIfMeta, elseIfAction) = echo(oldElseIf, "elseif")
             val (elseMeta, elseAction) = echo(oldElse, "else")
             val old = ifBlock(
-                conditions = listOf(condition("%{run.a}", "yes")),
+                conditions = listOf(condition("{a}", "yes")),
                 children = listOf(RuleComponent("a.then")),
                 branches = listOf(
                     RuleBranch(
-                        conditions = listOf(condition("%{run.b}", "yes")),
+                        conditions = listOf(condition("{b}", "yes")),
                         children = listOf(RuleComponent("a.elseif")),
                     ),
                     RuleBranch(children = listOf(RuleComponent("a.else"))),
@@ -449,10 +455,10 @@ class TaskChainTest {
     fun elseIfMigrationWithoutAnElseRunsTheSameBranchOrNothing() = runSuspend {
         for ((b, expected) in listOf("yes" to listOf("elseif"), "no" to emptyList())) {
             val old = ifBlock(
-                conditions = listOf(condition("%{run.a}", "yes")),
+                conditions = listOf(condition("{a}", "yes")),
                 children = listOf(RuleComponent("a.then")),
                 branches = listOf(
-                    RuleBranch(conditions = listOf(condition("%{run.b}", "yes")), children = listOf(RuleComponent("a.elseif"))),
+                    RuleBranch(conditions = listOf(condition("{b}", "yes")), children = listOf(RuleComponent("a.elseif"))),
                 ),
             )
             val oldLog = mutableListOf<String>()
@@ -472,11 +478,11 @@ class TaskChainTest {
     @Test
     fun elseIfMigrationIsRecursiveAndKeepsAnAbsentElseAbsent() {
         val old = ifBlock(
-            conditions = listOf(condition("%{run.a}", "yes")),
+            conditions = listOf(condition("{a}", "yes")),
             children = listOf(RuleComponent("a.then")),
             branches = listOf(
-                RuleBranch(conditions = listOf(condition("%{run.b}", "yes")), children = listOf(RuleComponent("a.b"))),
-                RuleBranch(conditions = listOf(condition("%{run.c}", "yes")), children = listOf(RuleComponent("a.c"))),
+                RuleBranch(conditions = listOf(condition("{b}", "yes")), children = listOf(RuleComponent("a.b"))),
+                RuleBranch(conditions = listOf(condition("{c}", "yes")), children = listOf(RuleComponent("a.c"))),
             ),
         )
         val migrated = old.normalizeElseIfBranches()

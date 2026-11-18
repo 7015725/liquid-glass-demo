@@ -21,8 +21,8 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class ElseIfMigrationUiTest {
     private fun condition(name: String) = RuleComponent(
-        "condition.var_compare",
-        params = mapOf("left" to JsonPrimitive("%{run.$name}"), "op" to JsonPrimitive("eq"), "right" to JsonPrimitive("yes")),
+        "condition.variable",
+        params = mapOf("left" to JsonPrimitive("{$name}"), "op" to JsonPrimitive("eq"), "right" to JsonPrimitive("yes")),
     )
 
     private fun action(name: String) = RuleComponent("action.toast", params = mapOf("text" to JsonPrimitive(name)))
