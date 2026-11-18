@@ -123,6 +123,7 @@ internal class AppRuntime private constructor(private val context: Context) {
         queue.submit {
             val error = try {
                 store.save(snapshot)
+                com.flowglass.demo.xposed.method.MethodHookConfigPublisher.publish(context, snapshot)
                 null
             } catch (invalid: IllegalArgumentException) {
                 "参数无效：${invalid.message.orEmpty()}；原存档已保留，请修正后保存。"

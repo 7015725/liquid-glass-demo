@@ -23,12 +23,15 @@ data class MethodExtraction(
 @Serializable
 data class MethodHookSpec(
     val id: String,
-    val enabled: Boolean = false,
+    /**
+     * Runtime configs are collected only from enabled commands, so this is always true for a
+     * published hook. It stays in the wire model so a cached target process can fail closed.
+     */
+    val enabled: Boolean = true,
     val packageName: String,
     val userId: Int = 0,
     val className: String,
     val methodName: String,
-    val paramCount: Int? = null,
     val paramTypes: List<String> = emptyList(),
     val extractions: List<MethodExtraction> = emptyList(),
     val maxCallsPerMinute: Int = DEFAULT_MAX_CALLS_PER_MINUTE,
@@ -42,16 +45,139 @@ data class MethodHookSpec(
     }
 }
 
-/** The on-disk container. A separate file keeps method hooks out of the existing commands schema. */
-@Serializable
-data class MethodHookFile(
-    val formatVersion: Int = CURRENT_FORMAT_VERSION,
-    val hooks: List<MethodHookSpec> = emptyList(),
-) {
-    companion object {
-        const val CURRENT_FORMAT_VERSION = 1
+/**
+ * Trigger parameters are the only persisted source of an app-method listener. There is
+ * deliberately no second hook file and no hook id in the editor: the id is derived from the
+ * command + trigger item so the App, runtime config and status registry agree without exposing
+ * an internal identifier to the user.
+ */
+object AppMethodCall {
+    const val TYPE_ID = "trigger.app_method_call"
+    const val KEY_PACKAGE = "package"
+    const val KEY_CLASS = "className"
+    const val KEY_METHOD = "methodName"
+    const val KEY_PARAM_TYPES = "paramTypes"
+    const val KEY_EXTRACTIONS = "extractions"
+
+    fun hookId(commandId: Long, itemId: Long): String = "call-$commandId-$itemId"
+
+    fun targetKey(raw: String): Pair<String, Int>? {
+        val value = raw.trim()
+        if (value.isEmpty()) return null
+        val at = value.lastIndexOf('@')
+        if (at < 0) return value to 0
+        val user = value.substring(at + 1).toIntOrNull() ?: return null
+        val packageName = value.substring(0, at)
+        return if (packageName.isNotEmpty()) packageName to user else null
     }
+
+    fun parseParamTypes(raw: String): List<String> =
+        raw.split(',', '，').map { it.trim() }.filter { it.isNotEmpty() }
+
+    fun encodeParamTypes(types: List<String>): String = types.joinToString(",")
+
+    fun decodeExtractions(raw: String): List<MethodExtraction> {
+        if (raw.isBlank()) return emptyList()
+        return MethodHookJson.format.decodeFromString(
+            kotlinx.serialization.builtins.ListSerializer(MethodExtraction.serializer()),
+            raw,
+        )
+    }
+
+    fun encodeExtractions(extractions: List<MethodExtraction>): String =
+        MethodHookJson.format.encodeToString(
+            kotlinx.serialization.builtins.ListSerializer(MethodExtraction.serializer()),
+            extractions,
+        )
+
+    fun spec(
+        id: String,
+        params: Map<String, kotlinx.serialization.json.JsonElement>,
+    ): MethodHookSpec? {
+        fun text(key: String): String =
+            (params[key] as? kotlinx.serialization.json.JsonPrimitive)
+                ?.takeIf { it.isString }?.content.orEmpty().trim()
+        val target = targetKey(text(KEY_PACKAGE)) ?: return null
+        val className = text(KEY_CLASS)
+        val methodName = text(KEY_METHOD)
+        if (className.isEmpty() || methodName.isEmpty()) return null
+        return MethodHookSpec(
+            id = id,
+            packageName = target.first,
+            userId = target.second,
+            className = className,
+            methodName = methodName,
+            paramTypes = parseParamTypes(text(KEY_PARAM_TYPES)),
+            extractions = runCatching { decodeExtractions(text(KEY_EXTRACTIONS)) }
+                .getOrDefault(emptyList()),
+        )
+    }
+
+    fun validateParams(
+        params: Map<String, kotlinx.serialization.json.JsonElement>,
+        existingNames: Set<String> = emptySet(),
+    ): List<String> {
+        fun text(key: String): String =
+            (params[key] as? kotlinx.serialization.json.JsonPrimitive)
+                ?.takeIf { it.isString }?.content.orEmpty().trim()
+        val errors = mutableListOf<String>()
+        val target = targetKey(text(KEY_PACKAGE))
+        if (target == null) errors += "目标应用不合法"
+        else {
+            if (!MethodHookNames.isValidPackage(target.first)) errors += "目标应用包名不合法"
+            if (target.second !in 0..999_999) errors += "目标应用用户 ID 不合法"
+        }
+        if (!MethodHookNames.isValidClass(text(KEY_CLASS))) errors += "类名不合法"
+        if (!MethodHookNames.isValidMethod(text(KEY_METHOD))) errors += "方法名不合法"
+        val types = parseParamTypes(text(KEY_PARAM_TYPES))
+        if (types.size > MethodHookNames.MAX_PARAMS) errors += "参数类型过多"
+        if (types.any { !MethodHookNames.isValidType(it) }) {
+            errors += "参数类型必须使用全限定名、基本类型或数组写法"
+        }
+        val extractions = runCatching { decodeExtractions(text(KEY_EXTRACTIONS)) }
+            .getOrElse {
+                return errors + "提取数据格式无效"
+            }
+        val spec = MethodHookSpec(
+            id = "validation",
+            packageName = target?.first ?: "invalid",
+            userId = target?.second ?: 0,
+            className = text(KEY_CLASS).ifEmpty { "Invalid" },
+            methodName = text(KEY_METHOD).ifEmpty { "invalid" },
+            paramTypes = types,
+            extractions = extractions,
+        )
+        errors += MethodHookValidation.errors(spec, existingNames)
+        return errors.distinct()
+    }
+
+    fun extractionNames(
+        params: Map<String, kotlinx.serialization.json.JsonElement>,
+    ): Set<String> =
+        runCatching { decodeExtractions(
+            (params[KEY_EXTRACTIONS] as? kotlinx.serialization.json.JsonPrimitive)
+                ?.takeIf { it.isString }?.content.orEmpty()
+        ) }.getOrDefault(emptyList())
+            .map { MethodHookNames.normalizeExtractionName(it.name) }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+    /** Runtime event data used by the trigger matcher; fixed UI names still come from variables. */
+    fun eventData(
+        packageName: String,
+        userId: Int,
+        className: String,
+        methodName: String,
+        signature: String,
+    ): Map<String, String> = mapOf(
+        "app" to if (userId == 0) packageName else "$packageName@$userId",
+        "app.user" to userId.toString(),
+        "method.class" to className,
+        "method.name" to methodName,
+        "method.signature" to signature,
+    )
 }
+
 
 /**
  * Target-process copy of one hook. The token is the bearer secret shared through the framework's
@@ -86,7 +212,7 @@ object MethodHookRuntimeJson {
     fun decode(text: String): MethodHookRuntimeConfig {
         val config = format.decodeFromString(MethodHookRuntimeConfig.serializer(), text)
         require(config.formatVersion == MethodHookRuntimeConfig.CURRENT_FORMAT_VERSION) {
-            "不支持的方法钩子运行时格式版本 ${config.formatVersion}"
+            "不支持的应用方法调用格式版本 ${config.formatVersion}"
         }
         return config
     }
@@ -96,33 +222,22 @@ object MethodHookJson {
     val format = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
-        prettyPrint = true
-    }
-
-    fun encode(file: MethodHookFile): String = format.encodeToString(MethodHookFile.serializer(), file)
-
-    fun decode(text: String): MethodHookFile {
-        val file = format.decodeFromString(MethodHookFile.serializer(), text)
-        require(file.formatVersion == MethodHookFile.CURRENT_FORMAT_VERSION) {
-            "不支持的方法钩子格式版本 ${file.formatVersion}"
-        }
-        return file
+        prettyPrint = false
     }
 }
 
 /**
- * Fixed metadata variables supplied by every method-hook trigger. User extraction names must not
- * collide with these; the variable catalogue will register them as built-in event variables.
+ * Fixed metadata variables supplied by every app-method-call trigger. User extraction names
+ * must not collide with these.
  */
 object MethodHookVariables {
-    const val APP = "钩子应用"
-    const val USER = "钩子用户"
-    const val PROCESS = "钩子进程"
-    const val METHOD = "钩子方法"
-    const val SIGNATURE = "钩子签名"
-    const val ID = "钩子标识"
+    const val APP = "调用应用"
+    const val USER = "调用用户"
+    const val PROCESS = "调用进程"
+    const val METHOD = "调用方法"
+    const val SIGNATURE = "调用签名"
 
-    val reserved: Set<String> = linkedSetOf(APP, USER, PROCESS, METHOD, SIGNATURE, ID)
+    val reserved: Set<String> = linkedSetOf(APP, USER, PROCESS, METHOD, SIGNATURE)
 }
 
 object MethodHookNames {
@@ -166,24 +281,16 @@ object MethodHookNames {
 
 object MethodHookValidation {
     fun errors(spec: MethodHookSpec, existingNames: Set<String> = emptySet()): List<String> = buildList {
-        if (spec.id.isBlank()) add("钩子标识不能为空")
+        if (spec.id.isBlank()) add("调用标识不能为空")
         if (!MethodHookNames.isValidPackage(spec.packageName)) add("目标包名不合法")
         if (spec.userId !in 0..999_999) add("用户 ID 必须在 0–999999")
         if (!MethodHookNames.isValidClass(spec.className)) add("类名不合法")
         if (!MethodHookNames.isValidMethod(spec.methodName)) add("方法名不合法")
-        if (spec.paramCount != null && spec.paramCount !in 0..MethodHookNames.MAX_PARAMS) {
-            add("参数个数必须在 0–${MethodHookNames.MAX_PARAMS}")
-        }
         if (spec.paramTypes.size > MethodHookNames.MAX_PARAMS) {
             add("参数类型过多")
         }
         if (spec.paramTypes.any { !MethodHookNames.isValidType(it) }) {
             add("参数类型必须使用全限定名、基本类型或数组写法")
-        }
-        if (spec.paramTypes.isNotEmpty() && spec.paramCount != null &&
-            spec.paramTypes.size != spec.paramCount
-        ) {
-            add("参数个数与参数类型数量不一致")
         }
         if (spec.maxCallsPerMinute !in 1..MethodHookNames.MAX_RATE) {
             add("每分钟调用上限必须在 1–${MethodHookNames.MAX_RATE}")
@@ -198,9 +305,9 @@ object MethodHookValidation {
             if (!MethodHookNames.isValidExtractionName(name)) {
                 add("$label：名字只能用中文、字母、数字、_ 或 -，长度 1–64")
             } else if (name in MethodHookVariables.reserved) {
-                add("$label：名字「$name」是钩子内置变量，请换一个")
+                add("$label：名字「$name」是内置变量，请换一个")
             } else if (name in existingNames) {
-                add("$label：提取变量「$name」已被其他变量或钩子使用，变量名必须全局唯一")
+                add("$label：提取变量「$name」已被其他变量或提取项使用，变量名必须全局唯一")
             } else if (!names.add(name)) {
                 add("$label：提取变量「$name」重名")
             }
@@ -209,8 +316,6 @@ object MethodHookValidation {
                     val arg = extraction.argIndex
                     if (arg == null || arg < 0) {
                         add("$label：参数提取必须填写参数序号")
-                    } else if (spec.paramCount != null && arg >= spec.paramCount) {
-                        add("$label：参数序号超出已声明的参数个数")
                     }
                 }
                 MethodExtractionSource.RESULT -> {

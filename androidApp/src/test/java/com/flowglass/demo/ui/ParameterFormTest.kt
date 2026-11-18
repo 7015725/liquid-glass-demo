@@ -22,16 +22,44 @@ class ParameterFormTest {
                 .firstOrNull { it.typeId == meta.typeId }
                 ?: CommandCatalog.options(CommandSection.CONDITIONS).firstOrNull { it.typeId == meta.typeId }
                 ?: CommandCatalog.options(CommandSection.TRIGGERS).firstOrNull { it.typeId == meta.typeId }
-            val source = option?.defaultParameter
-                ?: com.flowglass.engine.ParameterCodec.formatComponent(
-                    meta, meta.params.associate { spec -> spec.key to spec.defaultValue },
+            val source = if (meta.typeId == "trigger.app_method_call") {
+                // Its empty defaults are intentionally invalid until the user names a target,
+                // class and method. Round-trip a realistic complete configuration instead.
+                com.flowglass.engine.ParameterCodec.formatComponent(
+                    meta,
+                    meta.params.associate { spec ->
+                        val sample = when (spec.key) {
+                            "package" -> "com.example.app"
+                            "className" -> "com.example.app.OrderManager"
+                            "methodName" -> "onPaySuccess"
+                            "paramTypes" -> "java.lang.String,int"
+                            "extractions" -> "[]"
+                            else -> spec.defaultValue.toString()
+                        }
+                        spec.key to com.flowglass.engine.ParameterCodec.parse(spec, sample)
+                    },
                 )
+            } else {
+                option?.defaultParameter
+                    ?: com.flowglass.engine.ParameterCodec.formatComponent(
+                        meta, meta.params.associate { spec -> spec.key to spec.defaultValue },
+                    )
+            }
             val fields = ParameterForm.fields(meta, source)
             assertEquals("${meta.typeId} 的字段数", meta.params.size, fields.size)
             val composed = ParameterForm.compose(meta, fields)
             assertTrue("${meta.typeId} 应可回写：${composed.exceptionOrNull()?.message}", composed.isSuccess)
             assertEquals("${meta.typeId} 往返后应保持默认值", source, composed.getOrThrow())
         }
+    }
+
+    @Test fun appMethodCallDraftNeedsACompletedTargetAndMethod() {
+        val meta = requireNotNull(registry.find("trigger.app_method_call"))
+        val fields = ParameterForm.fields(meta, "")
+        assertEquals("", fields["package"])
+        val empty = ParameterForm.compose(meta, fields)
+        assertTrue(empty.isFailure)
+        assertTrue(empty.exceptionOrNull()?.message.orEmpty().contains("目标应用"))
     }
 
     @Test fun editingOneFieldKeepsTheOthers() {

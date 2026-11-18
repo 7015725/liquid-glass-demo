@@ -81,7 +81,7 @@ fun componentAvailability(
 
     val lsposed = snapshot.stateOf(ExecutionLayer.XPOSED)
     // Method hooks only require the module to be active; the system-hook heartbeat is not used.
-    if (typeId == TriggerTypes.METHOD_HOOK && lsposed != LayerState.UNAVAILABLE) {
+    if (typeId == TriggerTypes.APP_METHOD_CALL && lsposed != LayerState.UNAVAILABLE) {
         return ComponentAvailability.Available
     }
     // A system-event trigger can still be configured while the hook is loaded but not ready.

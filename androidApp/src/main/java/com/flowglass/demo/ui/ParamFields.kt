@@ -35,6 +35,11 @@ import com.flowglass.engine.ParamEditor
 import com.flowglass.engine.ParamSource
 import com.flowglass.engine.ParamSpec
 import com.flowglass.engine.ParameterCodec
+import com.flowglass.engine.methodhook.AppMethodCall
+import com.flowglass.engine.methodhook.MethodExtraction
+import com.flowglass.engine.methodhook.MethodExtractionSource
+import com.flowglass.engine.methodhook.MethodHookNames
+import com.flowglass.engine.methodhook.MethodHookVariables
 import com.flowglass.engine.resolvedEditor
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
@@ -54,12 +59,10 @@ internal fun ParamField(
     onValue: (String) -> Unit,
     targets: List<String> = emptyList(),
     variables: List<VariableOption> = emptyList(),
-    onOpenMethodHooks: () -> Unit = {},
 ) {
     when (spec.source) {
         ParamSource.PAIRED_BLUETOOTH -> BluetoothNameField(current, tag, onValue)
         ParamSource.WIFI_NETWORKS -> WifiNameField(current, tag, onValue)
-        ParamSource.METHOD_HOOKS -> MethodHookField(current, tag, onValue, onOpenMethodHooks)
         else -> when (spec.resolvedEditor()) {
             ParamEditor.SEGMENTED -> SegmentedField(spec, current, onValue)
             ParamEditor.SLIDER -> PercentageField(current, onValue)
@@ -74,13 +77,108 @@ internal fun ParamField(
             ParamEditor.LOCATION -> LocationField(current, tag, onValue)
             ParamEditor.MULTILINE -> VariableTextField(current, tag, variables, multiline = true, onValue)
             ParamEditor.TEXT -> VariableTextField(current, tag, variables, multiline = false, onValue)
-            ParamEditor.METHOD_HOOK -> MethodHookField(current, tag, onValue, onOpenMethodHooks)
+            ParamEditor.APP_METHOD_EXTRACTIONS -> ExtractionEditorField(current, tag, onValue, variables)
             ParamEditor.STEPPER -> StepperField(spec, current, tag, onValue)
             ParamEditor.TIME -> TimeField(current, tag, onValue)
             ParamEditor.TIME_RANGE -> TimeRangeField(current, onValue)
             ParamEditor.INT_RANGE -> IntegerRangeField(spec, current, tag, onValue)
             ParamEditor.DURATION -> DurationField(current, tag, onValue)
             ParamEditor.AUTO -> ParameterTextField(current, tag, onValue)
+        }
+    }
+}
+
+@Composable
+private fun ExtractionEditorField(
+    current: String,
+    tag: String,
+    onValue: (String) -> Unit,
+    variables: List<VariableOption>,
+) {
+    var expanded by rememberSaveable(tag) { mutableStateOf(false) }
+    var rows by remember(current) {
+        mutableStateOf(
+            runCatching { AppMethodCall.decodeExtractions(current) }.getOrDefault(emptyList()),
+        )
+    }
+    fun publish(next: List<MethodExtraction>) {
+        rows = next
+        onValue(AppMethodCall.encodeExtractions(next))
+    }
+    EditorPill(
+        if (expanded) "收起提取数据" else "配置提取数据（${rows.size}）",
+        "提取数据",
+    ) { expanded = !expanded }
+    if (!expanded) {
+        T("默认不提取；点上面的按钮可把参数或返回值复制到 {变量名}。", 12.sp, color = C.OnSurfaceVar)
+    } else {
+        rows.forEachIndexed { index, row ->
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedRectangle(20.dp)).background(C.Card)
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                T("提取项 ${index + 1}", 13.sp, FontWeight.SemiBold)
+                T("变量名（规则里写 {变量名}）", 12.sp, color = C.OnSurfaceVar)
+                ParameterTextField(row.name, "$tag-$index-name") { value ->
+                    publish(rows.toMutableList().also {
+                        it[index] = it[index].copy(name = value)
+                    })
+                }
+                T("来源", 12.sp, color = C.OnSurfaceVar)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    EditorPill(
+                        if (row.source == MethodExtractionSource.ARGUMENT) "第 N 个参数" else "返回值",
+                        "来源",
+                    ) {
+                        publish(rows.toMutableList().also {
+                            it[index] = it[index].copy(
+                                source = if (it[index].source == MethodExtractionSource.ARGUMENT) {
+                                    MethodExtractionSource.RESULT
+                                } else {
+                                    MethodExtractionSource.ARGUMENT
+                                },
+                                argIndex = if (it[index].source == MethodExtractionSource.ARGUMENT) {
+                                    it[index].argIndex
+                                } else {
+                                    null
+                                },
+                            )
+                        })
+                    }
+                }
+                if (row.source == MethodExtractionSource.ARGUMENT) {
+                    T("参数序号（从 0 开始）", 12.sp, color = C.OnSurfaceVar)
+                    ParameterTextField((row.argIndex ?: 0).toString(), "$tag-$index-arg") { value ->
+                        publish(rows.toMutableList().also {
+                            it[index] = it[index].copy(argIndex = value.toIntOrNull())
+                        })
+                    }
+                }
+                T("字段路径（可选，用点分字段名）", 12.sp, color = C.OnSurfaceVar)
+                ParameterTextField(row.path, "$tag-$index-path") { value ->
+                    publish(rows.toMutableList().also {
+                        it[index] = it[index].copy(path = value)
+                    })
+                }
+                val normalized = MethodHookNames.normalizeExtractionName(row.name)
+                val error = when {
+                    normalized.isBlank() -> "请填写变量名"
+                    !MethodHookNames.isValidExtractionName(normalized) ->
+                        "变量名只能用中文、字母、数字、_ 或 -"
+                    normalized in MethodHookVariables.reserved -> "不能使用内置变量名"
+                    variables.any { it.name == normalized && it.note.startsWith("应用方法调用") } ->
+                        "变量名已被其他提取项使用"
+                    else -> null
+                }
+                error?.let { T(it, 12.sp, color = C.Bad) }
+                EditorPill("删除提取项", "删除") {
+                    publish(rows.toMutableList().also { it.removeAt(index) })
+                }
+            }
+        }
+        EditorPill("+ 添加提取项", "添加提取项") {
+            publish(rows + MethodExtraction(name = "", source = MethodExtractionSource.ARGUMENT, argIndex = 0))
         }
     }
 }

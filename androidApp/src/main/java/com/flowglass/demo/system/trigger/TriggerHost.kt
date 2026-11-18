@@ -21,6 +21,8 @@ import com.flowglass.demo.ui.AppState
 import com.flowglass.demo.ui.Cmd
 import com.flowglass.demo.ui.snapshot
 import com.flowglass.demo.xposed.method.MethodHookEventSink
+import com.flowglass.engine.methodhook.AppMethodCall
+import com.flowglass.engine.methodhook.MethodHookVariables
 import com.flowglass.engine.Clock
 import com.flowglass.engine.trigger.TriggerBinding
 import com.flowglass.engine.trigger.TriggerDispatcher
@@ -184,7 +186,21 @@ internal class TriggerHost(
                     kind = TriggerKinds.METHOD_CALL,
                     source = TriggerSource.METHOD_HOOK,
                     atEpochMs = System.currentTimeMillis(),
-                    data = mapOf("hook.id" to hookId),
+                    data = AppMethodCall.eventData(
+                        packageName = variables[MethodHookVariables.APP].orEmpty(),
+                        userId = variables[MethodHookVariables.USER]?.toIntOrNull() ?: 0,
+                        className = variables[MethodHookVariables.METHOD]
+                            ?.substringBeforeLast('#').orEmpty(),
+                        methodName = variables[MethodHookVariables.METHOD]
+                            ?.substringAfterLast('#').orEmpty(),
+                        signature = variables[MethodHookVariables.SIGNATURE].orEmpty(),
+                    ).let { data ->
+                        // The matcher compares the actual parameter types, not the display string.
+                        data + ("method.parameterTypes" to variables[MethodHookVariables.SIGNATURE]
+                            ?.substringAfter('(', "")
+                            ?.substringBeforeLast(')', "")
+                            .orEmpty())
+                    },
                     methodHookVariables = variables,
                 )
             )

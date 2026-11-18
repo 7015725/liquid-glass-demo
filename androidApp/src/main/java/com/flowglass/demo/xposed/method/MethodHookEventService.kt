@@ -20,11 +20,13 @@ import java.io.File
  */
 class MethodHookEventService : Service() {
     private val secrets by lazy { MethodHookSecrets(this) }
-    private val store by lazy { MethodHookStore(File(filesDir, "method-hooks.json")) }
     private val guard = MethodHookReplayGuard()
     private val verifier by lazy {
         MethodHookEventVerifier(
-            specFor = { hookId -> store.load().hooks.firstOrNull { it.id == hookId } },
+            specFor = { hookId ->
+                MethodHookConfigPublisher.readRuntime(this)
+                    ?.hooks?.firstOrNull { it.spec.id == hookId }?.spec
+            },
             tokenFor = { hookId -> secrets.token(hookId) },
             onEvent = { hookId, variables ->
                 MethodHookEventSink.publish(hookId, variables)
@@ -124,19 +126,19 @@ internal class MethodHookEventVerifier(
             return MethodHookVerification.Rejected("body 过大或为空")
         }
         val spec = specFor(packet.hookId)
-            ?: return MethodHookVerification.Rejected("未知钩子")
+            ?: return MethodHookVerification.Rejected("未知应用方法调用")
         if (!MethodHookCallerValidator.matches(caller, spec)) {
             return MethodHookVerification.Rejected("调用方 UID/user/包名不匹配")
         }
         val token = tokenFor(spec.id)
-            ?: return MethodHookVerification.Rejected("没有钩子 token")
+            ?: return MethodHookVerification.Rejected("没有应用方法调用 token")
         if (!MethodHookHmac.verify(token, packet.body, packet.mac)) {
             return MethodHookVerification.Rejected("HMAC 校验失败")
         }
         val envelope = runCatching { MethodHookWireJson.decodeEnvelope(packet.body) }
             .getOrElse { return MethodHookVerification.Rejected("body 不是合法 JSON") }
         if (envelope.hookId != spec.id) {
-            return MethodHookVerification.Rejected("body 钩子标识不匹配")
+            return MethodHookVerification.Rejected("body 调用标识不匹配")
         }
         if (envelope.packageName != spec.packageName || envelope.userId != spec.userId) {
             return MethodHookVerification.Rejected("包名或用户与配置不匹配")
