@@ -48,6 +48,7 @@ internal object MethodHookConfigPublisher {
             MethodHookRuntimeHook(spec = spec, token = secrets.ensureToken(spec.id))
         }
         val json = MethodHookRuntimeJson.encode(MethodHookRuntimeConfig(hooks = runtime))
+        android.util.Log.i("FlowGlass/MethodHook", "已发布配置，方法调用数 = ${runtime.size}")
 
         runCatching {
             appContext.getSharedPreferences(MethodHookPrefs.NAME, Context.MODE_PRIVATE)

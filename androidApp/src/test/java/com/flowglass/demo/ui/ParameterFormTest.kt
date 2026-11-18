@@ -27,13 +27,17 @@ class ParameterFormTest {
                 // class and method. Round-trip a realistic complete configuration instead.
                 com.flowglass.engine.ParameterCodec.formatComponent(
                     meta,
-                    mapOf(
-                        "package" to "com.example.app",
-                        "className" to "com.example.app.OrderManager",
-                        "methodName" to "onPaySuccess",
-                        "paramTypes" to "java.lang.String,int",
-                        "extractions" to "[]",
-                    ),
+                    meta.params.associate { spec ->
+                        val sample = when (spec.key) {
+                            "package" -> "com.example.app"
+                            "className" -> "com.example.app.OrderManager"
+                            "methodName" -> "onPaySuccess"
+                            "paramTypes" -> "java.lang.String,int"
+                            "extractions" -> "[]"
+                            else -> spec.defaultValue.toString()
+                        }
+                        spec.key to com.flowglass.engine.ParameterCodec.parse(spec, sample)
+                    },
                 )
             } else {
                 option?.defaultParameter
