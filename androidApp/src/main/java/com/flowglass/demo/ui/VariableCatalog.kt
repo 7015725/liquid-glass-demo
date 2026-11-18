@@ -1,14 +1,19 @@
 package com.flowglass.demo.ui
 
-import com.flowglass.demo.xposed.method.MethodHookCatalog
+import com.flowglass.engine.BuiltInComponents
 import com.flowglass.engine.BuiltInVariables
+import com.flowglass.engine.ParameterCodec
 import com.flowglass.engine.VariableName
 import com.flowglass.engine.VariableScope
 import com.flowglass.engine.VariableType
+import com.flowglass.engine.methodhook.AppMethodCall
+import com.flowglass.engine.methodhook.MethodExtraction
 import com.flowglass.engine.methodhook.MethodExtractionSource
 import com.flowglass.engine.methodhook.MethodHookNames
 
-/** One row offered by the variable picker and the management page. */
+/**
+ * One row offered by the variable picker and the management page.
+ */
 data class VariableOption(
     val name: String,
     val scope: VariableScope,
@@ -73,8 +78,8 @@ object VariableCatalog {
     ): String? {
         VariableName.error(name)?.let { return it }
         if (BuiltInVariables.byName.containsKey(name)) return "名字已被占用：$name 是内置变量"
-        if (MethodHookCatalog.variableNames().contains(name)) {
-            return "名字已被占用：$name 是方法钩子提供的内置变量"
+        if (methodCallExtractions(state).any { it.extraction.name == name }) {
+            return "名字已被占用：$name 是应用方法调用提供的内置变量"
         }
         val clash = forManager(state).firstOrNull {
             it.name == name && it.scope != VariableScope.BUILTIN &&
@@ -121,30 +126,60 @@ object VariableCatalog {
                 references = references(state, spec.name, VariableScope.BUILTIN, null),
                 legacyKey = spec.legacyKey,
             )
-        } + MethodHookCatalog.all().flatMap { hook ->
-            hook.extractions.map { extraction ->
-                val name = MethodHookNames.normalizeExtractionName(extraction.name)
-                val where = when (extraction.source) {
-                    MethodExtractionSource.ARGUMENT -> "参数 ${extraction.argIndex ?: "?"}"
-                    MethodExtractionSource.RESULT -> "返回值"
-                }
-                val path = extraction.path.trim()
-                VariableOption(
-                    name = name,
-                    scope = VariableScope.BUILTIN,
-                    type = VariableType.TEXT,
-                    note = buildString {
-                        append("方法钩子「${MethodHookCatalog.displayName(hook)}」")
-                        append("：$where")
-                        if (path.isNotEmpty()) append(" · $path")
-                        if (!hook.enabled) append("（钩子未启用）")
-                    },
-                    value = "运行时提供",
-                    references = references(state, name, VariableScope.BUILTIN, null),
-                    ownerTitle = MethodHookCatalog.displayName(hook),
-                )
+        } + methodCallExtractions(state).map { (owner, extraction) ->
+            val name = MethodHookNames.normalizeExtractionName(extraction.name)
+            val where = when (extraction.source) {
+                MethodExtractionSource.ARGUMENT -> "参数 ${extraction.argIndex ?: "?"}"
+                MethodExtractionSource.RESULT -> "返回值"
             }
+            val path = extraction.path.trim()
+            VariableOption(
+                name = name,
+                scope = VariableScope.BUILTIN,
+                type = VariableType.TEXT,
+                note = buildString {
+                    append("应用方法调用「$owner」")
+                    append("：$where")
+                    if (path.isNotEmpty()) append(" · $path")
+                },
+                value = "运行时提供",
+                references = references(state, name, VariableScope.BUILTIN, null),
+                ownerTitle = owner,
+            )
         }
+
+    private data class MethodCallExtraction(
+        val owner: String,
+        val extraction: MethodExtraction,
+    )
+
+    private fun methodCallExtractions(state: AppState): List<MethodCallExtraction> {
+        val meta = BuiltInComponents.registry().find(AppMethodCall.TYPE_ID) ?: return emptyList()
+        return state.allCommands()
+            .filter { it.enabled && it.auto }
+            .flatMap { command ->
+                command.triggers
+                    .filter { it.typeId == AppMethodCall.TYPE_ID }
+                    .flatMap { trigger ->
+                        runCatching { ParameterCodec.parseComponent(meta, trigger.parameter) }
+                            .getOrNull()
+                            ?.let { params ->
+                                AppMethodCall.decodeExtractions(
+                                    (params[AppMethodCall.KEY_EXTRACTIONS]
+                                        as? kotlinx.serialization.json.JsonPrimitive)
+                                        ?.takeIf { it.isString }?.content.orEmpty(),
+                                )
+                            }
+                            .orEmpty()
+                            .map { extraction ->
+                                MethodCallExtraction(
+                                    owner = command.title,
+                                    extraction = extraction,
+                                )
+                            }
+                    }
+            }
+    }
 
     private fun globals(state: AppState): List<VariableOption> = state.engineGlobals.map { (name, value) ->
         val meta = state.engineGlobalMeta[name]

@@ -152,15 +152,31 @@ class TriggerEngineTest {
     }
 
     @Test
-    fun methodHookMatchesItsHookAndExposesRawVariables() {
+    fun appMethodCallMatchesTargetClassMethodAndTypes() {
         val clock = FakeClock(0)
         val executor = RecordingExecutor()
         val d = dispatcher(clock, FakeEnvironment(), executor)
-        val r = rule("hook", listOf(trigger(TriggerTypes.METHOD_HOOK, "hook" to "hook-1")))
+        val r = rule(
+            "hook",
+            listOf(
+                trigger(
+                    TriggerTypes.APP_METHOD_CALL,
+                    "package" to "com.example.target",
+                    "className" to "com.example.Target",
+                    "methodName" to "submit",
+                    "paramTypes" to "java.lang.String",
+                ),
+            ),
+        )
 
         val miss = d.dispatch(
             TriggerEvent(TriggerKinds.METHOD_CALL, TriggerSource.METHOD_HOOK, 0,
-                data = mapOf("hook.id" to "hook-2"), methodHookVariables = mapOf("订单号" to "B")),
+                data = mapOf(
+                    "app" to "com.example.target",
+                    "method.class" to "com.example.Target",
+                    "method.name" to "submit",
+                    "method.parameterTypes" to "int",
+                ), methodHookVariables = mapOf("订单号" to "B")),
             listOf(r),
         )
         assertEquals(0, miss.executions.size)
@@ -168,7 +184,12 @@ class TriggerEngineTest {
         clock.now = 3_000
         val hit = d.dispatch(
             TriggerEvent(TriggerKinds.METHOD_CALL, TriggerSource.METHOD_HOOK, 3_000,
-                data = mapOf("hook.id" to "hook-1"), methodHookVariables = mapOf("订单号" to "A-1")),
+                data = mapOf(
+                    "app" to "com.example.target",
+                    "method.class" to "com.example.Target",
+                    "method.name" to "submit",
+                    "method.parameterTypes" to "java.lang.String",
+                ), methodHookVariables = mapOf("订单号" to "A-1")),
             listOf(r),
         )
         assertEquals(1, hit.executions.size)

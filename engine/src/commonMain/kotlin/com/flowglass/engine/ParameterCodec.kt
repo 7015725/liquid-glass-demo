@@ -156,6 +156,15 @@ object ParameterCodec {
     }
 
     fun parseComponent(meta: ComponentMeta, text: String): Map<String, JsonElement> {
+        val parsed = parseComponentRaw(meta, text)
+        if (meta.typeId == com.flowglass.engine.methodhook.AppMethodCall.TYPE_ID) {
+            val errors = com.flowglass.engine.methodhook.AppMethodCall.validateParams(parsed)
+            require(errors.isEmpty()) { errors.joinToString("；") }
+        }
+        return parsed
+    }
+
+    private fun parseComponentRaw(meta: ComponentMeta, text: String): Map<String, JsonElement> {
         if (meta.typeId == "action.script") return parseScript(meta, text)
         if (meta.typeId == "action.post_notification") return parseNotification(meta, text)
         if (meta.typeId == "action.toast") return parseToast(meta, text)

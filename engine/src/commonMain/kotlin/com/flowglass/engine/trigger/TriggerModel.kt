@@ -39,7 +39,7 @@ object TriggerTypes {
     const val HEADSET = "trigger.headset"
     const val LOCATION_ENTER = "trigger.location_enter"
     const val LOCATION_EXIT = "trigger.location_exit"
-    const val METHOD_HOOK = "trigger.method_hook"
+    const val APP_METHOD_CALL = "trigger.app_method_call"
 
     /** Old rules keep their type id; only these two are mapped onto the new listeners. */
     fun sourceOf(typeId: String): TriggerSource? = when (typeId) {
@@ -58,7 +58,7 @@ object TriggerTypes {
         FOREGROUND_SERVICE -> TriggerSource.SYSTEM
         HEADSET -> TriggerSource.HEADSET
         LOCATION_ENTER, LOCATION_EXIT -> TriggerSource.LOCATION
-        METHOD_HOOK -> TriggerSource.METHOD_HOOK
+        APP_METHOD_CALL -> TriggerSource.METHOD_HOOK
         else -> null
     }
 
@@ -433,10 +433,18 @@ object TriggerMatcher {
             actual.endsWith("@0") && actual.removeSuffix("@0") == target
 
     private fun matchesMethodHook(binding: TriggerBinding, event: TriggerEvent): Boolean {
-        if (binding.component.typeId != TriggerTypes.METHOD_HOOK) return false
-        val wanted = binding.component.params["hook"]?.stringValue()?.trim().orEmpty()
-        if (wanted.isEmpty()) return false
-        return event.data["hook.id"] == wanted
+        if (binding.component.typeId != TriggerTypes.APP_METHOD_CALL) return false
+        val target = binding.component.params["package"]?.stringValue()?.trim().orEmpty()
+        if (target.isEmpty() || !sameApp(target, event.data["app"].orEmpty())) return false
+        val className = binding.component.params["className"]?.stringValue()?.trim().orEmpty()
+        if (className.isEmpty() || className != event.data["method.class"]) return false
+        val methodName = binding.component.params["methodName"]?.stringValue()?.trim().orEmpty()
+        if (methodName.isEmpty() || methodName != event.data["method.name"]) return false
+        val wantedTypes = binding.component.params["paramTypes"]?.stringValue()?.trim().orEmpty()
+        if (wantedTypes.isEmpty()) return true
+        return wantedTypes.split(',', '，').map { it.trim() }.filter { it.isNotEmpty() } ==
+            event.data["method.parameterTypes"].orEmpty().split(',')
+                .map { it.trim() }.filter { it.isNotEmpty() }
     }
 
     private fun matchesHeadset(

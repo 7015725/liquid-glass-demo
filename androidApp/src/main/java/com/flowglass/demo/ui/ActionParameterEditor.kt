@@ -57,7 +57,6 @@ internal fun ActionParameterEditor(
     onAuthorization: (Int) -> Unit = {},
     targets: List<String> = emptyList(),
     variables: List<VariableOption> = emptyList(),
-    onOpenMethodHooks: () -> Unit = {},
     showDone: Boolean = true,
 ) {
     val meta = item.typeId?.let { id -> com.flowglass.engine.BuiltInComponents.registry().find(id) }
@@ -83,7 +82,6 @@ internal fun ActionParameterEditor(
             onValue = onParameter,
             targets = targets,
             variables = variables,
-            onOpenMethodHooks = onOpenMethodHooks,
         )
         if (spec.hint.isNotBlank()) {
             T(spec.hint, 13.sp, color = C.OnSurfaceVar, lineHeight = 20.sp,
@@ -203,8 +201,8 @@ private fun MultiParameterEditor(
     item: CommandItem,
     onParameter: (String) -> Unit,
     onAuthorization: (Int) -> Unit,
-    targets: List<String>,
-    variables: List<VariableOption>,
+    targets: List<String> = emptyList(),
+    variables: List<VariableOption> = emptyList(),
 ) {
     var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }

@@ -125,17 +125,15 @@ object BuiltInVariables {
         VariableSpec("系统事件", VariableScope.BUILTIN, VariableType.TEXT,
             "系统钩子事件的类型", source = "system"),
         VariableSpec(MethodHookVariables.APP, VariableScope.BUILTIN, VariableType.TEXT,
-            "方法钩子事件：目标应用包名", source = "method_hook"),
+            "应用方法调用事件：目标应用包名", source = "app_method_call"),
         VariableSpec(MethodHookVariables.USER, VariableScope.BUILTIN, VariableType.INT,
-            "方法钩子事件：目标应用的 Android 用户 ID", source = "method_hook"),
+            "应用方法调用事件：目标应用的 Android 用户 ID", source = "app_method_call"),
         VariableSpec(MethodHookVariables.PROCESS, VariableScope.BUILTIN, VariableType.TEXT,
-            "方法钩子事件：实际触发进程名", source = "method_hook"),
+            "应用方法调用事件：实际触发进程名", source = "app_method_call"),
         VariableSpec(MethodHookVariables.METHOD, VariableScope.BUILTIN, VariableType.TEXT,
-            "方法钩子事件：类名#方法名", source = "method_hook"),
+            "应用方法调用事件：类名#方法名", source = "app_method_call"),
         VariableSpec(MethodHookVariables.SIGNATURE, VariableScope.BUILTIN, VariableType.TEXT,
-            "方法钩子事件：收敛后的参数签名", source = "method_hook"),
-        VariableSpec(MethodHookVariables.ID, VariableScope.BUILTIN, VariableType.TEXT,
-            "方法钩子事件：设置页里的钩子标识", source = "method_hook"),
+            "应用方法调用事件：实际匹配的参数签名", source = "app_method_call"),
     )
 
     val byName: Map<String, VariableSpec> = all.associateBy { it.name }
