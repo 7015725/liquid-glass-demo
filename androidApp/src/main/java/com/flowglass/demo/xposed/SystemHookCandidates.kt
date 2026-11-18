@@ -29,8 +29,22 @@ internal enum class HookEventSource {
     /** The second argument is a ProcessRecord (ActivityManagerService#handleApplicationCrashInner). */
     SECOND_ARGUMENT_PROCESS,
 
+    /**
+     * A process-start method whose identity can be read from an ApplicationInfo or a
+     * ProcessRecord depending on the overload. Android 10 moved the real startup into
+     * ProcessList#startProcessLocked, which has both String+ApplicationInfo and
+     * ProcessRecord/HostingRecord overloads.
+     */
+    PROCESS_START_ARGUMENTS,
+
     /** The first argument is a ProcessRecord (ActivityManagerService#cleanUpApplicationRecordLocked). */
     CLEANUP_PROCESS_RECORD,
+
+    /**
+     * The first argument is a ProcessRecord and the second is the `restarting` flag
+     * (ActivityManagerService#handleAppDiedLocked).
+     */
+    PROCESS_DIED_RECORD,
 }
 
 internal data class HookCandidate(
@@ -106,11 +120,34 @@ internal object SystemHookCandidates {
             family = SystemHookFamily.PROCESS,
             kind = SystemHookProtocol.EVENT_PROCESS_STARTED,
         ),
+        // Android 10/11 moved the actual process creation from ActivityManagerService into
+        // ProcessList. The ActivityManagerService overload above is a thin compatibility wrapper
+        // on those releases and is not on every activity-start path, so hooking only AMS silently
+        // misses launches (observed on Lenovo L79031 / Android 10).
+        HookCandidate(
+            label = "processList.startProcessLocked",
+            className = "com.android.server.am.ProcessList",
+            methodName = "startProcessLocked",
+            source = HookEventSource.PROCESS_START_ARGUMENTS,
+            family = SystemHookFamily.PROCESS,
+            kind = SystemHookProtocol.EVENT_PROCESS_STARTED,
+        ),
         HookCandidate(
             label = "ams.cleanUpApplicationRecordLocked",
             className = "com.android.server.am.ActivityManagerService",
             methodName = "cleanUpApplicationRecordLocked",
             source = HookEventSource.CLEANUP_PROCESS_RECORD,
+            family = SystemHookFamily.PROCESS,
+            kind = SystemHookProtocol.EVENT_PROCESS_ENDED,
+        ),
+        // On Android 10/11 a process can be removed through this path even when the cleanup
+        // method is called with a different argument layout. It is an additional read-only
+        // detection point; the 750 ms per-package dedupe collapses the overlapping callbacks.
+        HookCandidate(
+            label = "ams.handleAppDiedLocked",
+            className = "com.android.server.am.ActivityManagerService",
+            methodName = "handleAppDiedLocked",
+            source = HookEventSource.PROCESS_DIED_RECORD,
             family = SystemHookFamily.PROCESS,
             kind = SystemHookProtocol.EVENT_PROCESS_ENDED,
         ),
