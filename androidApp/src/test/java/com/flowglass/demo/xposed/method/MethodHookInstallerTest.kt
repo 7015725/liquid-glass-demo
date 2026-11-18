@@ -62,7 +62,6 @@ class MethodHookInstallerTest {
 
     private fun spec(
         methodName: String = "submit",
-        paramCount: Int? = 2,
         paramTypes: List<String> = emptyList(),
         extractions: List<MethodExtraction> = listOf(
             MethodExtraction("订单号", MethodExtractionSource.ARGUMENT, 0),
@@ -75,7 +74,6 @@ class MethodHookInstallerTest {
         packageName = "com.example.target",
         className = Target::class.java.name,
         methodName = methodName,
-        paramCount = paramCount,
         paramTypes = paramTypes,
         extractions = extractions,
         maxCallsPerMinute = 60,
@@ -102,26 +100,32 @@ class MethodHookInstallerTest {
         assertEquals("A-9", event["订单号"])
         assertEquals("done", event["结果"])
         assertEquals("com.example.target", event[MethodHookVariables.APP])
-        assertEquals("h1", event[MethodHookVariables.ID])
         assertEquals("submit(java.lang.String,int)", event[MethodHookVariables.SIGNATURE])
     }
 
     @Test
-    fun refusesAmbiguousAndMissingMethodsWithoutHooking() {
+    fun emptyParamTypesInstallEverySameNameOverload() {
         val bridge = FakeBridge()
         val recorder = Recorder()
-        val ambiguous = MethodHookInstaller.install(
+        val result = MethodHookInstaller.install(
             bridge, Target::class.java.classLoader, "com.example.target", 0, "com.example.target",
-            config(spec(methodName = "overloaded", paramCount = null)), recorder,
+            config(spec(methodName = "overloaded", paramTypes = emptyList())), recorder,
         )
-        assertEquals(listOf("ambiguous"), ambiguous)
-        assertEquals(null, bridge.hooked)
+        assertEquals(listOf("installed"), result)
+        assertTrue(bridge.hooked != null)
+        assertTrue(recorder.events.any { it.first == "install" && it.third == MethodHookStatus.INSTALLED })
+    }
 
+    @Test
+    fun missingMethodIsReportedWithoutHooking() {
+        val bridge = FakeBridge()
+        val recorder = Recorder()
         val missing = MethodHookInstaller.install(
             bridge, Target::class.java.classLoader, "com.example.target", 0, "com.example.target",
             config(spec(methodName = "nope")), recorder,
         )
         assertEquals(listOf("not_found"), missing)
+        assertEquals(null, bridge.hooked)
     }
 
     @Test

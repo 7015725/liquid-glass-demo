@@ -18,7 +18,9 @@ internal object ParameterForm {
             val fallback = runCatching { ParameterCodec.format(spec, spec.defaultValue) }.getOrNull()
             spec.key to (formatted ?: when {
                 parameter.isBlank() -> fallback.orEmpty()
-                spec == meta.params.firstOrNull() -> parameter
+                // A multi-field component stores "|" separators. Showing the whole raw string in
+                // the first field would leak those separators into a fresh draft (e.g. "||||").
+                meta.params.size == 1 && spec == meta.params.firstOrNull() -> parameter
                 else -> ""
             })
         }

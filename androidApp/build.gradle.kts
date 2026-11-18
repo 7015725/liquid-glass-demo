@@ -50,8 +50,8 @@ android {
         applicationId = "com.flowglass.demo"
         minSdk = 26
         targetSdk = 37
-        versionCode = 66
-        versionName = "0.8.0-alpha28"
+        versionCode = 67
+        versionName = "0.8.0-alpha29"
         androidResources.localeFilters += arrayOf("zh", "en")
     }
 

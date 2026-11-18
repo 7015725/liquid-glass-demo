@@ -11,6 +11,12 @@ internal data class StoreLoad(val saved: PersistedAppState?, val error: String? 
     ).also { it.storageError = error }
 }
 
+/** The old type id is intentionally not migrated; a pre-release build may delete it. */
+private fun PersistedAppState.hasRetiredMethodHookTrigger(): Boolean =
+    (autoCmds + oneTaps).any { command ->
+        command.triggers.any { it.typeId == "trigger.method_hook" }
+    }
+
 // Shared across instances: a recreation must not read a half-finished write.
 private val storeLock = Any()
 
@@ -31,6 +37,12 @@ internal class CommandStore(private val file: File) {
                 val original = atomic.openRead().use { it.readBytes() }
                 val text = Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(original)).toString()
                 val decoded = AppStateJson.decodeDocument(text)
+                if (decoded.state.hasRetiredMethodHookTrigger()) {
+                    // Pre-release format changed without a migration: fail closed with a clear
+                    // recovery instruction instead of showing a half-working old trigger.
+                    blocked = true
+                    return StoreLoad(null, "数据格式已更新，请清除应用数据或重新安装")
+                }
                 if (decoded.migrated) {
                     val backup = File(file.parentFile, decoded.backupName ?: "commands.v1.bak.json")
                     LegacyFileMigration.backupBeforeWrite(original, backup) {

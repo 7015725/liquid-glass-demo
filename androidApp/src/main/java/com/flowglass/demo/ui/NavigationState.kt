@@ -67,7 +67,7 @@ internal fun restoreNavigation(state: AppState, saved: NavSnapshot): NavSnapshot
     // so it falls back to the saved one.
     state.blockPath = state.validBlockPath(if (processRestore) saved.blockPath else state.blockPath)
 
-    val savedPage = saved.settingsPage.takeIf { it in SettingsPage.KeepAlive..SettingsPage.MethodHooks }
+    val savedPage = saved.settingsPage.takeIf { it in SettingsPage.KeepAlive..SettingsPage.Variables }
     if (state.settingsPage == SettingsPage.Main && savedPage != null) state.settingsPage = savedPage
 
     return saved.copy(

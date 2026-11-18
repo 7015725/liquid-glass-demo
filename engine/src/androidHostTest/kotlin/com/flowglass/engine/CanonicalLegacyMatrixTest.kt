@@ -60,7 +60,7 @@ class CanonicalLegacyMatrixTest {
                     "trigger.keyguard", // alpha8
                     "trigger.media", // alpha9
                     "trigger.foreground_service", // alpha10
-                    "trigger.method_hook", // alpha21, no v0.5 form
+                    "trigger.app_method_call", // alpha21, no v0.5 form
                 )
         }
         assertEquals(expected.keys, legacyComponents.map { it.typeId }.toSet())
@@ -97,7 +97,7 @@ class CanonicalLegacyMatrixTest {
     @Test fun freeTextAndApplicationPreserveArbitraryTextIncludingEmptyAndWhitespace() {
         val metas = BuiltInComponents.all.filter {
             it.typeId != "action.force_stop" && // alpha11, no v0.5 form
-                it.typeId != "trigger.method_hook" && // alpha21, no v0.5 form
+                it.typeId != "trigger.app_method_call" && // alpha21, no v0.5 form
                 it.params.size == 1 &&
                 it.params.single().type in setOf(ParamType.TEXT, ParamType.MULTILINE_TEXT, ParamType.APPLICATION)
         }

@@ -10,6 +10,7 @@ import com.flowglass.engine.RuleDocument
 import com.flowglass.engine.RuleJson
 import com.flowglass.engine.RulePresentation
 import com.flowglass.engine.RuleUiMetadata
+import com.flowglass.engine.methodhook.AppMethodCall
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -206,7 +207,27 @@ private fun buildParsed(
     settings: BackupSettings?,
 ): ParsedImport {
     val document = normalizeDocument(rawDocument)
-    val converted = document.toPersistedAppState()
+    val initial = document.toPersistedAppState()
+    // A method-listening command is sensitive: importing never silently enables it, even in a
+    // full backup. Auto commands are disabled for one-shot command imports below as well.
+    fun List<Cmd>.disableMethodCallCommands(): List<Cmd> = map { command ->
+        if (command.triggers.any { it.typeId == AppMethodCall.TYPE_ID }) {
+            command.copy(enabled = false)
+        } else {
+            command
+        }
+    }
+    val converted = PersistedAppState(
+        autoCmds = initial.autoCmds.disableMethodCallCommands(),
+        oneTaps = initial.oneTaps.disableMethodCallCommands(),
+        logs = initial.logs,
+        running = initial.running,
+        mode = initial.mode,
+        engineRules = initial.engineRules,
+        engineUi = initial.engineUi,
+        engineGlobals = initial.engineGlobals,
+        engineGlobalMeta = initial.engineGlobalMeta,
+    )
     val commands = converted.autoCmds + converted.oneTaps
     require(commands.isNotEmpty()) { "文件不包含任何指令" }
     val used = (state.autoCmds + state.oneTaps)
@@ -367,8 +388,11 @@ private fun validateTransferText(text: String) {
 }
 
 private fun sensitiveActions(cmd: Cmd): List<String> {
+    val methodCall = cmd.triggers
+        .filter { it.typeId == AppMethodCall.TYPE_ID }
+        .map { "应用方法调用（敏感：会在其他应用内监听方法）" }
     val registry = com.flowglass.engine.BuiltInComponents.registry()
-    return cmd.actions.allItems().mapNotNull { item ->
+    return methodCall + cmd.actions.allItems().mapNotNull { item ->
         val meta = item.typeId?.let(registry::find) ?: return@mapNotNull null
         val rootOnly = meta.supports.any {
             it.layer == com.flowglass.engine.ExecutionLayer.ROOT

@@ -52,7 +52,7 @@ class ComponentLayerDeclarationTest {
         // the editor promise behavior the app cannot deliver.
         val xposedOnlyTriggers = setOf(
             "trigger.app_process", "trigger.app_crash", "trigger.keyguard", "trigger.media",
-            "trigger.foreground_service", "trigger.method_hook",
+            "trigger.foreground_service", "trigger.app_method_call",
         )
         BuiltInComponents.all
             .filter { it.kind == ComponentKind.ACTION && it.block == null || it.kind == ComponentKind.TRIGGER }

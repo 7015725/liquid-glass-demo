@@ -24,9 +24,9 @@ internal object TriggerLayers {
 
     fun hasImplementation(typeId: String, layer: ExecutionLayer): Boolean = when (layer) {
         ExecutionLayer.NORMAL ->
-            TriggerTypes.sourceOf(typeId) != null && typeId !in xposedOnly && typeId != TriggerTypes.METHOD_HOOK
+            TriggerTypes.sourceOf(typeId) != null && typeId !in xposedOnly && typeId != TriggerTypes.APP_METHOD_CALL
         ExecutionLayer.XPOSED ->
-            typeId == TriggerTypes.APP_FOREGROUND || typeId == TriggerTypes.METHOD_HOOK || typeId in xposedOnly
+            typeId == TriggerTypes.APP_FOREGROUND || typeId == TriggerTypes.APP_METHOD_CALL || typeId in xposedOnly
         ExecutionLayer.ROOT -> typeId == TriggerTypes.APP_FOREGROUND
     }
 
