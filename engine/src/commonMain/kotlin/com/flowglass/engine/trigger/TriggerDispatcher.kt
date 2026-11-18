@@ -1,10 +1,13 @@
 package com.flowglass.engine.trigger
 
-import com.flowglass.engine.BuiltInVariables
-
+import com.flowglass.engine.BuiltInComponents
 import com.flowglass.engine.Clock
 import com.flowglass.engine.ExecutionLayer
 import com.flowglass.engine.MatchMode
+import com.flowglass.engine.OutputCatalog
+import com.flowglass.engine.OutputValues
+import com.flowglass.engine.VariableType
+import com.flowglass.engine.methodhook.MethodHookVariables
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -33,7 +36,13 @@ interface TriggerExecutor {
     fun cancel(rule: TriggerRule) {}
 
     /** Starts the rule and returns false when the repeat policy dropped this trigger. */
-    fun execute(rule: TriggerRule, binding: TriggerBinding, reason: String, variables: Map<String, Any?>): Boolean
+    fun execute(
+        rule: TriggerRule,
+        binding: TriggerBinding,
+        reason: String,
+        variables: Map<String, Any?>,
+        readOnlyNames: Set<String> = emptySet(),
+    ): Boolean
 }
 
 fun interface TriggerSkipRecorder {
@@ -45,6 +54,7 @@ data class TriggerExecution(
     val binding: TriggerBinding,
     val reason: String,
     val variables: Map<String, Any?>,
+    val readOnlyNames: Set<String> = emptySet(),
 )
 
 data class TriggerSkip(
@@ -163,7 +173,10 @@ class TriggerDispatcher(
                 debounced += ruleBindings.size
                 continue
             }
-            val conditions = TriggerConditions.evaluate(rule.conditions, environment, now, offset, variablesFor(event, now, offset))
+            val triggerVariables = variablesFor(binding, event, now, offset)
+            val conditions = TriggerConditions.evaluate(
+                rule.conditions, environment, now, offset, triggerVariables.values,
+            )
             if (!conditions.passed) {
                 val detail = conditions.detail
                 val previous = lastSkipLog[rule.id]
@@ -176,7 +189,8 @@ class TriggerDispatcher(
                 continue
             }
             val reason = reasonFor(binding)
-            val variables = variablesFor(event, now, offset)
+            val variables = triggerVariables.values
+            val readOnlyNames = triggerVariables.readOnlyNames
             val active = executor.activeCount(rule)
             when (rule.runMode) {
                 com.flowglass.engine.RunMode.DROP -> if (active > 0) {
@@ -186,7 +200,7 @@ class TriggerDispatcher(
                 com.flowglass.engine.RunMode.QUEUE -> if (active > 0) {
                     val queue = queues.getOrPut(rule.id) { ArrayDeque() }
                     if (queue.size >= MAX_QUEUED_RUNS) dropped++ else {
-                        queue.addLast(TriggerExecution(rule, binding, reason, variables))
+                        queue.addLast(TriggerExecution(rule, binding, reason, variables, readOnlyNames))
                         queued++
                     }
                     continue
@@ -202,8 +216,8 @@ class TriggerDispatcher(
                 // A conjunction is consumed by one execution; require fresh events next time.
                 ruleBindings.forEach { lastEvents.remove(it.key) }
             }
-            if (executor.execute(rule, binding, reason, variables)) {
-                executions += TriggerExecution(rule, binding, reason, variables)
+            if (executor.execute(rule, binding, reason, variables, readOnlyNames)) {
+                executions += TriggerExecution(rule, binding, reason, variables, readOnlyNames)
             } else {
                 dropped++
             }
@@ -219,7 +233,7 @@ class TriggerDispatcher(
         val queue = queues[rule.id] ?: return
         while (queue.isNotEmpty() && executor.activeCount(rule) == 0) {
             val next = queue.removeFirst()
-            if (executor.execute(next.rule, next.binding, next.reason, next.variables)) return
+            if (executor.execute(next.rule, next.binding, next.reason, next.variables, next.readOnlyNames)) return
         }
         if (queue.isEmpty()) queues.remove(rule.id)
     }
@@ -264,7 +278,17 @@ class TriggerDispatcher(
 
     private fun reasonFor(binding: TriggerBinding): String = "触发：${binding.component.name}"
 
-    private fun variablesFor(event: TriggerEvent, now: Long, offset: Int): Map<String, Any?> {
+    private data class TriggerVariables(
+        val values: Map<String, Any?>,
+        val readOnlyNames: Set<String>,
+    )
+
+    private fun variablesFor(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        now: Long,
+        offset: Int,
+    ): TriggerVariables {
         val localTime = TriggerSchedule.localTime(event.atEpochMs, offset)
         val variables = linkedMapOf<String, Any?>("event.time" to localTime)
         event.data["battery"]?.toIntOrNull()?.let { variables["event.battery"] = it }
@@ -272,8 +296,95 @@ class TriggerDispatcher(
             if (key == "zone_offset_minutes" || key == "battery") continue
             variables["event.$key"] = value
         }
-        variables.putAll(BuiltInVariables.eventValues(event.kind, event.data, localTime))
-        event.methodHookVariables.forEach { (key, value) -> variables[key] = value }
-        return variables
+        val meta = BuiltInComponents.registry().find(binding.component.typeId)
+        val readOnlyNames = linkedSetOf<String>()
+        if (meta != null) {
+            val values = triggerOutputValues(binding, event, localTime)
+            for (output in OutputCatalog.effectiveBindings(binding.component.outputs, meta)) {
+                if (!output.enabled) continue
+                val spec = OutputCatalog.spec(meta, output.key) ?: continue
+                val converted = OutputValues.convert(spec, values[output.key]) ?: continue
+                variables[output.name] = converted
+                readOnlyNames += output.name
+            }
+        }
+        // User-named extraction fields are dynamic outputs, not part of the fixed schema.
+        event.methodHookVariables.forEach { (key, value) ->
+            variables[key] = value
+            readOnlyNames += key
+        }
+        return TriggerVariables(variables, readOnlyNames)
+    }
+
+    private fun triggerOutputValues(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        localTime: String,
+    ): Map<String, Any?> {
+        val values = linkedMapOf<String, Any?>(
+            "trigger.firedAt" to localTime,
+            "trigger.reason" to reasonFor(binding),
+            "trigger.name" to binding.component.name,
+        )
+        val data = event.data
+        fun putText(key: String, value: String?) {
+            if (!value.isNullOrEmpty()) values[key] = value
+        }
+        fun putApp() {
+            putText("trigger.app.package", data["app"])
+            data["app.user"]?.toIntOrNull()?.let { values["trigger.app.user"] = it }
+        }
+        when (binding.component.typeId) {
+            TriggerTypes.BATTERY_LEVEL, TriggerTypes.BATTERY_LOW_LEGACY ->
+                data["battery"]?.toIntOrNull()?.let { values["trigger.battery.level"] = it }
+            TriggerTypes.WIFI -> {
+                putText("trigger.wifi.ssid", data["ssid"])
+                putText("trigger.wifi.state", data["state"])
+            }
+            TriggerTypes.BLUETOOTH -> {
+                putText("trigger.bluetooth.name", data["name"])
+                putText("trigger.bluetooth.state", data["state"])
+            }
+            TriggerTypes.NOTIFICATION -> {
+                putText("trigger.notification.app", data["notification.app"])
+                data["notification.user"]?.toIntOrNull()?.let { values["trigger.notification.user"] = it }
+                putText("trigger.notification.title", data["notification.title"])
+                putText("trigger.notification.text", data["notification.text"])
+            }
+            TriggerTypes.APP_FOREGROUND -> putApp()
+            TriggerTypes.APP_PROCESS, TriggerTypes.FOREGROUND_SERVICE -> putApp()
+            TriggerTypes.APP_CRASH, TriggerTypes.MEDIA -> {
+                putApp()
+                val eventName = when (event.kind) {
+                    TriggerKinds.APP_CRASH -> "crash"
+                    TriggerKinds.APP_ANR -> "anr"
+                    TriggerKinds.MEDIA_PLAYING -> "playing"
+                    TriggerKinds.MEDIA_PAUSED -> "paused"
+                    TriggerKinds.MEDIA_STOPPED -> "stopped"
+                    else -> data["event"]
+                }
+                putText("trigger.app.event", eventName)
+            }
+            TriggerTypes.KEYGUARD -> putText("trigger.keyguard.state", data["event"])
+            TriggerTypes.HEADSET -> {
+                putText("trigger.headset.name", data["name"])
+                putText("trigger.headset.kind", data["kind"])
+                putText("trigger.headset.state", data["state"])
+            }
+            TriggerTypes.LOCATION_ENTER, TriggerTypes.LOCATION_EXIT -> {
+                putText("trigger.location.lat", data["lat"])
+                putText("trigger.location.lng", data["lng"])
+            }
+            TriggerTypes.APP_METHOD_CALL -> {
+                putText("trigger.method.app", event.methodHookVariables[MethodHookVariables.APP] ?: data["app"])
+                event.methodHookVariables[MethodHookVariables.USER]?.toIntOrNull()
+                    ?.let { values["trigger.method.user"] = it }
+                putText("trigger.method.process", event.methodHookVariables[MethodHookVariables.PROCESS])
+                putText("trigger.method.method", event.methodHookVariables[MethodHookVariables.METHOD])
+                putText("trigger.method.signature", event.methodHookVariables[MethodHookVariables.SIGNATURE])
+                putText("trigger.method.hookId", data["hook.id"])
+            }
+        }
+        return values
     }
 }

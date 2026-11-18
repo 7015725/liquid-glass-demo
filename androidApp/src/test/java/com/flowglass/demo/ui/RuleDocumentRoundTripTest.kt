@@ -6,6 +6,7 @@ import com.flowglass.engine.RuleType
 import com.flowglass.engine.RunMode
 import com.flowglass.engine.MatchMode
 import com.flowglass.engine.OnError
+import com.flowglass.engine.OutputCatalog
 import com.flowglass.engine.LegacyCommandMigration
 import com.flowglass.engine.Rule as EngineRule
 import com.flowglass.engine.RuleComponent
@@ -74,11 +75,12 @@ class RuleDocumentRoundTripTest {
             )),
             ui = RuleUiMetadata(),
         ) }
-        val store = open(original)
+        val normalized = OutputCatalog.normalizeDocument(original)
+        val store = open(normalized)
         val app = store.load().appState()
         store.save(app.snapshot())
-        assertEquals(original.rules, readDocument().rules)
-        assertEquals(original.rules, requireNotNull(CommandStore(file).load().saved).engineRules)
+        assertEquals(normalized.rules, readDocument().rules)
+        assertEquals(normalized.rules, requireNotNull(CommandStore(file).load().saved).engineRules)
     }
 
     @Test fun unchangedMissingParametersAreNotMaterializedFromPresentation() {
@@ -99,7 +101,7 @@ class RuleDocumentRoundTripTest {
         val command = app.oneTaps.single()
         app.setItemParameter(command.id, CommandSection.ACTIONS, command.actions.single().id, "false|new body")
         store.save(app.snapshot())
-        assertEquals(action.copy(params = action.params + ("content" to JsonPrimitive("new body"))), readDocument().rules.single().actions.single())
+        assertEquals(action.normalizedAction().copy(params = action.params + ("content" to JsonPrimitive("new body"))), readDocument().rules.single().actions.single())
     }
 
     @Test fun editingNotificationTitleKeepsUntouchedStructuredBody() {
@@ -113,7 +115,7 @@ class RuleDocumentRoundTripTest {
         assertEquals("old title|[1,false,null]", command.actions.single().parameter)
         app.setItemParameter(command.id, CommandSection.ACTIONS, command.actions.single().id, "new title|[1,false,null]")
         store.save(app.snapshot())
-        assertEquals(action.copy(params = action.params + ("title" to JsonPrimitive("new title"))), readDocument().rules.single().actions.single())
+        assertEquals(action.normalizedAction().copy(params = action.params + ("title" to JsonPrimitive("new title"))), readDocument().rules.single().actions.single())
     }
 
     @Test fun legacyStructuredParameterIsReadByKeyRatherThanStalePresentation() {
@@ -148,8 +150,10 @@ class RuleDocumentRoundTripTest {
         app.setItemParameter(command.id, CommandSection.ACTIONS, command.actions[1].id, "2 秒")
         app.setTitle(command.id, "改名")
         store.save(app.snapshot())
-        val expected = rule.copy(name = "改名", actions = listOf(
-            edited.copy(params = edited.params + ("duration" to JsonPrimitive(2000))), untouched,
+        val normalized = OutputCatalog.normalizeRule(rule)
+        val expected = normalized.copy(name = "改名", actions = listOf(
+            normalized.actions[1].copy(params = edited.params + ("duration" to JsonPrimitive(2000))),
+            normalized.actions[0],
         ))
         assertEquals(expected, readDocument().rules.single())
         val reloaded = CommandStore(file)
@@ -164,16 +168,21 @@ class RuleDocumentRoundTripTest {
         val command = app.oneTaps.single()
         app.setItemParameter(command.id, CommandSection.ACTIONS, command.actions.single().id, "|new")
         store.save(app.snapshot())
-        assertEquals(action.copy(params = mapOf("content" to JsonPrimitive("new"))), readDocument().rules.single().actions.single())
+        assertEquals(action.normalizedAction().copy(params = mapOf("content" to JsonPrimitive("new"))), readDocument().rules.single().actions.single())
     }
 
-    private fun document(action: RuleComponent, sidecarParameter: String = "stale") = RuleDocument(
+    private fun document(action: RuleComponent, sidecarParameter: String = "stale") = OutputCatalog.normalizeDocument(RuleDocument(
         rules = listOf(EngineRule(id = ruleId, name = "往返", type = RuleType.MANUAL, actions = listOf(action))),
         ui = RuleUiMetadata(presentation = mapOf(ruleId to RulePresentation(
             legacyId = 1,
             actions = listOf(ComponentPresentation(2, "Bolt")),
         ))),
-    )
+    ))
+
+    private fun RuleComponent.normalizedAction(): RuleComponent =
+        OutputCatalog.normalizeDocument(RuleDocument(
+            rules = listOf(EngineRule(id = ruleId, name = "往返", type = RuleType.MANUAL, actions = listOf(this))),
+        )).rules.single().actions.single()
 
     private fun open(document: RuleDocument): CommandStore {
         val original = RuleJson.encode(document).toByteArray()

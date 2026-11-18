@@ -36,12 +36,28 @@ class VariableManagerTest {
         return state
     }
 
+    private fun stateWithNotification(): AppState {
+        val state = AppState()
+        state.autoCmds.add(
+            Cmd(
+                id = 1,
+                auto = true,
+                ic = Ic.Bolt,
+                title = "通知指令",
+                desc = "",
+                triggers = listOf(CommandItem(1, "收到通知", "", Ic.Bell, "trigger.notification")),
+                actions = listOf(CommandItem(2, "通知", "", Ic.Bell, "action.toast")),
+            ),
+        )
+        return state
+    }
+
     @Test
     fun editorPickerOffersChineseBuiltinsAndNoRetiredNames() {
-        val state = stateWithAction("")
+        val state = stateWithNotification()
         val options = VariableCatalog.forEditor(state, 1)
-        assertTrue(options.any { it.name == "通知标题" })
-        assertTrue(options.any { it.name == "上一步结果" })
+        assertTrue(options.any { it.name == "通知标题" && it.scope == VariableScope.OUTPUT })
+        assertTrue(options.any { it.name == "上一步结果" && it.scope == VariableScope.BUILTIN })
         assertTrue(options.none { it.name == "shell.stderr" || it.name == "http.status" || it.name == "run.value" })
         assertEquals("{通知标题}", VariableCatalog.token("通知标题"))
     }
@@ -49,11 +65,11 @@ class VariableManagerTest {
     @Test
     fun builtinNameCannotBeReused() {
         val state = stateWithAction("")
-        assertTrue(VariableCatalog.validateName(state, "通知标题", null, VariableScope.GLOBAL).orEmpty().contains("已被占用"))
+        assertTrue(VariableCatalog.validateName(state, "上一步结果", null, VariableScope.GLOBAL).orEmpty().contains("已被占用"))
     }
 
     @Test
-    fun appMethodCallExtractionsAreBuiltinsAndCannotBeReused() {
+    fun appMethodCallExtractionsAreOutputsAndCannotBeReused() {
         val meta = requireNotNull(
             com.flowglass.engine.BuiltInComponents.registry().find("trigger.app_method_call"),
         )
@@ -93,14 +109,14 @@ class VariableManagerTest {
         )
         val options = VariableCatalog.forManager(state)
         val order = options.single { it.name == "订单号" }
-        assertEquals(VariableScope.BUILTIN, order.scope)
+        assertEquals(VariableScope.OUTPUT, order.scope)
         assertTrue(order.note.contains("应用方法调用"))
         assertTrue(options.none { it.name == "钩子应用" || it.name == "钩子标识" })
         assertTrue(options.any { it.name == "调用应用" })
         assertTrue(VariableCatalog.validateName(state, "订单号", null, VariableScope.GLOBAL)
-            .orEmpty().contains("应用方法调用提供的内置变量"))
+            .orEmpty().contains("应用方法调用提供的输出变量"))
         assertTrue(VariableCatalog.validateName(state, "调用应用", null, VariableScope.GLOBAL)
-            .orEmpty().contains("内置变量"))
+            .orEmpty().contains("已被占用"))
     }
 
     @Test

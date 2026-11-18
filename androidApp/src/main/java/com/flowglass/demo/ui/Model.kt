@@ -372,7 +372,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         } }
 
     fun addItem(cmdId: Long, section: CommandSection, option: CommandOption) {
-        editItems(cmdId, section) { it + CommandItem(newId(), option.name, option.defaultParameter, option.ic, option.typeId) }
+        editItems(cmdId, section) { it + newCommandItem(cmdId, option) }
         if (section == CommandSection.TRIGGERS) update(cmdId) {
             if (it.auto && it.triggers.size == 1) it.copy(category = option.category) else it
         }
@@ -381,12 +381,14 @@ class AppState internal constructor(saved: PersistedAppState?) {
     /** 把旧版/未知步骤换成目录里的真实动作，保留它的失败策略。 */
     fun replaceItem(cmdId: Long, section: CommandSection, itemId: Long, option: CommandOption) =
         editItems(cmdId, section) { items ->
+            val fresh = newCommandItem(cmdId, option)
             items.map {
                 if (it.id == itemId) it.copy(
                     name = option.name,
                     ic = option.ic,
                     parameter = option.defaultParameter,
                     typeId = option.typeId,
+                    outputs = fresh.outputs,
                 ) else it
             }
         }
@@ -405,6 +407,34 @@ class AppState internal constructor(saved: PersistedAppState?) {
         }
     }
 
+    private fun hasOutputPage(meta: com.flowglass.engine.ComponentMeta): Boolean =
+        meta.kind != com.flowglass.engine.ComponentKind.CONDITION &&
+            com.flowglass.engine.OutputCatalog.allOutputs(meta).isNotEmpty()
+
+    private fun commandOutputNames(cmdId: Long): MutableSet<String> {
+        val names = linkedSetOf<String>()
+        names += com.flowglass.engine.BuiltInVariables.all.map { it.name }
+        val cmd = find(cmdId) ?: return names
+        fun walk(items: List<CommandItem>) {
+            for (item in items) {
+                names += item.outputs.map { it.name }
+                walk(item.conditions)
+                walk(item.children)
+                item.branches.forEach { branch -> walk(branch.conditions); walk(branch.children) }
+            }
+        }
+        walk(cmd.triggers + cmd.conditions + cmd.actions)
+        return names
+    }
+
+    private fun newCommandItem(cmdId: Long, option: CommandOption): CommandItem {
+        val meta = option.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
+        val outputs = if (meta != null && hasOutputPage(meta)) {
+            com.flowglass.engine.OutputCatalog.bindingsForNew(meta, commandOutputNames(cmdId))
+        } else emptyList()
+        return CommandItem(newId(), option.name, option.defaultParameter, option.ic, option.typeId, outputs = outputs)
+    }
+
     /** Opens the shared parameter page for an existing component without touching the command yet. */
     fun openComponentEditor(
         cmdId: Long,
@@ -418,8 +448,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
             openBlock(item.id)
             return false
         }
-        if (meta == null || meta.params.isEmpty()) {
-            editorNotice = "该组件没有可编辑参数"
+        if (meta == null || (meta.params.isEmpty() && !hasOutputPage(meta))) {
+            editorNotice = if (meta == null) "未知组件" else "该组件没有可编辑参数或输出"
             return false
         }
         componentDraft = ComponentDraft(cmdId, section, item, item.copy(), parentId, branch)
@@ -438,7 +468,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         parentId: Long? = null,
         branch: Int? = null,
     ): ComponentDraft {
-        val item = CommandItem(newId(), option.name, option.defaultParameter, option.ic, option.typeId)
+        val item = newCommandItem(cmdId, option)
         val draft = ComponentDraft(
             cmdId, section, item, original = null, parentId = parentId, branch = branch,
             category = option.category,
@@ -453,6 +483,16 @@ class AppState internal constructor(saved: PersistedAppState?) {
         componentDraft = componentDraft?.copy(item = item)
     }
 
+    /** Replaces only the output bindings of the open draft; parameters stay untouched. */
+    fun updateComponentOutputs(outputs: List<com.flowglass.engine.OutputBinding>) {
+        componentDraft = componentDraft?.let { draft -> draft.copy(item = draft.item.copy(outputs = outputs)) }
+    }
+
+    /** Block pages edit a saved item directly, not a draft. */
+    fun updateBlockOutputs(cmdId: Long, itemId: Long, outputs: List<com.flowglass.engine.OutputBinding>) {
+        editActions(cmdId) { items -> items.updateItem(itemId) { it.copy(outputs = outputs) } }
+    }
+
     /** Adds a component without opening the parameter page (blocks and parameterless items). */
     fun addComponentDirect(
         cmdId: Long,
@@ -461,7 +501,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         parentId: Long? = null,
         branch: Int? = null,
     ): Long {
-        val item = CommandItem(newId(), option.name, option.defaultParameter, option.ic, option.typeId)
+        val item = newCommandItem(cmdId, option)
         insertDraftItem(ComponentDraft(
             cmdId, section, item, original = null, parentId = parentId, branch = branch,
             category = option.category,
@@ -705,6 +745,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
             com.flowglass.engine.VariableValues.parse(value, variableType),
         )
         when (scope) {
+            com.flowglass.engine.VariableScope.OUTPUT -> return
             com.flowglass.engine.VariableScope.GLOBAL -> {
                 engineGlobals = engineGlobals + (name to initial)
                 engineGlobalMeta = engineGlobalMeta + (
@@ -1010,9 +1051,10 @@ class AppState internal constructor(saved: PersistedAppState?) {
         scope: CoroutineScope,
         reason: String = "手动执行",
         variables: Map<String, Any?> = emptyMap(),
+        readOnlyNames: Set<String> = emptySet(),
     ): kotlinx.coroutines.Job? {
         if (activeExecutionCount(cmd.id) > 0) return null
-        return launchExecution(cmd, scope, reason, variables, allowParallel = false)
+        return launchExecution(cmd, scope, reason, variables, allowParallel = false, readOnlyNames = readOnlyNames)
     }
 
     /** Trigger-host entry point; queue policy is owned by TriggerDispatcher. */
@@ -1022,19 +1064,20 @@ class AppState internal constructor(saved: PersistedAppState?) {
         reason: String,
         variables: Map<String, Any?>,
         mode: com.flowglass.engine.RunMode,
+        readOnlyNames: Set<String> = emptySet(),
     ): kotlinx.coroutines.Job? {
         val active = activeExecutionCount(cmd.id)
         return when (mode) {
             com.flowglass.engine.RunMode.DROP -> if (active > 0) null
-                else launchExecution(cmd, scope, reason, variables, allowParallel = false)
+                else launchExecution(cmd, scope, reason, variables, allowParallel = false, readOnlyNames = readOnlyNames)
             com.flowglass.engine.RunMode.QUEUE -> if (active > 0) null
-                else launchExecution(cmd, scope, reason, variables, allowParallel = false)
+                else launchExecution(cmd, scope, reason, variables, allowParallel = false, readOnlyNames = readOnlyNames)
             com.flowglass.engine.RunMode.RESTART -> {
                 if (active > 0) cancelExecution(cmd.id)
-                launchExecution(cmd, scope, reason, variables, allowParallel = false)
+                launchExecution(cmd, scope, reason, variables, allowParallel = false, readOnlyNames = readOnlyNames)
             }
             com.flowglass.engine.RunMode.PARALLEL -> if (active >= 3) null
-                else launchExecution(cmd, scope, reason, variables, allowParallel = true)
+                else launchExecution(cmd, scope, reason, variables, allowParallel = true, readOnlyNames = readOnlyNames)
         }
     }
 
@@ -1044,6 +1087,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         reason: String,
         variables: Map<String, Any?>,
         allowParallel: Boolean = false,
+        readOnlyNames: Set<String> = emptySet(),
     ): kotlinx.coroutines.Job {
         val engine = executionEngine
         val token = Any()
@@ -1053,7 +1097,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         val job = com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch {
             try {
                 val result = try {
-                    engine?.run(cmd, reason, variables, allowParallel) ?: com.flowglass.demo.system.exec.RunResult(
+                    engine?.run(cmd, reason, variables, allowParallel, readOnlyNames) ?: com.flowglass.demo.system.exec.RunResult(
                         cmd.id, reason, listOf(com.flowglass.demo.system.exec.StepResult(
                             cmd.id, "执行环境检查", com.flowglass.demo.system.exec.StepStatus.FAILURE,
                             "执行环境未就绪", 0)), 0)

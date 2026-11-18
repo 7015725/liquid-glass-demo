@@ -59,6 +59,7 @@ class TriggerEngineTest {
             binding: TriggerBinding,
             reason: String,
             variables: Map<String, Any?>,
+            readOnlyNames: Set<String>,
         ): Boolean {
             if (running) return false
             calls += rule to binding

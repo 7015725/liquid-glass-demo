@@ -27,6 +27,8 @@ class CanonicalReviewBoundaryTest {
     @Test fun invalidKnownEditRefusesSaveAndKeepsOriginalTypeExtensionsAndPolicy() {
         val component = RuleComponent("action.delay", mapOf("duration" to JsonPrimitive(1000), "extension" to JsonPrimitive("KEEP")), OnError.RETRY)
         val document = RuleDocument(rules = listOf(com.flowglass.engine.Rule("draft", type = RuleType.MANUAL, actions = listOf(component))))
+        // Encoding normalizes default output bindings onto the component.
+        val normalized = RuleJson.decode(RuleJson.encode(document)).rules.single().actions.single()
         val file = File(folder.root, "commands.json").apply { writeText(RuleJson.encode(document)) }
         val original = file.readBytes()
         val store = CommandStore(file)
@@ -39,10 +41,10 @@ class CanonicalReviewBoundaryTest {
         assertArrayEquals(original, file.readBytes())
         assertEquals("", app.find(command.id)!!.actions.single().parameter)
         val reloaded = CommandStore(file).load().appState()
-        assertEquals(component, reloaded.engineRules.single().actions.single())
+        assertEquals(normalized, reloaded.engineRules.single().actions.single())
         app.setItemParameter(command.id, CommandSection.ACTIONS, item.id, "2 秒")
         store.save(app.snapshot())
-        assertEquals(component.copy(params = component.params + ("duration" to JsonPrimitive(2000))), RuleJson.decode(file.readText()).rules.single().actions.single())
+        assertEquals(normalized.copy(params = normalized.params + ("duration" to JsonPrimitive(2000))), RuleJson.decode(file.readText()).rules.single().actions.single())
     }
 
     @Test fun newInvalidKnownItemRefusesSaveAndCanBeCorrected() {

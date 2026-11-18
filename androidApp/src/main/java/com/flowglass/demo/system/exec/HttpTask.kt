@@ -151,7 +151,7 @@ internal object HttpTask {
                     return TaskOutcome(
                         if (status in 200..299) StepStatus.SUCCESS else StepStatus.FAILURE,
                         "HTTP $status\n$body",
-                        body,
+                        mapOf("http.body" to body, "http.status" to status),
                     )
                 } finally {
                     active.compareAndSet(connection, null)

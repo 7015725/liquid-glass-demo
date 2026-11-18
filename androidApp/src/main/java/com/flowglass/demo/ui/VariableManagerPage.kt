@@ -45,7 +45,7 @@ fun VariableManagerPage(state: AppState) {
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 T("变量", 24.sp, FontWeight.Bold)
-                T("内置变量由 App 提供，只读；局部变量属于一条指令；全局变量所有指令共用。插入时统一写 {名字}。",
+                T("内置变量和输出变量由组件提供，只读；局部变量属于一条指令；全局变量所有指令共用。插入时统一写 {名字}。",
                     12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
             }
             EditorPill("新建变量", "新建变量") { creating = true }
@@ -178,7 +178,7 @@ private fun VariableDetailDialog(state: AppState, option: VariableOption, onDism
     var type by remember(option) { mutableStateOf(option.type) }
     var error by remember(option) { mutableStateOf<String?>(null) }
     var confirmDelete by remember(option) { mutableStateOf(false) }
-    val editable = option.scope != VariableScope.BUILTIN
+    val editable = option.scope == VariableScope.LOCAL || option.scope == VariableScope.GLOBAL
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
@@ -187,7 +187,14 @@ private fun VariableDetailDialog(state: AppState, option: VariableOption, onDism
                     .background(C.Card).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                T(if (editable) "编辑变量" else "内置变量", 18.sp, FontWeight.SemiBold)
+                T(
+                    when {
+                        editable -> "编辑变量"
+                        option.scope == VariableScope.OUTPUT -> "输出变量"
+                        else -> "内置变量"
+                    },
+                    18.sp, FontWeight.SemiBold,
+                )
                 if (editable) {
                     T("变量名", 12.sp, color = C.OnSurfaceVar)
                     ParameterTextField(name, "variable-name") { name = it }
@@ -208,7 +215,7 @@ private fun VariableDetailDialog(state: AppState, option: VariableOption, onDism
                 }
                 T(
                     "被引用 ${option.references} 次" +
-                        if (option.references > 0) "；改名会自动更新引用" else "",
+                        if (option.references > 0 && editable) "；改名会自动更新引用" else "",
                     12.sp, color = if (option.references > 0) C.Primary else C.Muted,
                 )
                 error?.let { T(it, 12.sp, color = C.Bad) }

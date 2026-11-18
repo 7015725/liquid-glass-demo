@@ -63,14 +63,22 @@ class ComponentDraftTest {
     }
 
     @Test
-    fun parameterlessExistingItemShowsNoticeInsteadOfEmptyPage() {
+    fun parameterlessTriggerOpensOutputOnlyEditorAndPersistsRenames() {
         val (state, cmdId) = stateWithCommand()
         val option = CommandCatalog.options(CommandSection.TRIGGERS).single { it.typeId == "trigger.screen_on" }
         state.addItem(cmdId, CommandSection.TRIGGERS, option)
         val item = requireNotNull(state.find(cmdId)).triggers.single()
+        assertTrue("无参数但有输出的触发器应能打开编辑页", state.openComponentEditor(cmdId, CommandSection.TRIGGERS, item))
+        val draft = requireNotNull(state.componentDraft)
+        assertTrue(draft.item.outputs.isNotEmpty())
 
-        assertFalse(state.openComponentEditor(cmdId, CommandSection.TRIGGERS, item))
+        val renamed = draft.item.outputs.mapIndexed { index, binding ->
+            if (index == 0) binding.copy(name = "亮屏时间") else binding
+        }
+        state.updateComponentOutputs(renamed)
+        assertTrue(state.saveComponentDraft())
+
+        assertEquals(renamed, requireNotNull(state.find(cmdId)).triggers.single().outputs)
         assertNull(state.componentDraft)
-        assertEquals("该组件没有可编辑参数", state.editorNotice)
     }
 }

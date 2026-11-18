@@ -34,7 +34,11 @@ data class StepResult(
     val layer: ExecutionLayer? = null,
 )
 /** [output] becomes `%{...}` in later steps when the action declares an output key. */
-data class TaskOutcome(val status: StepStatus, val detail: String, val output: String? = null)
+data class TaskOutcome(
+    val status: StepStatus,
+    val detail: String,
+    val outputs: Map<String, Any?> = emptyMap(),
+)
 data class RunResult(val cmdId: Long, val reason: String, val steps: List<StepResult>, val durationMs: Long, val ignored: Boolean = false) {
     val ok: Boolean get() = !ignored && steps.none { it.status == StepStatus.FAILURE }
     val detail: String get() = steps.firstOrNull { it.status == StepStatus.FAILURE }?.detail
@@ -111,13 +115,14 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
         reason: String,
         variables: Map<String, Any?> = emptyMap(),
         allowParallel: Boolean = false,
+        readOnlyNames: Set<String> = emptySet(),
     ): RunResult {
         currentCoroutineContext().ensureActive()
         if (!allowParallel && !active.add(cmd.id)) {
             return RunResult(cmd.id, reason, emptyList(), 0, ignored = true)
         }
         try {
-            return runInternal(cmd, reason, variables, null, null)
+            return runInternal(cmd, reason, variables, null, null, readOnlyNames)
         } finally {
             if (!allowParallel) active.remove(cmd.id)
         }
@@ -131,6 +136,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
         variables: Map<String, Any?>,
         sharedBudget: RunBudget?,
         startDepth: Int?,
+        readOnlyNames: Set<String> = emptySet(),
     ): RunResult {
         val state = PersistedAppState(
             autoCmds = if (cmd.auto) listOf(cmd) else emptyList(),
@@ -171,7 +177,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
             // Cooperative: delay() lets a stop cancel the poll immediately instead of blocking a
             // Dispatchers.Default thread for up to the 1 hour timeout.
             sleeper = { kotlinx.coroutines.delay(it) },
-        ).run(rule, reason, initial, document.globals, sharedBudget ?: RunBudget(), depth)
+        ).run(rule, reason, initial, document.globals, sharedBudget ?: RunBudget(), depth, readOnlyNames)
         val steps = log.steps.map { step ->
             val item = cmd.itemAtPath(step.path)
             StepResult(
@@ -284,7 +290,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
                     StepStatus.SKIPPED -> EngineStepStatus.SKIPPED
                 },
                 detail = outcome.detail,
-                output = outcome.output,
+                outputs = outcome.outputs,
                 layer = selectedLayer,
             )
         }

@@ -2,6 +2,7 @@ package com.flowglass.engine.trigger
 
 import com.flowglass.engine.Clock
 import com.flowglass.engine.MatchSpec
+import com.flowglass.engine.OutputBinding
 import com.flowglass.engine.RunMode
 import kotlin.math.asin
 import kotlin.math.cos
@@ -70,6 +71,8 @@ data class TriggerComponent(
     val typeId: String,
     val name: String,
     val params: Map<String, JsonElement> = emptyMap(),
+    /** Instance-level output bindings copied from the command editor. */
+    val outputs: List<OutputBinding> = emptyList(),
 )
 
 /** A host-side, already-normalised view of one enabled automatic command. */
