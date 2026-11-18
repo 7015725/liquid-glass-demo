@@ -28,7 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
@@ -53,9 +54,12 @@ internal fun VariableTextField(
     variables: List<VariableOption>,
     multiline: Boolean,
     onValue: (String) -> Unit,
+    canConfigureOutputs: Boolean = false,
+    onConfigureOutputs: (() -> Unit)? = null,
 ) {
     var field by remember(tag) { mutableStateOf(TextFieldValue(value)) }
     var menu by remember { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
     LaunchedEffect(value) {
         if (field.text != value) field = field.copy(text = value, selection = TextRange(value.length))
     }
@@ -69,7 +73,7 @@ internal fun VariableTextField(
         BasicTextField(
             field,
             { next -> field = next; onValue(next.text) },
-            Modifier.weight(1f).testTag(tag).imeAutoScroll()
+            Modifier.weight(1f).testTag(tag).imeAutoScroll().focusRequester(focus)
                 .padding(vertical = if (multiline) 0.dp else 12.dp)
                 .heightIn(min = if (multiline) 104.dp else 24.dp),
             textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 24.sp),
@@ -79,10 +83,24 @@ internal fun VariableTextField(
             Box(
                 Modifier.size(44.dp).clip(RoundedRectangle(14.dp)).background(C.Tonal)
                     .testTag("$tag-insert-variable")
-                    .editorAction("插入变量") { menu = true },
+                    .editorAction("插入变量") {
+                        // The caret is only meaningful after the field owns focus.
+                        focus.requestFocus()
+                        menu = true
+                    },
                 contentAlignment = Alignment.Center,
             ) {
-                LineIcon(Ic.Plus, C.Primary, 20.dp)
+                LineIcon(Ic.Variable, C.Primary, 20.dp)
+            }
+        }
+        if (canConfigureOutputs && onConfigureOutputs != null) {
+            Box(
+                Modifier.size(44.dp).clip(RoundedRectangle(14.dp)).background(C.Tonal)
+                    .testTag("$tag-configure-outputs")
+                    .editorAction("配置输出变量", onConfigureOutputs),
+                contentAlignment = Alignment.Center,
+            ) {
+                LineIcon(Ic.Output, C.Primary, 20.dp)
             }
         }
     }

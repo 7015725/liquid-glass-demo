@@ -333,6 +333,26 @@ private fun BlockPage(
 ) {
     val meta = block.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
     val kind = meta?.block
+    var outputPage by remember(block.id) { mutableStateOf(false) }
+    if (outputPage && meta != null) {
+        ComponentOutputPage(
+            item = block,
+            section = CommandSection.ACTIONS,
+            cmdTitle = cmd.title,
+            onBack = { outputPage = false },
+            onSave = { outputs ->
+                state.updateBlockOutputs(cmd.id, block.id, outputs)
+                outputPage = false
+            },
+            validateName = { name ->
+                VariableCatalog.validateName(
+                    state, name, cmd.id, com.flowglass.engine.VariableScope.OUTPUT,
+                    ignoreItem = block.id,
+                )
+            },
+        )
+        return
+    }
     val crumbs = buildList {
         add(cmd.title)
         state.blockPath.forEach { id -> cmd.actions.findActionNode(id)?.let { add(it.name) } }
@@ -346,6 +366,9 @@ private fun BlockPage(
         DetailTopBar(
             onBack = { state.backBlock() },
             title = { T(block.name, 20.sp, FontWeight.Bold, modifier = Modifier.fillMaxWidth(), maxLines = 1) },
+            trailing = {
+                if (meta != null) TopBarIconButton(Ic.Output, "配置输出变量") { outputPage = true }
+            },
         )
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             crumbs.forEachIndexed { index, label ->
@@ -638,6 +661,7 @@ private val Ic.editorLabel: String
     get() = when (this) {
         Ic.Home -> "主页"; Ic.Grid -> "网格"; Ic.List -> "列表"; Ic.Settings -> "设置"
         Ic.Bolt -> "闪电"; Ic.Copy -> "复制"; Ic.ChevronRight -> "向右"; Ic.UpDown -> "排序"; Ic.More -> "更多"
+        Ic.Variable -> "变量"; Ic.Output -> "输出"
         Ic.ArrowUp -> "上箭头"; Ic.ArrowDown -> "下箭头"; Ic.Play -> "播放"; Ic.Stop -> "停止"
         Ic.Plus -> "添加"; Ic.Bell -> "通知"; Ic.Refresh -> "刷新"; Ic.Shield -> "盾牌"
         Ic.Wifi -> "无线网络"; Ic.Moon -> "月亮"; Ic.Battery -> "电池"; Ic.Timer -> "计时器"

@@ -59,6 +59,8 @@ internal fun ParamField(
     onValue: (String) -> Unit,
     targets: List<String> = emptyList(),
     variables: List<VariableOption> = emptyList(),
+    canConfigureOutputs: Boolean = false,
+    onConfigureOutputs: (() -> Unit)? = null,
 ) {
     when (spec.source) {
         ParamSource.PAIRED_BLUETOOTH -> BluetoothNameField(current, tag, onValue)
@@ -75,8 +77,10 @@ internal fun ParamField(
             )
             ParamEditor.RULE -> RuleField(targets, current, tag, onValue)
             ParamEditor.LOCATION -> LocationField(current, tag, onValue)
-            ParamEditor.MULTILINE -> VariableTextField(current, tag, variables, multiline = true, onValue)
-            ParamEditor.TEXT -> VariableTextField(current, tag, variables, multiline = false, onValue)
+            ParamEditor.MULTILINE -> VariableTextField(current, tag, variables, multiline = true, onValue,
+                canConfigureOutputs, onConfigureOutputs)
+            ParamEditor.TEXT -> VariableTextField(current, tag, variables, multiline = false, onValue,
+                canConfigureOutputs, onConfigureOutputs)
             ParamEditor.APP_METHOD_EXTRACTIONS -> ExtractionEditorField(current, tag, onValue, variables)
             ParamEditor.STEPPER -> StepperField(spec, current, tag, onValue)
             ParamEditor.TIME -> TimeField(current, tag, onValue)

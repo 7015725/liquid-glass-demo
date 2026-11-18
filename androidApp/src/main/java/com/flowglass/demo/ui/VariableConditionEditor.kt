@@ -94,9 +94,8 @@ internal fun VariableConditionEditor(
 
         if (needsValue) {
             T(if (op in setOf("gt", "ge", "lt", "le")) "比较值（整数）" else "比较值", 14.sp, FontWeight.SemiBold)
-            VariableTextField(fields["right"].orEmpty(), "condition-right", variables, multiline = false) {
-                update("right", it)
-            }
+            VariableTextField(fields["right"].orEmpty(), "condition-right", variables, multiline = false,
+                onValue = { update("right", it) })
             T("文本比较不需要加引号。", 12.sp, color = C.OnSurfaceVar)
         }
 
