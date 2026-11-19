@@ -779,6 +779,10 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun moveItem(cmdId: Long, section: CommandSection, itemId: Long, delta: Int) =
         editItems(cmdId, section) { items -> items.moveItem(itemId, delta) }
 
+    /** Commits a long-press reorder in one write instead of one write per drag delta. */
+    fun moveItemTo(cmdId: Long, section: CommandSection, itemId: Long, newIndex: Int) =
+        editItems(cmdId, section) { items -> items.moveItemTo(itemId, newIndex) }
+
     private fun canHost(item: CommandItem): Boolean {
         val block = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it)?.block }
         return block == com.flowglass.engine.BlockKind.IF || block == com.flowglass.engine.BlockKind.LOOP
@@ -795,6 +799,18 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     fun removeItem(cmdId: Long, section: CommandSection, itemId: Long) =
         editItems(cmdId, section) { items -> items.removeItem(itemId) }
+
+    /** Deletes a trigger or a top-level condition and keeps the command for the undo bar. */
+    fun removeItemWithUndo(cmdId: Long, section: CommandSection, itemId: Long) {
+        if (section == CommandSection.ACTIONS) {
+            removeActionItemWithUndo(cmdId, itemId)
+            return
+        }
+        val before = find(cmdId) ?: return
+        val item = before.items(section).firstOrNull { it.id == itemId } ?: return
+        editItems(cmdId, section) { items -> items.removeItem(itemId) }
+        undo = UndoInfo(before, index = -1, label = item.name, restoreCommand = true)
+    }
 
     /** Deletes an action step and keeps the whole command snapshot for the undo bar. */
     fun removeActionItemWithUndo(cmdId: Long, itemId: Long) {
@@ -814,6 +830,17 @@ class AppState internal constructor(saved: PersistedAppState?) {
                 })
             }
         }
+
+    /** Same as [removeConditionItem], with the whole command kept for the undo bar. */
+    fun removeConditionItemWithUndo(cmdId: Long, parentId: Long, branch: Int?, conditionId: Long) {
+        val before = find(cmdId) ?: return
+        val parent = before.actions.findActionNode(parentId) ?: return
+        val condition = if (branch == null) parent.conditions.firstOrNull { it.id == conditionId }
+        else parent.branches.getOrNull(branch)?.conditions?.firstOrNull { it.id == conditionId }
+        if (condition == null) return
+        removeConditionItem(cmdId, parentId, branch, conditionId)
+        undo = UndoInfo(before, index = -1, label = condition.name, restoreCommand = true)
+    }
 
     /**
      * Moves one action step between any two lists. Returns false for a no-op or invalid target
