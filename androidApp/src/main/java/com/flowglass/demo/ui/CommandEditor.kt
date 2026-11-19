@@ -223,12 +223,20 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                         }
                     }
                 }
-                if (section == CommandSection.TRIGGERS) {
-                    TriggerPolicyControls(state, cmd)
-                }
                 if (section == CommandSection.CONDITIONS) {
                     T("多个条件需要全部满足才会执行。", 11.sp, color = C.Muted, lineHeight = 16.sp)
                 }
+            }
+        }
+        if (cmd.auto) {
+            Column(
+                Modifier.fillMaxWidth().testTag("section-advanced")
+                    .staggerIn(sections.size)
+                    .clip(com.kyant.shapes.RoundedRectangle(28.dp)).background(C.Card).padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                T("进阶选项", 20.sp, FontWeight.Bold)
+                TriggerPolicyControls(state, cmd)
             }
         }
         Spacer(Modifier.height(16.dp))
