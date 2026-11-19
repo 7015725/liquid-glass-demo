@@ -157,7 +157,7 @@ private fun ComponentEditorPage(
                 onAuthorization(destination)
             },
             targets = (state.autoCmds + state.oneTaps).map { it.title },
-            variables = parameterVariables(state, cmd),
+            variables = parameterVariables(state, cmd, draft),
             showDone = false,
             canConfigureOutputs = hasOutputs,
             onConfigureOutputs = { outputPage = true },
@@ -308,5 +308,13 @@ internal fun shellReexecutionWarning(command: String): String? {
 }
 
 /** Names offered by the parameter-field variable inserter; new UI only inserts `{名字}`. */
-private fun parameterVariables(state: AppState, cmd: Cmd): List<VariableOption> =
-    VariableCatalog.forEditor(state, cmd.id)
+private fun parameterVariables(state: AppState, cmd: Cmd, draft: ComponentDraft): List<VariableOption> =
+    VariableCatalog.forEditor(
+        state, cmd.id,
+        VariablePickerContext(
+            section = draft.section,
+            itemId = draft.item.id,
+            parentId = draft.parentId,
+            branch = draft.branch,
+        ),
+    )

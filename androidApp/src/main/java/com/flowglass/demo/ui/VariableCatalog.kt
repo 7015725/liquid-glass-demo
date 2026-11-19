@@ -28,10 +28,22 @@ data class VariableOption(
 )
 
 object VariableCatalog {
-    fun forEditor(state: AppState, cmdId: Long): List<VariableOption> = buildList {
+    fun forEditor(
+        state: AppState,
+        cmdId: Long,
+        context: VariablePickerContext? = null,
+    ): List<VariableOption> = buildList {
+        val cmd = context?.let { state.find(cmdId) }
+        val available = if (cmd != null && context != null) {
+            VariableAvailability.outputOwnerIds(cmd, context)
+        } else null
         addAll(builtins(state))
-        addAll(outputs(state, cmdId))
-        addAll(methodExtractionOptions(state))
+        addAll(
+            outputs(state, cmdId).filter { option ->
+                available == null || (option.ownerItemId != null && option.ownerItemId in available)
+            },
+        )
+        if (context?.section != CommandSection.TRIGGERS) addAll(methodExtractionOptions(state))
         state.localsOf(cmdId).forEach { local ->
             add(
                 VariableOption(
