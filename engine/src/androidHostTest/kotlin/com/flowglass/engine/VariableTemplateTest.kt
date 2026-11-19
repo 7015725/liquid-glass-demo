@@ -72,23 +72,10 @@ class VariableTemplateTest {
     }
 
     @Test
-    fun builtInCatalogHasChineseNamesAndLegacyAliases() {
+    fun builtInCatalogKeepsOnlySystemValues() {
         assertEquals("上一步结果", BuiltInVariables.byLegacyKey["last"]?.name)
-        assertEquals("HTTP响应", BuiltInVariables.byLegacyKey["http.body"]?.name)
-        val notification = BuiltInVariables.eventValues(
-            "notification",
-            mapOf(
-                "notification.app" to "com.example@10",
-                "notification.title" to "标题",
-                "notification.text" to "正文",
-            ),
-            "12:30",
-        )
-        assertEquals("标题", notification["通知标题"])
-        assertEquals("正文", notification["通知内容"])
-        assertEquals("12:30", notification["触发时间"])
-        val wifi = BuiltInVariables.eventValues("wifi", mapOf("ssid" to "家里", "state" to "connected"), "08:00")
-        assertEquals("家里", wifi["WiFi名称"])
-        assertEquals("connected", wifi["WiFi状态"])
+        assertEquals(listOf("上一步结果"), BuiltInVariables.all.map { it.name })
+        assertEquals(null, BuiltInVariables.byLegacyKey["http.body"])
+        assertEquals(null, BuiltInVariables.byName["通知标题"])
     }
 }

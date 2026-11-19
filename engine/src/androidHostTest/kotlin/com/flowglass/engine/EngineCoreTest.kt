@@ -44,7 +44,7 @@ class EngineCoreTest {
         val decoded = RuleJson.decode(encoded)
 
         assertEquals(CURRENT_FORMAT_VERSION, decoded.formatVersion)
-        assertEquals(document, decoded)
+        assertEquals(OutputCatalog.normalizeDocument(document), decoded)
         assertTrue(encoded.contains("\"formatVersion\":$CURRENT_FORMAT_VERSION"))
         assertFailsWith<IllegalArgumentException> { RuleJson.decode("{\"formatVersion\":9,\"rules\":[]}") }
         assertFailsWith<IllegalArgumentException> { RuleJson.decode("{\"formatVersion\":1,\"rules\":[]}") }
@@ -105,7 +105,12 @@ class EngineCoreTest {
 
         assertTrue(issues.any { it.path == "type" })
         assertTrue(issues.none { it.path == "actions[0].params.content" })
-        assertTrue(RuleValidator.validate(rule.copy(triggers = emptyList()), registry).isEmpty())
+        val notification = registry.find("action.post_notification")!!
+        val withOutputs = rule.copy(
+            triggers = emptyList(),
+            actions = listOf(RuleComponent("action.post_notification", emptyMap(), outputs = OutputCatalog.defaultBindings(notification))),
+        )
+        assertTrue(RuleValidator.validate(withOutputs, registry).isEmpty())
         assertTrue(RuleValidator.validate(rule.copy(
             triggers = emptyList(),
             actions = listOf(RuleComponent("action.unknown")),
@@ -181,7 +186,7 @@ class EngineCoreTest {
     }
 
     @Test
-    fun manualRunExposesLiveBatteryToBuiltInVariable() {
+    fun manualRunLeavesRemovedEventVariableLiteral() {
         val registry = ComponentRegistry()
         registry.register(ComponentMeta(
             "action.echo", "回显", "测试", ComponentKind.ACTION,
@@ -211,7 +216,7 @@ class EngineCoreTest {
 
         runSuspend { executor.run(rule, "手动执行") }
 
-        assertEquals("\"42\"", seen)
+        assertEquals("\"{电池电量}\"", seen)
     }
 
     @Test

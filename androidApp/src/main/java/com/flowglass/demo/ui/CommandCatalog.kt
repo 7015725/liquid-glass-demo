@@ -25,6 +25,8 @@ data class CommandItem(
     val conditions: List<CommandItem> = emptyList(),
     /** C2：折叠状态，只影响编辑页显示。 */
     val collapsed: Boolean = false,
+    /** 该组件实例启用的输出绑定；触发器/动作至少一个。 */
+    val outputs: List<com.flowglass.engine.OutputBinding> = emptyList(),
 ) {
     val display: String get() {
         val text = when (typeId) {

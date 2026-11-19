@@ -14,7 +14,7 @@ class CanonicalLegacyMatrixTest {
             }) })
         }
         val document = LegacyCommandMigration.migrate(source.toString())
-        assertEquals(document, RuleJson.decode(RuleJson.encode(document)))
+        assertEquals(OutputCatalog.normalizeDocument(document), RuleJson.decode(RuleJson.encode(document)))
         val rule = document.rules.single()
         return (rule.triggers + rule.conditions + rule.actions).single()
     }

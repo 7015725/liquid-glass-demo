@@ -29,7 +29,7 @@ enum class Ic {
     Home, Grid, List, Settings, Bolt, Copy, ChevronRight, UpDown, ArrowUp, ArrowDown,
     Play, Stop, Plus, Bell, Refresh, Shield, Wifi, Moon, Battery, Timer, Location,
     Leaf, Gauge, Rocket, Clock, Phone, Bluetooth, Message, Camera, Info, Search, Accessibility,
-    Tap, Back, Lock, Terminal, Puzzle, Key, Pin, Edit, Share, Trash, More
+    Tap, Back, Lock, Terminal, Puzzle, Key, Pin, Edit, Share, Trash, More, Variable, Output
 }
 
 @Composable
@@ -119,6 +119,34 @@ private fun DrawScope.drawIcon(ic: Ic, color: Color, filled: Boolean, strokeUnit
         }, color, style = Fill)
         Ic.Stop -> drawRoundRect(color, Offset(6.5f, 6.5f), Size(11f, 11f), CornerRadius(2.5f))
         Ic.Plus -> { line(12f, 5f, 12f, 19f); line(5f, 12f, 19f, 12f) }
+        Ic.Variable -> {
+            // A pair of braces: the variable inserter, distinct from the output arrow.
+            val left = p {
+                moveTo(9f, 4f); quadraticTo(6f, 4f, 6f, 7f); lineTo(6f, 10f)
+                quadraticTo(6f, 12f, 4f, 12f); quadraticTo(6f, 12f, 6f, 14f)
+                lineTo(6f, 17f); quadraticTo(6f, 20f, 9f, 20f)
+            }
+            val right = p {
+                moveTo(15f, 4f); quadraticTo(18f, 4f, 18f, 7f); lineTo(18f, 10f)
+                quadraticTo(18f, 12f, 20f, 12f); quadraticTo(18f, 12f, 18f, 14f)
+                lineTo(18f, 17f); quadraticTo(18f, 20f, 15f, 20f)
+            }
+            drawPath(left, color, style = st)
+            drawPath(right, color, style = st)
+        }
+        Ic.Output -> {
+            // A box with an arrow leaving it: component outputs.
+            val box = p {
+                moveTo(4f, 9f); lineTo(4f, 19f); quadraticTo(4f, 20f, 5f, 20f)
+                lineTo(15f, 20f); quadraticTo(16f, 20f, 16f, 19f); lineTo(16f, 15f)
+            }
+            drawPath(box, color, style = st)
+            line(11f, 13f, 20f, 4f)
+            val arrow = p {
+                moveTo(14f, 4f); lineTo(20f, 4f); lineTo(20f, 10f)
+            }
+            drawPath(arrow, color, style = st)
+        }
         Ic.Bell -> {
             drawPath(p {
                 moveTo(6f, 16.5f); lineTo(6f, 11f); cubicTo(6f, 7.5f, 8.5f, 5f, 12f, 5f)

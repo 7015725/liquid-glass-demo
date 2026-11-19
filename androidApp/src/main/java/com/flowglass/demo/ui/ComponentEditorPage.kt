@@ -93,6 +93,10 @@ private fun ComponentEditorPage(
     val cmd = state.find(draft.cmdId) ?: return
     val item = draft.item
     var discardOpen by remember { mutableStateOf(false) }
+    val meta = item.typeId?.let { BuiltInComponents.registry().find(it) }
+    val hasOutputs = meta != null && meta.kind != com.flowglass.engine.ComponentKind.CONDITION &&
+        com.flowglass.engine.OutputCatalog.allOutputs(meta).isNotEmpty()
+    var outputPage by remember(item.id) { mutableStateOf(false) }
 
     fun save() {
         if (state.saveComponentDraft()) discardOpen = false
@@ -102,7 +106,28 @@ private fun ComponentEditorPage(
         if (draft.dirty) discardOpen = true else state.cancelComponentDraft()
     }
 
-    BackHandler(enabled = true) { requestClose() }
+    BackHandler(enabled = true) { if (outputPage) outputPage = false else requestClose() }
+
+    if (outputPage && hasOutputs) {
+        ComponentOutputPage(
+            item = item,
+            section = draft.section,
+            cmdTitle = cmd.title,
+            onBack = { outputPage = false },
+            onSave = { outputs ->
+                state.updateComponentOutputs(outputs)
+                outputPage = false
+            },
+            onConfigureExtractions = { outputPage = false },
+            validateName = { name ->
+                VariableCatalog.validateName(
+                    state, name, draft.cmdId, com.flowglass.engine.VariableScope.OUTPUT,
+                    ignoreItem = item.id,
+                )
+            },
+        )
+        return
+    }
 
     Column(
         Modifier.fillMaxSize().background(C.Bg).testTag("action-editor")
@@ -114,7 +139,12 @@ private fun ComponentEditorPage(
             onBack = { requestClose() },
             title = { T(item.name, 20.sp, FontWeight.Bold, maxLines = 1) },
             subtitle = "${parameterSectionLabel(draft.section)}参数 · ${cmd.title}",
-            trailing = { TopBarTextButton("完成", onClick = ::save) },
+            trailing = {
+                if (hasOutputs) {
+                    TopBarIconButton(Ic.Output, "配置输出变量") { outputPage = true }
+                }
+                TopBarTextButton("完成", onClick = ::save)
+            },
         )
         ActionParameterEditor(
             section = draft.section,
@@ -129,6 +159,8 @@ private fun ComponentEditorPage(
             targets = (state.autoCmds + state.oneTaps).map { it.title },
             variables = parameterVariables(state, cmd),
             showDone = false,
+            canConfigureOutputs = hasOutputs,
+            onConfigureOutputs = { outputPage = true },
         )
         if (item.typeId == AppMethodCall.TYPE_ID) AppMethodCallStatus(cmd, item)
     }

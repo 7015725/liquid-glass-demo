@@ -14,5 +14,5 @@ data class ComponentDraft(
     val category: Int? = null,
 ) {
     val isNew: Boolean get() = original == null
-    val dirty: Boolean get() = item.parameter != original?.parameter
+    val dirty: Boolean get() = item.parameter != original?.parameter || item.outputs != original?.outputs
 }

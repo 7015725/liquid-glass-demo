@@ -132,9 +132,10 @@ internal class TriggerHost(
             binding: TriggerBinding,
             reason: String,
             variables: Map<String, Any?>,
+            readOnlyNames: Set<String>,
         ): Boolean {
             val cmd = state.find(rule.cmdId) ?: return false
-            val job = state.executeWithPolicy(cmd, scope, reason, variables, rule.runMode) ?: return false
+            val job = state.executeWithPolicy(cmd, scope, reason, variables, rule.runMode, readOnlyNames) ?: return false
             job.invokeOnCompletion {
                 dispatcher.onRunFinished(rule)
                 scope.launch {

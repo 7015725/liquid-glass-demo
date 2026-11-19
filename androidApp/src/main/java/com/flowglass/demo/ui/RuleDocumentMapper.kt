@@ -7,6 +7,7 @@ import com.flowglass.engine.ParameterCodec
 import com.flowglass.engine.RuleType
 import com.flowglass.engine.MatchMode
 import com.flowglass.engine.OnError
+import com.flowglass.engine.OutputCatalog
 import com.flowglass.engine.ComponentKind
 import com.flowglass.engine.ComponentPresentation
 import com.flowglass.engine.LegacyCommandMigration
@@ -256,7 +257,7 @@ private fun CommandItem.toRuleComponent(
         condition.toRuleComponent(ComponentKind.CONDITION, oldChild(previous?.conditions, condition.id, index), null)
     }
     // Compare with a projection of authoritative params, never persisted display text.
-    if (previous != null && parameter == previous.parameterText() &&
+    if (previous != null && parameter == previous.parameterText() && outputs == previous.outputs &&
         children.size == previous.children.size && branches.size == previous.branches.size &&
         conditions.size == previous.conditions.size) {
         return previous.copy(id = id, children = children, branches = branches, conditions = conditions)
@@ -270,6 +271,7 @@ private fun CommandItem.toRuleComponent(
                 "raw" to JsonPrimitive("$name：$parameter"),
             ),
             children = children, branches = branches, conditions = conditions,
+            outputs = outputs,
         )
         return unknownComponent().copy(id = id, children = children, branches = branches, conditions = conditions)
     }
@@ -289,6 +291,7 @@ private fun CommandItem.toRuleComponent(
         children = children,
         branches = branches,
         conditions = conditions,
+        outputs = if (outputs.isNotEmpty()) outputs else if (meta.kind == ComponentKind.CONDITION) emptyList() else OutputCatalog.defaultBindings(meta),
     )
 }
 
@@ -355,6 +358,7 @@ private fun RuleComponent.toCommandItem(
         },
         conditions = conditions.map { it.toCommandItem(null, sidecar, allocateId) },
         collapsed = id in sidecar.collapsed,
+        outputs = outputs,
     )
 }
 

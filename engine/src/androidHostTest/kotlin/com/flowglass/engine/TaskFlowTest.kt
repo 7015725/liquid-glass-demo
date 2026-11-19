@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
 class TaskFlowTest {
     private fun meta(
         type: String,
-        outputs: List<String> = emptyList(),
+        outputs: List<OutputSpec> = emptyList(),
         params: List<ParamSpec> = listOf(ParamSpec("text", "文本")),
     ) = ComponentMeta(
         typeId = type,
@@ -27,6 +27,9 @@ class TaskFlowTest {
         outputs = outputs,
         supports = listOf(LayerSupport(ExecutionLayer.NORMAL)),
     )
+
+    private fun output(key: String, name: String, type: VariableType = VariableType.TEXT) =
+        OutputSpec(key, name, type, name)
 
     private fun rule(vararg actions: RuleComponent) = Rule(
         id = "rule-1",
@@ -115,12 +118,12 @@ class TaskFlowTest {
     @Test
     fun anOutputFeedsTheNextStepsParameters() = runSuspend {
         val registry = ComponentRegistry().apply {
-            register(meta("a.produce", outputs = listOf("shell.stdout")))
+            register(meta("a.produce", outputs = listOf(output("shell.stdout", "输出"))))
             register(meta("a.consume"))
         }
         var seen: String? = null
         val executor = executor(registry, mapOf(
-            "a.produce" to Action { _, _ -> ActionOutcome(StepStatus.SUCCESS, "完成", output = "hello") },
+            "a.produce" to Action { _, _ -> ActionOutcome(StepStatus.SUCCESS, "完成", mapOf("shell.stdout" to "hello")) },
             "a.consume" to Action { _, component ->
                 seen = component.params["text"]?.toString()
                 ActionOutcome(StepStatus.SUCCESS, "收到")
@@ -129,7 +132,7 @@ class TaskFlowTest {
 
         val log = executor.run(rule(
             RuleComponent("a.produce"),
-            RuleComponent("a.consume", params = mapOf("text" to JsonPrimitive("%{shell.stdout}"))),
+            RuleComponent("a.consume", params = mapOf("text" to JsonPrimitive("{输出}"))),
         ), "测试")
 
         assertEquals(StepStatus.SUCCESS, log.status)
@@ -180,12 +183,12 @@ class TaskFlowTest {
     @Test
     fun expansionIsSinglePassSoAVariableCannotFeedItself() = runSuspend {
         val registry = ComponentRegistry().apply {
-            register(meta("a.produce", outputs = listOf("v")))
+            register(meta("a.produce", outputs = listOf(output("v", "v"))))
             register(meta("a.echo"))
         }
         var seen: String? = null
         val executor = executor(registry, mapOf(
-            "a.produce" to Action { _, _ -> ActionOutcome(StepStatus.SUCCESS, "完成", output = "%{v}") },
+            "a.produce" to Action { _, _ -> ActionOutcome(StepStatus.SUCCESS, "完成", mapOf("v" to "%{v}")) },
             "a.echo" to Action { _, component ->
                 seen = component.params["text"]?.toString()
                 ActionOutcome(StepStatus.SUCCESS, "好")
@@ -203,14 +206,14 @@ class TaskFlowTest {
     @Test
     fun executorAppliesTheShellQuotingDeclaredByTheSpec() = runSuspend {
         val registry = ComponentRegistry().apply {
-            register(meta("a.produce", outputs = listOf("payload"), params = emptyList()))
+            register(meta("a.produce", outputs = listOf(output("payload", "payload")), params = emptyList()))
             register(meta("a.shell", params = listOf(
                 ParamSpec("command", "命令", expansion = ParamExpansion.SHELL_QUOTED),
             )))
         }
         var seen: String? = null
         val executor = executor(registry, mapOf(
-            "a.produce" to Action { _, _ -> ActionOutcome(StepStatus.SUCCESS, "好", "x; rm -rf /") },
+            "a.produce" to Action { _, _ -> ActionOutcome(StepStatus.SUCCESS, "好", mapOf("payload" to "x; rm -rf /")) },
             "a.shell" to Action { _, component ->
                 seen = (component.params["command"] as? JsonPrimitive)?.content
                 ActionOutcome(StepStatus.SUCCESS, "好")
@@ -230,14 +233,14 @@ class TaskFlowTest {
     @Test
     fun executorEncodesOnlyTheUrlSegmentDeclaredByTheSpec() = runSuspend {
         val registry = ComponentRegistry().apply {
-            register(meta("a.produce", outputs = listOf("payload"), params = emptyList()))
+            register(meta("a.produce", outputs = listOf(output("payload", "payload")), params = emptyList()))
             register(meta("a.http", params = listOf(
                 ParamSpec("request", "请求", expansion = ParamExpansion.HTTP_REQUEST),
             )))
         }
         var seen: String? = null
         val executor = executor(registry, mapOf(
-            "a.produce" to Action { _, _ -> ActionOutcome(StepStatus.SUCCESS, "好", "a&b?c#d/e f") },
+            "a.produce" to Action { _, _ -> ActionOutcome(StepStatus.SUCCESS, "好", mapOf("payload" to "a&b?c#d/e f")) },
             "a.http" to Action { _, component ->
                 seen = component.params["request"]?.toString()
                 ActionOutcome(StepStatus.SUCCESS, "好")
@@ -257,12 +260,12 @@ class TaskFlowTest {
     @Test
     fun plainTextParametersStillExpandVerbatim() = runSuspend {
         val registry = ComponentRegistry().apply {
-            register(meta("a.produce", outputs = listOf("payload"), params = emptyList()))
+            register(meta("a.produce", outputs = listOf(output("payload", "payload")), params = emptyList()))
             register(meta("a.text"))
         }
         var seen: String? = null
         val executor = executor(registry, mapOf(
-            "a.produce" to Action { _, _ -> ActionOutcome(StepStatus.SUCCESS, "好", "a; b") },
+            "a.produce" to Action { _, _ -> ActionOutcome(StepStatus.SUCCESS, "好", mapOf("payload" to "a; b")) },
             "a.text" to Action { _, component ->
                 seen = component.params["text"]?.toString()
                 ActionOutcome(StepStatus.SUCCESS, "好")

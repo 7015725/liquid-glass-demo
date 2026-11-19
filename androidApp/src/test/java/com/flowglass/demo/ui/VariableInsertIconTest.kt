@@ -39,7 +39,7 @@ class VariableInsertIconTest {
         try {
             val activity = controller.get()
             activity.setContent {
-                VariableTextField("A31_START", "param-value", options, multiline = false) {}
+                VariableTextField("A31_START", "param-value", options, multiline = false, onValue = {})
             }
             pump(activity)
             val nodes = nodes(activity.window.decorView)
@@ -61,6 +61,42 @@ class VariableInsertIconTest {
                 "输入框下方不应再保留文字按钮",
                 nodes.flatMap { it.config.getOrNull(SemanticsProperties.Text).orEmpty() }
                     .any { it.text == "插入变量" },
+            )
+        } finally {
+            controller.get().setContent { }
+            controller.destroy()
+        }
+    }
+
+    @Test
+    fun outputIconIsPairedWithInsertAndCanBeHiddenForConditions() {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        try {
+            val activity = controller.get()
+            activity.setContent {
+                VariableTextField("A31_START", "param-value", options, multiline = false,
+                    onValue = {}, canConfigureOutputs = true, onConfigureOutputs = {})
+            }
+            pump(activity)
+            val nodes = nodes(activity.window.decorView)
+            val output = nodes.single {
+                it.config.getOrNull(SemanticsProperties.TestTag) == "param-value-configure-outputs"
+            }
+            assertTrue(output.config[SemanticsActions.OnClick].action != null)
+            assertTrue(
+                output.config.getOrNull(SemanticsProperties.ContentDescription)
+                    .orEmpty().any { it == "配置输出变量" },
+            )
+
+            activity.setContent {
+                VariableTextField("A31_START", "param-value", options, multiline = false, onValue = {})
+            }
+            pump(activity)
+            assertTrue(
+                "条件字段不应有输出入口",
+                nodes(activity.window.decorView).none {
+                    it.config.getOrNull(SemanticsProperties.TestTag) == "param-value-configure-outputs"
+                },
             )
         } finally {
             controller.get().setContent { }

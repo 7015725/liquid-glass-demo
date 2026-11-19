@@ -9,7 +9,11 @@ object RuleValidator {
     private const val MAX_BLOCK_DEPTH = 32
     private const val MAX_CALL_DEPTH = 5
 
-    fun validate(rule: Rule, registry: ComponentRegistry? = null): List<ValidationIssue> = buildList {
+    fun validate(
+        rule: Rule,
+        registry: ComponentRegistry? = null,
+        globalNames: Set<String> = emptySet(),
+    ): List<ValidationIssue> = buildList {
         if (rule.id.isBlank()) add(ValidationIssue("id", "规则标识不能为空"))
         if (rule.name.isBlank()) add(ValidationIssue("name", "规则名称不能为空"))
         if (rule.type == RuleType.MANUAL && (rule.triggers.isNotEmpty() || rule.conditions.isNotEmpty())) {
@@ -32,6 +36,7 @@ object RuleValidator {
                 add(ValidationIssue("triggers[$index]", "触发器不能包含块"))
             }
         }
+        if (registry != null) addAll(validateOutputs(rule, registry, globalNames))
     }
 
     /**
@@ -40,7 +45,7 @@ object RuleValidator {
      */
     fun validateDocument(document: RuleDocument, registry: ComponentRegistry? = null): List<ValidationIssue> = buildList {
         document.rules.forEachIndexed { index, rule ->
-            validate(rule, registry).forEach { add(ValidationIssue("rules[$index].${it.path}", it.message)) }
+            validate(rule, registry, document.globals.keys).forEach { add(ValidationIssue("rules[$index].${it.path}", it.message)) }
         }
         val names = document.rules.map { it.name.trim() }
         names.groupBy { it }.filter { (name, group) -> name.isNotEmpty() && group.size > 1 }
@@ -178,6 +183,76 @@ object RuleValidator {
                 validateNested(childPath, child, registry, insideLoop, depth + 1, addIssue)
             }
         }
+    }
+
+    private fun validateOutputs(
+        rule: Rule,
+        registry: ComponentRegistry,
+        globalNames: Set<String>,
+    ): List<ValidationIssue> = buildList {
+        val reserved = linkedSetOf<String>()
+        reserved += BuiltInVariables.all.map { it.name }
+        reserved += rule.locals.map { it.name }
+        reserved += globalNames
+        rule.triggers.forEach { trigger ->
+            reserved += OutputCatalog.methodExtractionNames(trigger.type, trigger.params)
+        }
+        val used = linkedMapOf<String, String>() // name -> component path
+
+        fun check(path: String, component: RuleComponent) {
+            val meta = registry.find(component.type)
+            if (meta == null) {
+                if (component.outputs.isNotEmpty()) add(ValidationIssue("$path.outputs", "未知组件不能声明输出"))
+                return
+            }
+            if (meta.kind == ComponentKind.CONDITION) {
+                if (component.outputs.isNotEmpty()) add(ValidationIssue("$path.outputs", "条件没有输出"))
+                return
+            }
+            val specs = OutputCatalog.allOutputs(meta)
+            if (specs.isEmpty()) {
+                add(ValidationIssue("$path.outputs", "「${meta.name}」没有声明输出"))
+            } else if (component.outputs.isEmpty()) {
+                add(ValidationIssue("$path.outputs", "「${meta.name}」缺少输出绑定"))
+                return
+            }
+            OutputCatalog.validateBindings(meta, component.outputs).forEach { issue ->
+                add(ValidationIssue("$path.outputs", issue))
+            }
+            for (binding in component.outputs.filter { it.enabled }) {
+                if (!VariableName.isValid(binding.name)) continue
+                if (binding.name in reserved) {
+                    add(ValidationIssue("$path.outputs", "输出变量名与内置/局部/全局/提取变量冲突：${binding.name}"))
+                    continue
+                }
+                val previous = used.putIfAbsent(binding.name, path)
+                if (previous != null) {
+                    add(ValidationIssue("$path.outputs", "输出变量名重复：${binding.name}（也用于 $previous）"))
+                }
+            }
+        }
+
+        fun walk(path: String, component: RuleComponent) {
+            check(path, component)
+            component.conditions.forEachIndexed { index, child ->
+                walk("$path.conditions[$index]", child)
+            }
+            component.children.forEachIndexed { index, child ->
+                walk("$path.children[$index]", child)
+            }
+            component.branches.forEachIndexed { index, branch ->
+                branch.conditions.forEachIndexed { cIndex, child ->
+                    walk("$path.branches[$index].conditions[$cIndex]", child)
+                }
+                branch.children.forEachIndexed { cIndex, child ->
+                    walk("$path.branches[$index].children[$cIndex]", child)
+                }
+            }
+        }
+
+        rule.triggers.forEachIndexed { index, component -> walk("triggers[$index]", component) }
+        rule.conditions.forEachIndexed { index, component -> walk("conditions[$index]", component) }
+        rule.actions.forEachIndexed { index, component -> walk("actions[$index]", component) }
     }
 
     private fun validateMatch(path: String, match: MatchSpec, count: Int, addIssue: (ValidationIssue) -> Unit) {

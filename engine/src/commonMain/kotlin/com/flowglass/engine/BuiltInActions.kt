@@ -3,6 +3,14 @@ package com.flowglass.engine
 import kotlinx.serialization.json.JsonPrimitive
 
 object BuiltInActions {
+    private fun out(
+        key: String,
+        label: String,
+        type: VariableType,
+        defaultName: String,
+        description: String = "",
+    ) = OutputSpec(key, label, type, defaultName, description)
+
     private val normalLayer = listOf(LayerSupport(ExecutionLayer.NORMAL))
     private val rootLayer = listOf(LayerSupport(ExecutionLayer.ROOT))
     private val rootAndNormal = listOf(
@@ -83,7 +91,11 @@ object BuiltInActions {
             listOf(parameter("command", "命令", ParamType.MULTILINE_TEXT, "echo 流光", false,
                 hint = "格式：非空 Shell 命令，执行前需要 Root 授权。变量值会先写入 FG_Vn 再以引用形式使用；请只执行你理解其作用的命令。",
                 expansion = ParamExpansion.SHELL_QUOTED)),
-            minTier = Tier.ROOT, supports = rootLayer, outputs = listOf("shell.stdout")),
+            minTier = Tier.ROOT, supports = rootLayer, outputs = listOf(
+                out("shell.stdout", "标准输出", VariableType.TEXT, "标准输出", "Shell 的标准输出；当前 Root 会话会合并标准错误"),
+                out("shell.stderr", "标准错误", VariableType.TEXT, "标准错误", "当前 Root 会话与标准输出合并，通常为空"),
+                out("shell.code", "退出码", VariableType.INT, "退出码", "Shell 的退出码"),
+            )),
         ComponentMeta("action.script", "执行脚本", "脚本", ComponentKind.ACTION,
             listOf(
                 ParamSpec("script", "脚本", ParamType.MULTILINE_TEXT, true,
@@ -101,13 +113,18 @@ object BuiltInActions {
                     minValue = 1, maxValue = 60, suffix = "秒",
                     hint = "默认 10 秒；超时会中断脚本并把该动作标记为失败。"),
             ),
-            outputs = listOf("script.result"), supports = normalLayer,
-            description = "在沙箱中执行 JavaScript，返回值写入 %{script.result}。"),
+            outputs = listOf(
+                out("script.result", "脚本结果", VariableType.TEXT, "脚本结果", "脚本最后的返回值"),
+            ), supports = normalLayer,
+            description = "在沙箱中执行 JavaScript，返回值作为脚本输出。"),
         ComponentMeta("action.http_request", "HTTP 请求", "网络", ComponentKind.ACTION,
             listOf(parameter("request", "请求", ParamType.MULTILINE_TEXT, "GET https://example.com", false,
                 hint = "格式：GET <URL> 或 POST <URL> <内容>；GET 不带正文，POST 内容可换行。",
                 expansion = ParamExpansion.HTTP_REQUEST)),
-            outputs = listOf("http.body"), supports = normalLayer),
+            outputs = listOf(
+                out("http.body", "响应正文", VariableType.TEXT, "响应正文", "HTTP 响应正文，最多保留前 200 个字符"),
+                out("http.status", "状态码", VariableType.INT, "状态码", "HTTP 状态码"),
+            ), supports = normalLayer),
         ComponentMeta("action.vibrate", "振动", "设备", ComponentKind.ACTION,
             listOf(parameter("duration", "时长", ParamType.DURATION, "500 毫秒", false,
                 hint = "格式：非负数字 + 毫秒 / 秒 / 分钟。", durationMs = 500)), supports = normalLayer),

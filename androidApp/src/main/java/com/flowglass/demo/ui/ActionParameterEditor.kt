@@ -58,6 +58,8 @@ internal fun ActionParameterEditor(
     targets: List<String> = emptyList(),
     variables: List<VariableOption> = emptyList(),
     showDone: Boolean = true,
+    canConfigureOutputs: Boolean = false,
+    onConfigureOutputs: (() -> Unit)? = null,
 ) {
     val meta = item.typeId?.let { id -> com.flowglass.engine.BuiltInComponents.registry().find(id) }
     if (meta == null || meta.params.isEmpty()) {
@@ -71,7 +73,8 @@ internal fun ActionParameterEditor(
         } else if (item.typeId == "action.set_var") {
             SetVariableEditor(meta, item, onParameter, targets, variables)
         } else {
-            MultiParameterEditor(meta, item, onParameter, onAuthorization, targets, variables)
+            MultiParameterEditor(meta, item, onParameter, onAuthorization, targets, variables,
+                canConfigureOutputs, onConfigureOutputs)
         }
     } else {
         val spec = meta.params.single()
@@ -82,6 +85,8 @@ internal fun ActionParameterEditor(
             onValue = onParameter,
             targets = targets,
             variables = variables,
+            canConfigureOutputs = canConfigureOutputs,
+            onConfigureOutputs = onConfigureOutputs,
         )
         if (spec.hint.isNotBlank()) {
             T(spec.hint, 13.sp, color = C.OnSurfaceVar, lineHeight = 20.sp,
@@ -169,9 +174,8 @@ private fun SetVariableEditor(
             }
             if (spec.key == "value") {
                 T("内容", 14.sp, FontWeight.SemiBold)
-                VariableTextField(fields[spec.key].orEmpty(), "param-value", variables, multiline = type.isList) {
-                    update(spec.key, it)
-                }
+                VariableTextField(fields[spec.key].orEmpty(), "param-value", variables, multiline = type.isList,
+                    onValue = { update(spec.key, it) })
                 T(
                     if (type.isList) "列表用英文逗号或换行分隔，也接受 [1,2,3]。" else "支持 {变量}。",
                     12.sp, color = C.OnSurfaceVar,
@@ -203,6 +207,8 @@ private fun MultiParameterEditor(
     onAuthorization: (Int) -> Unit,
     targets: List<String> = emptyList(),
     variables: List<VariableOption> = emptyList(),
+    canConfigureOutputs: Boolean = false,
+    onConfigureOutputs: (() -> Unit)? = null,
 ) {
     var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
@@ -241,6 +247,8 @@ private fun MultiParameterEditor(
                 onValue = { update(spec.key, it) },
                 targets = targets,
                 variables = variables,
+                canConfigureOutputs = canConfigureOutputs,
+                onConfigureOutputs = onConfigureOutputs,
             )
             if (spec.hint.isNotBlank()) T(spec.hint, 12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
         }
