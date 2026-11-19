@@ -213,15 +213,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                         cards = true, onOpenBlock = { state.openBlock(it) },
                     )
                 } else {
-                    cmd.items(section).forEachIndexed { index, item ->
-                        key(item.id) {
-                            ConfigItemRow(
-                                state = state, cmd = cmd, section = section, item = item,
-                                index = index, lastIndex = cmd.items(section).lastIndex,
-                                onPanel = { panel = it },
-                            )
-                        }
-                    }
+                    ConfigItemList(state, cmd, section, cmd.items(section))
                 }
                 if (section == CommandSection.CONDITIONS) {
                     T("多个条件需要全部满足才会执行。", 11.sp, color = C.Muted, lineHeight = 16.sp)
@@ -375,6 +367,7 @@ private fun BlockPage(
             onBack = { state.backBlock() },
             title = { T(block.name, 20.sp, FontWeight.Bold, modifier = Modifier.fillMaxWidth(), maxLines = 1) },
             trailing = {
+                TopBarIconButton(Ic.UpDown, "移动到其他位置") { onPanel(EditorPanel.Move(block.id)) }
                 if (meta != null) TopBarIconButton(Ic.Output, "配置输出变量") { outputPage = true }
             },
         )
@@ -428,10 +421,10 @@ private fun ConditionSection(
     onPanel: (EditorPanel) -> Unit,
 ) {
     if (block.conditions.isEmpty()) T("还没有条件", 13.sp, color = C.Muted)
-    block.conditions.forEachIndexed { index, condition ->
+    block.conditions.forEach { condition ->
         ConditionLine(
             state = state, cmd = cmd, item = block, branch = null,
-            conditionIndex = index, condition = condition, onPanel = onPanel,
+            condition = condition,
         )
     }
     EditorPill("＋ 添加条件", "添加条件") {
@@ -613,14 +606,31 @@ private fun waitTimeoutSeconds(parameter: String): Int {
 }
 
 @Composable
+private fun ConditionDeleteButton(
+    state: AppState,
+    cmd: Cmd,
+    item: CommandItem,
+    condition: CommandItem,
+    branch: Int?,
+    compact: Boolean = false,
+) {
+    DeleteItemButton(
+        label = "删除条件${condition.name}",
+        testTag = "delete-item-${condition.id}",
+        size = if (compact) 36.dp else 44.dp,
+    ) {
+        state.removeConditionItemWithUndo(cmd.id, item.id, branch, condition.id)
+    }
+}
+
+@Composable
 private fun ConditionLine(
     state: AppState,
     cmd: Cmd,
     item: CommandItem,
     branch: Int?,
-    conditionIndex: Int,
     condition: CommandItem,
-    onPanel: (EditorPanel) -> Unit,
+    compact: Boolean = false,
 ) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedRectangle(16.dp)).background(C.Tonal)
@@ -632,10 +642,9 @@ private fun ConditionLine(
     ) {
         T(ActionSummary.conditionRowText(condition), 12.sp, color = C.OnSurfaceVar,
             maxLines = 1, modifier = Modifier.weight(1f))
-        ConditionRowMenu(state, cmd, item, branch, conditionIndex, condition, onPanel)
+        ConditionDeleteButton(state, cmd, item, condition, branch, compact)
     }
 }
-
 
 internal sealed interface EditorPanel {
     data object Icons : EditorPanel
@@ -756,23 +765,67 @@ private fun DescriptionPanel(state: AppState, cmd: Cmd, onDone: () -> Unit) {
 }
 
 @Composable
+private fun DeleteItemButton(
+    label: String,
+    testTag: String,
+    size: Dp = 48.dp,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier.size(size).testTag(testTag)
+            .clip(Capsule()).background(C.BadSoft)
+            .editorAction(label, onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        LineIcon(Ic.Trash, C.Bad, if (size < 48.dp) 20.dp else 22.dp)
+    }
+}
+
+@Composable
 private fun ConfigItemRow(
     state: AppState,
     cmd: Cmd,
     section: CommandSection,
     item: CommandItem,
-    index: Int,
-    lastIndex: Int,
-    onPanel: (EditorPanel) -> Unit,
+    onMeasuredHeight: (Int) -> Unit = {},
+    onDragStart: () -> Unit = {},
+    onDrag: (Float) -> Unit = {},
+    onDragEnd: () -> Unit = {},
+    onDragCancel: () -> Unit = {},
 ) {
-    var menuOpen by remember(item.id) { mutableStateOf(false) }
-    val menuAnchor = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    val dragStart = rememberUpdatedState(onDragStart)
+    val dragMove = rememberUpdatedState(onDrag)
+    val dragEnd = rememberUpdatedState(onDragEnd)
+    val dragCancel = rememberUpdatedState(onDragCancel)
     val itemMeta = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
+    val deleteLabel = when (section) {
+        CommandSection.TRIGGERS -> "删除触发器${item.name}"
+        CommandSection.CONDITIONS -> "删除条件${item.name}"
+        CommandSection.ACTIONS -> "删除动作${item.name}"
+    }
     Column(
-        Modifier.fillMaxWidth().testTag("item-${item.id}").animatePlacement()
+        Modifier.fillMaxWidth().testTag("item-${item.id}")
+            .onGloballyPositioned { onMeasuredHeight(it.size.height) }
             .clip(RoundedRectangle(24.dp)).background(C.Tonal)
-            .editorAction("编辑${item.name}") {
-                state.openComponentEditor(cmd.id, section, item)
+            .pointerInput(item.id) {
+                detectTapGestures(onTap = {
+                    state.openComponentEditor(cmd.id, section, item)
+                })
+            }
+            .pointerInput(item.id) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { dragStart.value() },
+                    onDragEnd = { dragEnd.value() },
+                    onDragCancel = { dragCancel.value() },
+                    onDrag = { change, amount -> change.consume(); dragMove.value(amount.y) },
+                )
+            }
+            .semantics {
+                contentDescription = "编辑${item.name}"
+                onClick(label = "编辑") {
+                    state.openComponentEditor(cmd.id, section, item)
+                    true
+                }
             }
             .padding(12.dp),
     ) {
@@ -783,35 +836,121 @@ private fun ConfigItemRow(
                 T(item.name, 15.sp, FontWeight.SemiBold, maxLines = 1)
                 T(itemParameterLabel(section, item), 13.sp, color = C.OnSurfaceVar, maxLines = 1)
             }
-            Box {
-                EditorIconButton(
-                    Ic.More, "更多操作${item.name}",
-                    modifier = Modifier.trackMenuAnchor(menuAnchor, menuOpen),
-                ) { menuOpen = true }
-                if (menuOpen) {
-                    AnchoredMenu(
-                        anchor = menuAnchor.value,
-                        onDismiss = { menuOpen = false },
-                        items = listOf(
-                            MenuItemSpec("上移", Ic.ArrowUp, enabled = index > 0) {
-                                menuOpen = false
-                                state.moveItem(cmd.id, section, item.id, -1)
-                            },
-                            MenuItemSpec("下移", Ic.ArrowDown, enabled = index < lastIndex) {
-                                menuOpen = false
-                                state.moveItem(cmd.id, section, item.id, 1)
-                            },
-                            MenuItemSpec("删除", Ic.Trash, danger = true) {
-                                menuOpen = false
-                                state.removeItem(cmd.id, section, item.id)
-                            },
-                        ),
-                    )
-                }
+            DeleteItemButton(
+                label = deleteLabel,
+                testTag = "delete-item-${item.id}",
+            ) {
+                state.removeItemWithUndo(cmd.id, section, item.id)
             }
         }
         if (itemMeta?.comingSoon == true) {
             T("即将支持，暂不会自动运行", 11.sp, color = C.Mid)
+        }
+    }
+}
+
+/** Trigger/condition list with the same long-press reorder as action siblings. */
+@Composable
+private fun ConfigItemList(
+    state: AppState,
+    cmd: Cmd,
+    section: CommandSection,
+    items: List<CommandItem>,
+) {
+    var preview by remember(items) { mutableStateOf<List<Long>?>(null) }
+    var draggingId by remember { mutableStateOf<Long?>(null) }
+    var startIndex by remember { mutableIntStateOf(0) }
+    var dragY by remember { mutableFloatStateOf(0f) }
+    val offset = remember { Animatable(0f) }
+    val heights = remember { mutableMapOf<Long, Int>() }
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val gap = with(density) { 8.dp.toPx() }
+    val shadow = with(density) { 18.dp.toPx() }
+    val shown = preview?.let { ids -> ids.mapNotNull { id -> items.firstOrNull { it.id == id } } } ?: items
+
+    fun movePreview(id: Long, direction: Int) {
+        val order = (preview ?: items.map { it.id }).toMutableList()
+        val from = order.indexOf(id)
+        val to = from + direction
+        if (from >= 0 && to in order.indices) {
+            order[from] = order[to]
+            order[to] = id
+            preview = order
+        }
+    }
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        shown.forEach { item ->
+            key(item.id) {
+                val isDragging = draggingId == item.id
+                Box(
+                    Modifier.fillMaxWidth()
+                        .zIndex(if (isDragging) 1f else 0f)
+                        .graphicsLayer {
+                            if (isDragging) {
+                                translationY = offset.value
+                                scaleX = 1.02f
+                                scaleY = 1.02f
+                                shadowElevation = shadow
+                            }
+                        }
+                        .then(if (isDragging) Modifier else Modifier.animatePlacement()),
+                ) {
+                    ConfigItemRow(
+                        state = state, cmd = cmd, section = section, item = item,
+                        onMeasuredHeight = { heights[item.id] = it },
+                        onDragStart = {
+                            if (draggingId == null) {
+                                draggingId = item.id
+                                startIndex = items.indexOfFirst { it.id == item.id }
+                                preview = items.map { it.id }
+                                dragY = 0f
+                                scope.launch { offset.snapTo(0f) }
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                        },
+                        onDrag = { dy ->
+                            if (draggingId == item.id) {
+                                dragY += dy
+                                val step = (heights[item.id]?.toFloat() ?: 72f) + gap
+                                while (dragY > step / 2f && (preview?.indexOf(item.id) ?: 0) < shown.lastIndex) {
+                                    movePreview(item.id, 1)
+                                    dragY -= step
+                                }
+                                while (dragY < -step / 2f && (preview?.indexOf(item.id) ?: 0) > 0) {
+                                    movePreview(item.id, -1)
+                                    dragY += step
+                                }
+                                scope.launch { offset.snapTo(dragY) }
+                            }
+                        },
+                        onDragEnd = {
+                            if (draggingId == item.id) {
+                                val target = preview?.indexOf(item.id) ?: startIndex
+                                if (target != startIndex) {
+                                    state.moveItemTo(cmd.id, section, item.id, target)
+                                }
+                                preview = null
+                                dragY = 0f
+                                scope.launch {
+                                    offset.animateTo(0f, spring(dampingRatio = 0.78f, stiffness = 420f))
+                                    if (draggingId == item.id) draggingId = null
+                                }
+                            }
+                        },
+                        onDragCancel = {
+                            preview = null
+                            dragY = 0f
+                            scope.launch {
+                                offset.animateTo(0f, spring(dampingRatio = 0.78f, stiffness = 420f))
+                                if (draggingId == item.id) draggingId = null
+                            }
+                        },
+                    )
+                }
+            }
         }
     }
 }
@@ -990,85 +1129,18 @@ private fun shareCommand(context: Context, cmd: Cmd) {
 }
 
 @Composable
-private fun ActionRowMenu(
+private fun ActionDeleteButton(
     state: AppState,
     cmd: Cmd,
     item: CommandItem,
-    index: Int,
-    lastIndex: Int,
-    parentId: Long?,
-    branch: Int?,
     compact: Boolean = false,
-    onPanel: (EditorPanel) -> Unit,
 ) {
-    var open by remember { mutableStateOf(false) }
-    val anchor = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
-    Box {
-        EditorIconButton(
-            Ic.More, "更多操作${item.name}",
-            modifier = Modifier.trackMenuAnchor(anchor, open),
-            size = if (compact) 40.dp else 48.dp,
-        ) { open = true }
-        if (open) {
-            AnchoredMenu(
-                anchor = anchor.value,
-                onDismiss = { open = false },
-                items = listOf(
-                    MenuItemSpec("上移", Ic.ArrowUp, enabled = index > 0) {
-                        open = false
-                        state.moveStepTo(cmd.id, parentId, branch, item.id, index - 1)
-                    },
-                    MenuItemSpec("下移", Ic.ArrowDown, enabled = index < lastIndex) {
-                        open = false
-                        state.moveStepTo(cmd.id, parentId, branch, item.id, index + 1)
-                    },
-                    MenuItemSpec("移动到…", Ic.UpDown) {
-                        open = false
-                        onPanel(EditorPanel.Move(item.id))
-                    },
-                    MenuItemSpec("删除", Ic.Trash, danger = true) {
-                        open = false
-                        state.removeActionItemWithUndo(cmd.id, item.id)
-                    },
-                ),
-            )
-        }
-    }
-}
-
-@Composable
-private fun ConditionRowMenu(
-    state: AppState,
-    cmd: Cmd,
-    item: CommandItem,
-    branch: Int?,
-    conditionIndex: Int,
-    condition: CommandItem,
-    onPanel: (EditorPanel) -> Unit,
-) {
-    var open by remember { mutableStateOf(false) }
-    val anchor = remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
-    Box {
-        EditorIconButton(
-            Ic.More, "更多操作条件${conditionIndex + 1}",
-            modifier = Modifier.trackMenuAnchor(anchor, open),
-        ) { open = true }
-        if (open) {
-            AnchoredMenu(
-                anchor = anchor.value,
-                onDismiss = { open = false },
-                items = listOf(
-                    MenuItemSpec("编辑", Ic.Edit) {
-                        open = false
-                        state.openComponentEditor(cmd.id, CommandSection.CONDITIONS, condition, item.id, branch)
-                    },
-                    MenuItemSpec("删除", Ic.Trash, danger = true) {
-                        open = false
-                        state.removeConditionItem(cmd.id, item.id, branch, condition.id)
-                    },
-                ),
-            )
-        }
+    DeleteItemButton(
+        label = "删除动作${item.name}",
+        testTag = "delete-item-${item.id}",
+        size = if (compact) 40.dp else 48.dp,
+    ) {
+        state.removeActionItemWithUndo(cmd.id, item.id)
     }
 }
 
@@ -1328,7 +1400,7 @@ private fun BlockCardRow(
             Spacer(Modifier.width(4.dp))
             LineIcon(Ic.ChevronRight, C.Muted, 18.dp)
             Spacer(Modifier.width(2.dp))
-            ActionRowMenu(state, cmd, item, index, lastIndex, parentId, branch, compact, onPanel)
+            ActionDeleteButton(state, cmd, item, compact)
         }
     }
 }
@@ -1438,10 +1510,10 @@ private fun ActionTreeRow(
                 hint?.let { T(it, 11.sp, color = C.Bad, maxLines = 1) }
             }
             Spacer(Modifier.width(if (compact) 2.dp else 4.dp))
-            ActionRowMenu(state, cmd, item, index, lastIndex, parentId, branch, compact, onPanel)
+            ActionDeleteButton(state, cmd, item, compact)
         }
         if (open) {
-            item.conditions.forEachIndexed { conditionIndex, condition ->
+            item.conditions.forEach { condition ->
                 Row(Modifier.fillMaxWidth().padding(start = 10.dp).clip(RoundedRectangle(20.dp))
                     .background(C.Card)
                     .editorAction("编辑条件${condition.name}") {
@@ -1453,7 +1525,7 @@ private fun ActionTreeRow(
                     Spacer(Modifier.width(8.dp))
                     T(ActionSummary.conditionRowText(condition),
                         12.sp, color = C.OnSurfaceVar, maxLines = 1, modifier = Modifier.weight(1f))
-                    ConditionRowMenu(state, cmd, item, branch = null, conditionIndex, condition, onPanel)
+                    ConditionDeleteButton(state, cmd, item, condition, null, compact)
                 }
             }
             if (timesLoop && item.conditions.isNotEmpty()) {
@@ -1484,7 +1556,7 @@ private fun ActionTreeRow(
                             state.removeBranch(cmd.id, item.id, branchIndex)
                         }
                     }
-                    branch.conditions.forEachIndexed { conditionIndex, condition ->
+                    branch.conditions.forEach { condition ->
                         Row(Modifier.fillMaxWidth().clip(RoundedRectangle(16.dp)).background(C.Card)
                             .editorAction("编辑条件${condition.name}") {
                                 state.openComponentEditor(cmd.id, CommandSection.CONDITIONS, condition, item.id, branchIndex)
@@ -1492,7 +1564,7 @@ private fun ActionTreeRow(
                             verticalAlignment = Alignment.CenterVertically) {
                             T(ActionSummary.conditionRowText(condition), 12.sp, color = C.OnSurfaceVar,
                                 maxLines = 1, modifier = Modifier.weight(1f))
-                            ConditionRowMenu(state, cmd, item, branchIndex, conditionIndex, condition, onPanel)
+                            ConditionDeleteButton(state, cmd, item, condition, branchIndex, compact)
                         }
                     }
                     ActionList(state, cmd, branch.children, depth + 1, item.id, branchIndex, onPanel, cards, onOpenBlock)

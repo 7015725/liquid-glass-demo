@@ -120,7 +120,7 @@ class Alpha8BlockPagesTest {
     }
 
     @Test
-    fun triggerAndConditionRowsUseTheCompactMenuInsteadOfBottomButtons() {
+    fun triggerAndConditionRowsUseDedicatedDeleteButtons() {
         val state = AppState()
         val cmd = state.create(auto = true)
         state.addItem(cmd.id, CommandSection.TRIGGERS,
@@ -139,14 +139,80 @@ class Alpha8BlockPagesTest {
             assertTrue("不应再有底部上移按钮", nodes(activity.window.decorView).none {
                 it.config.getOrNull(SemanticsProperties.ContentDescription)?.any { d -> d.startsWith("上移第") } == true
             })
-            assertTrue("不应再有底部删除按钮", nodes(activity.window.decorView).none {
-                it.config.getOrNull(SemanticsProperties.ContentDescription)?.any { d -> d.startsWith("删除第") } == true
+            assertTrue("不应再有行尾更多菜单", nodes(activity.window.decorView).none {
+                it.config.getOrNull(SemanticsProperties.ContentDescription)?.any { d ->
+                    d == "更多操作${trigger.name}" || d == "更多操作${condition.name}"
+                } == true
             })
-            assertNotNull("行尾应有⋯菜单", find(activity)["item-${trigger.id}"]!!.let {
-                nodes(activity.window.decorView).any { n ->
-                    n.config.getOrNull(SemanticsProperties.ContentDescription)?.any { d -> d == "更多操作${trigger.name}" } == true
-                }
+            assertNotNull("触发器行尾应有删除按钮", find(activity)["delete-item-${trigger.id}"])
+            assertNotNull("条件行尾应有删除按钮", find(activity)["delete-item-${condition.id}"])
+
+            clickTag(activity, "delete-item-${trigger.id}")
+            pump(activity)
+            assertTrue("删除按钮应删除对应触发器", requireNotNull(state.find(cmd.id)).triggers.isEmpty())
+            assertNotNull("删除后应提供撤销", state.undo)
+            state.undoDelete()
+            pump(activity)
+            assertEquals("撤销应恢复触发器", 1, requireNotNull(state.find(cmd.id)).triggers.size)
+        }
+    }
+
+    @Test
+    fun nestedConditionDeleteButtonRemovesConditionAndUndoRestoresIt() {
+        val state = AppState()
+        val cmd = state.create(auto = true)
+        state.addItem(cmd.id, CommandSection.ACTIONS, action("block.if"))
+        val block = requireNotNull(state.find(cmd.id)).actions.single()
+        state.addConditionItem(cmd.id, block.id, null, condition("condition.charging"))
+        val condition = requireNotNull(state.find(cmd.id)).actions.single().conditions.single()
+        state.openEditor(cmd.id)
+        state.openBlock(block.id)
+
+        withActivity(state) { activity ->
+            activity.setContent { Box(Modifier.fillMaxSize()) { CommandEditorHost(state) } }
+            pump(activity)
+            assertTrue("块内条件不应再有更多菜单", nodes(activity.window.decorView).none {
+                it.config.getOrNull(SemanticsProperties.ContentDescription)?.any { d ->
+                    d == "更多操作条件1"
+                } == true
             })
+            assertNotNull("块内条件应有删除按钮", find(activity)["delete-item-${condition.id}"])
+            clickTag(activity, "delete-item-${condition.id}")
+            pump(activity)
+            assertTrue("删除应移除块内条件",
+                requireNotNull(state.find(cmd.id)).actions.single().conditions.isEmpty())
+            assertNotNull("删除后应提供撤销", state.undo)
+            state.undoDelete()
+            pump(activity)
+            assertEquals("撤销应恢复块内条件", 1,
+                requireNotNull(state.find(cmd.id)).actions.single().conditions.size)
+        }
+    }
+
+    @Test
+    fun actionRowsUseDeleteButtonsAndUndoRestoresTheStep() {
+        val state = AppState()
+        val cmd = state.create(auto = true)
+        state.addItem(cmd.id, CommandSection.ACTIONS, action("action.toast"))
+        val step = requireNotNull(state.find(cmd.id)).actions.single()
+        state.openEditor(cmd.id)
+
+        withActivity(state) { activity ->
+            activity.setContent { Box(Modifier.fillMaxSize()) { CommandEditorHost(state) } }
+            pump(activity)
+            assertTrue("动作行不应再有更多菜单", nodes(activity.window.decorView).none {
+                it.config.getOrNull(SemanticsProperties.ContentDescription)?.any { d ->
+                    d == "更多操作${step.name}"
+                } == true
+            })
+            assertNotNull("动作行应有删除按钮", find(activity)["delete-item-${step.id}"])
+            clickTag(activity, "delete-item-${step.id}")
+            pump(activity)
+            assertTrue("删除按钮应删除对应动作", requireNotNull(state.find(cmd.id)).actions.isEmpty())
+            assertNotNull("删除后应提供撤销", state.undo)
+            state.undoDelete()
+            pump(activity)
+            assertEquals("撤销应恢复动作", 1, requireNotNull(state.find(cmd.id)).actions.size)
         }
     }
 

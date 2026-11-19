@@ -93,6 +93,7 @@ private fun ComponentEditorPage(
     val cmd = state.find(draft.cmdId) ?: return
     val item = draft.item
     var discardOpen by remember { mutableStateOf(false) }
+    var moveOpen by remember(item.id) { mutableStateOf(false) }
     val meta = item.typeId?.let { BuiltInComponents.registry().find(it) }
     val hasOutputs = meta != null && meta.kind != com.flowglass.engine.ComponentKind.CONDITION &&
         com.flowglass.engine.OutputCatalog.allOutputs(meta).isNotEmpty()
@@ -106,7 +107,30 @@ private fun ComponentEditorPage(
         if (draft.dirty) discardOpen = true else state.cancelComponentDraft()
     }
 
-    BackHandler(enabled = true) { if (outputPage) outputPage = false else requestClose() }
+    BackHandler(enabled = true) {
+        when {
+            moveOpen -> moveOpen = false
+            outputPage -> outputPage = false
+            else -> requestClose()
+        }
+    }
+
+    if (moveOpen) {
+        Column(
+            Modifier.fillMaxSize().background(C.Bg).testTag("action-editor-move")
+                .statusBarsPadding().navigationBarsPadding()
+                .verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            DetailTopBar(
+                onBack = { moveOpen = false },
+                title = { T("移动到…", 20.sp, FontWeight.Bold, maxLines = 1) },
+                subtitle = "选择动作要放入的位置",
+            )
+            MoveToPanel(state, cmd, item.id) { moveOpen = false }
+        }
+        return
+    }
 
     if (outputPage && hasOutputs) {
         ComponentOutputPage(
@@ -162,6 +186,9 @@ private fun ComponentEditorPage(
             canConfigureOutputs = hasOutputs,
             onConfigureOutputs = { outputPage = true },
         )
+        if (draft.section == CommandSection.ACTIONS && !draft.isNew) {
+            EditorPill("移动到…", "移动到其他位置") { moveOpen = true }
+        }
         if (item.typeId == AppMethodCall.TYPE_ID) AppMethodCallStatus(cmd, item)
     }
 

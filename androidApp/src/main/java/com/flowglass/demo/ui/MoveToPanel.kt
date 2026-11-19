@@ -91,7 +91,7 @@ internal fun MoveToPanel(
         lineHeight = 19.sp, modifier = Modifier.fillMaxWidth(),
     )
     T(
-        "先选目标，再选开头或末尾；中间位置可用上移 / 下移调整。", 12.sp, color = C.Muted,
+        "先选目标，再选开头或末尾；放到后可在列表里长按拖动微调。", 12.sp, color = C.Muted,
         lineHeight = 18.sp, modifier = Modifier.fillMaxWidth(),
     )
     Spacer(Modifier.height(2.dp))
