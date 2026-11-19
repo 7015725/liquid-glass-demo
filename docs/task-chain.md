@@ -251,9 +251,12 @@ interface ConditionEvaluator {
 | --- | --- | --- | --- | --- |
 | 局部 | `{x}` | `Rule.locals`（commands.json） | 运行内；`resetEachRun = true` 时每次运行重置为 `initial` | 50 个键/规则 |
 | 全局 | `{x}` | `RuleDocument.globals: Map<String, JsonElement>` | 跨规则、跨运行；设置页可清空 | 100 个键、总计 16KB |
-| 内置（只读） | `{x}` | 运行时提供 | 单次运行/当前事件 | — |
+| 内置/输出（只读） | `{x}` | 内置由运行时提供；输出名存在规则里 | 单次运行/当前事件 | — |
 
-- 所有变量统一写成 `{名字}`，没有 `%{}`、`global.`、`rule.`、`run.`、`event.` 等旧前缀；解析顺序为局部 → 全局 → 内置。
+- 所有用户可见变量统一写成 `{名字}`；`%{}`、`global.`、`rule.`、`run.`、`event.` 等前缀只用于旧文档和内部兼容，不再是编辑入口。
+- 解析顺序为局部 → 全局 → 内置 → 输出 → 运行。
+- 触发器和动作的上下文值是组件实例输出，不是全局内置变量。完整 schema、命名、只读规则和输出矩阵见
+  [`docs/output-variables.md`](output-variables.md)。
 - `Rule.locals` 的 `type` 为 `int` / `boolean` / `text` / `int_list` / `boolean_list` / `text_list`；`resetEachRun` 决定运行开始时是否重置为 `initial`。
 - 指令级与全局变量在运行结束时写回（**成功或失败都写**，手动停止不写，崩溃不写）；写回按键合并到现有值，不整表覆盖，避免把并发运行刚写入的键抹掉。
 - `action.set_var` 的 `name` 只写名字；由 `scope`（`local` / `global`）决定范围，`type` 决定值类型。
