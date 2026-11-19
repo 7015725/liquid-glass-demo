@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -58,16 +59,32 @@ internal fun VariableTextField(
     LaunchedEffect(value) {
         if (field.text != value) field = field.copy(text = value, selection = TextRange(value.length))
     }
-    BasicTextField(
-        field,
-        { next -> field = next; onValue(next.text) },
-        Modifier.fillMaxWidth().heightIn(min = if (multiline) 120.dp else 64.dp).testTag(tag).imeAutoScroll()
-            .clip(RoundedRectangle(24.dp)).background(C.Card).padding(16.dp),
-        textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 24.sp),
-        cursorBrush = SolidColor(C.Primary),
-    )
-    if (variables.isNotEmpty()) {
-        EditorPill("插入变量", "插入变量", modifier = Modifier.padding(top = 6.dp)) { menu = true }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = if (multiline) 120.dp else 64.dp)
+            .clip(RoundedRectangle(24.dp)).background(C.Card)
+            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        BasicTextField(
+            field,
+            { next -> field = next; onValue(next.text) },
+            Modifier.weight(1f).testTag(tag).imeAutoScroll()
+                .padding(vertical = if (multiline) 0.dp else 12.dp)
+                .heightIn(min = if (multiline) 104.dp else 24.dp),
+            textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 24.sp),
+            cursorBrush = SolidColor(C.Primary),
+        )
+        if (variables.isNotEmpty()) {
+            Box(
+                Modifier.size(44.dp).clip(RoundedRectangle(14.dp)).background(C.Tonal)
+                    .testTag("$tag-insert-variable")
+                    .editorAction("插入变量") { menu = true },
+                contentAlignment = Alignment.Center,
+            ) {
+                LineIcon(Ic.Plus, C.Primary, 20.dp)
+            }
+        }
     }
     if (menu) {
         VariableListDialog(variables, onDismiss = { menu = false }) { option ->
@@ -96,7 +113,12 @@ internal fun VariableListDialog(variables: List<VariableOption>, onDismiss: () -
                         val rows = variables.filter { it.scope == scope }
                         if (rows.isNotEmpty()) {
                             item(key = "group-$scope") {
-                                T(VariableCatalog.scopeLabel(scope), 12.sp, FontWeight.SemiBold, color = C.Muted)
+                                val label = when (scope) {
+                                    VariableScope.BUILTIN -> "系统环境变量"
+                                    VariableScope.LOCAL -> "局部变量"
+                                    VariableScope.GLOBAL -> "全局变量"
+                                }
+                                T(label, 12.sp, FontWeight.SemiBold, color = C.Muted)
                             }
                             items(rows, key = { "${it.scope}-${it.ownerId}-${it.name}" }) { option ->
                                 Column(
