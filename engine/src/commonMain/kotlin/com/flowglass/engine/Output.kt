@@ -63,8 +63,39 @@ object OutputCatalog {
 
     fun spec(meta: ComponentMeta, key: String): OutputSpec? = allOutputs(meta).firstOrNull { it.key == key }
 
+    private val actionGenericKeys = setOf("action.status", "action.result", "action.name")
+
+    /**
+     * Default instance name for a spec. Generic action names are prefixed with the component name
+     * so three ordinary actions no longer turn into `动作状态`, `动作状态2`, `动作状态3`.
+     */
+    fun defaultName(meta: ComponentMeta, spec: OutputSpec): String {
+        if (meta.kind != ComponentKind.ACTION || spec.key !in actionGenericKeys) {
+            return spec.defaultName.ifBlank { spec.label }
+        }
+        val prefix = meta.name.filter { it.isLetterOrDigit() }.ifBlank { "动作" }.take(40)
+        val generated = when (spec.key) {
+            "action.status" -> prefix + "状态"
+            "action.result" -> prefix + "结果"
+            "action.name" -> prefix + "名称"
+            else -> spec.defaultName.ifBlank { spec.label }
+        }
+        return sanitizeName(generated).ifBlank { "动作状态" }
+    }
+
+    /**
+     * Only the status row is enabled by default for ordinary actions. Result/name stay available
+     * on the output page but do not clutter the variable picker; specific outputs stay enabled.
+     */
+    fun defaultEnabled(meta: ComponentMeta, spec: OutputSpec): Boolean {
+        if (meta.kind != ComponentKind.ACTION) return true
+        return spec.key == "action.status" || spec.key !in actionGenericKeys
+    }
+
     fun defaultBindings(meta: ComponentMeta): List<OutputBinding> =
-        allOutputs(meta).map { OutputBinding(it.key, it.defaultName) }
+        allOutputs(meta).map { spec ->
+            OutputBinding(spec.key, defaultName(meta, spec), defaultEnabled(meta, spec))
+        }
 
     /**
      * Bindings that are effective at runtime. A component saved before this model existed has no
@@ -119,7 +150,11 @@ object OutputCatalog {
     fun bindingsForNew(meta: ComponentMeta, used: Set<String>): List<OutputBinding> {
         val taken = used.toMutableSet()
         return allOutputs(meta).map { spec ->
-            OutputBinding(spec.key, allocateName(spec.defaultName, taken, meta.name))
+            OutputBinding(
+                spec.key,
+                allocateName(defaultName(meta, spec), taken, meta.name),
+                defaultEnabled(meta, spec),
+            )
         }
     }
 
@@ -162,7 +197,8 @@ object OutputCatalog {
                         if (candidates.isEmpty()) {
                             result += OutputBinding(
                                 spec.key,
-                                allocateName(spec.defaultName.ifBlank { spec.label }, used, meta.name),
+                                allocateName(defaultName(meta, spec), used, meta.name),
+                                defaultEnabled(meta, spec),
                             )
                         } else {
                             candidates.forEach { binding ->

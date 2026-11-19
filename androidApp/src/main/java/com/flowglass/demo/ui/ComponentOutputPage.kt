@@ -109,7 +109,7 @@ internal fun ComponentOutputPage(
                     outputs = outputs + binding.copy(name = "", enabled = true)
                     error = null
                 },
-                onRestore = { update(index, binding.copy(name = spec.defaultName)) },
+                onRestore = { update(index, binding.copy(name = OutputCatalog.defaultName(meta, spec))) },
             )
         }
 

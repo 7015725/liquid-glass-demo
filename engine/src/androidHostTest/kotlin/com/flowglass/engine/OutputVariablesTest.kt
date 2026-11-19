@@ -68,6 +68,7 @@ class OutputVariablesTest {
             val keys = OutputCatalog.allOutputs(meta).map { it.key }
             assertEquals(keys.size, keys.distinct().size, "输出键重复：${meta.typeId}")
             assertTrue(OutputCatalog.allOutputs(meta).all { VariableName.isValid(it.defaultName) })
+            assertTrue(OutputCatalog.defaultBindings(meta).all { VariableName.isValid(it.name) })
         }
     }
 
@@ -81,6 +82,40 @@ class OutputVariablesTest {
         )
         val http = registry.find("action.http_request")!!
         assertTrue(OutputCatalog.allOutputs(http).map { it.key }.containsAll(listOf("http.body", "http.status")))
+    }
+
+    @Test
+    fun genericActionNamesArePrefixedAndOnlyStatusIsEnabled() {
+        val registry = BuiltInComponents.registry()
+        val toast = registry.find("action.toast")!!
+        val bindings = OutputCatalog.bindingsForNew(toast, setOf("上一步结果"))
+        assertEquals(
+            listOf("Toast提示状态", "Toast提示结果", "Toast提示名称"),
+            bindings.map { it.name },
+        )
+        assertTrue(bindings.single { it.key == "action.status" }.enabled)
+        assertTrue(bindings.none { it.key == "action.result" && it.enabled })
+        assertTrue(bindings.none { it.key == "action.name" && it.enabled })
+
+        val vibrate = OutputCatalog.bindingsForNew(registry.find("action.vibrate")!!, emptySet())
+        assertEquals("振动状态", vibrate.first { it.key == "action.status" }.name)
+        val notification = OutputCatalog.bindingsForNew(registry.find("action.post_notification")!!, emptySet())
+        assertEquals("发送通知状态", notification.first { it.key == "action.status" }.name)
+
+        val defaults = OutputCatalog.defaultBindings(toast)
+        assertEquals(listOf("Toast提示状态", "Toast提示结果", "Toast提示名称"), defaults.map { it.name })
+        assertEquals(1, defaults.count { it.enabled })
+    }
+
+    @Test
+    fun specificActionKeepsItsOutputsAndOnlyStatusOfGenericRows() {
+        val shell = BuiltInComponents.registry().find("action.root_shell")!!
+        val bindings = OutputCatalog.bindingsForNew(shell, emptySet())
+        assertTrue(bindings.filter { it.key.startsWith("shell.") }.all { it.enabled })
+        assertTrue(bindings.single { it.key == "action.status" }.enabled)
+        assertTrue(bindings.none { it.key == "action.result" && it.enabled })
+        assertTrue(bindings.none { it.key == "action.name" && it.enabled })
+        assertEquals("执行ShellRoot状态", bindings.single { it.key == "action.status" }.name)
     }
 
     @Test
@@ -102,6 +137,7 @@ class OutputVariablesTest {
         val names = normalized.actions.flatMap { action -> action.outputs.map { it.name } }
         assertEquals(names.size, names.distinct().size)
         assertTrue(normalized.actions.all { it.outputs.size == 3 })
+        assertTrue(normalized.actions.all { action -> action.outputs.count { it.enabled } == 1 })
         assertTrue(normalized.actions.all { action -> action.outputs.none { it.key.startsWith("trigger.") } })
     }
 
@@ -149,7 +185,11 @@ class OutputVariablesTest {
             },
         ))
         val rule = RuleFactory.create(RuleType.MANUAL, "失败").copy(actions = listOf(
-            RuleComponent("a.fail", onError = OnError.CONTINUE),
+            RuleComponent("a.fail", onError = OnError.CONTINUE, outputs = listOf(
+                OutputBinding("action.status", "动作状态"),
+                OutputBinding("action.result", "动作结果"),
+                OutputBinding("action.name", "动作名称"),
+            )),
             RuleComponent("a.echo", params = mapOf("text" to JsonPrimitive("{动作状态}|{动作结果}"))),
         ))
 
@@ -196,7 +236,11 @@ class OutputVariablesTest {
         val registry = BuiltInComponents.registry()
         assertTrue(registry.find("action.toast") != null)
         val rule = RuleFactory.create(RuleType.MANUAL, "只读").copy(actions = listOf(
-            RuleComponent("action.toast", params = mapOf("text" to JsonPrimitive("x"))),
+            RuleComponent("action.toast", params = mapOf("text" to JsonPrimitive("x")), outputs = listOf(
+                OutputBinding("action.status", "动作状态"),
+                OutputBinding("action.result", "动作结果"),
+                OutputBinding("action.name", "动作名称"),
+            )),
             RuleComponent("action.set_var", params = mapOf(
                 "name" to JsonPrimitive("动作状态"),
                 "type" to JsonPrimitive("text"),
