@@ -27,51 +27,94 @@ data class OutputBinding(
 )
 
 /**
- * Derives the complete output schema of a component: the generic rows every trigger/action
- * gets, then the specific rows declared by its metadata. Conditions have no outputs.
+ * Derives the complete output schema of a component. Components with dedicated outputs use them
+ * directly; a component that declares none gets one component-specific primary output. There are
+ * no shared trigger/action rows: two triggers never publish the same variable name by default.
  */
 object OutputCatalog {
-    val triggerGeneric: List<OutputSpec> = listOf(
-        OutputSpec("trigger.firedAt", "触发时间", VariableType.TEXT, "触发时间",
-            "本次触发的时间（HH:mm）"),
-        OutputSpec("trigger.reason", "触发原因", VariableType.TEXT, "触发原因",
-            "触发来源的说明"),
-        OutputSpec("trigger.name", "触发器名称", VariableType.TEXT, "触发器名称",
-            "触发器组件名称"),
-    )
-
-    val actionGeneric: List<OutputSpec> = listOf(
-        OutputSpec("action.status", "动作状态", VariableType.TEXT, "动作状态",
-            "成功、失败或跳过"),
-        OutputSpec("action.result", "动作结果", VariableType.TEXT, "动作结果",
-            "动作返回的说明"),
-        OutputSpec("action.name", "动作名称", VariableType.TEXT, "动作名称",
-            "动作组件名称"),
-    )
-
-    fun genericFor(kind: ComponentKind): List<OutputSpec> = when (kind) {
-        ComponentKind.TRIGGER -> triggerGeneric
-        ComponentKind.ACTION -> actionGeneric
-        ComponentKind.CONDITION -> emptyList()
+    private fun primaryLabel(meta: ComponentMeta): String = when {
+        meta.kind == ComponentKind.TRIGGER && meta.typeId == "trigger.time" -> "定时触发时间"
+        meta.kind == ComponentKind.TRIGGER -> "${meta.name}触发时间"
+        else -> "${meta.name}结果"
     }
 
-    /** Specific declarations first, then the generic rows; keys are unique. */
-    fun allOutputs(meta: ComponentMeta): List<OutputSpec> {
-        if (meta.kind == ComponentKind.CONDITION) return emptyList()
-        return (meta.outputs + genericFor(meta.kind)).distinctBy { it.key }
+    private fun primaryDefaultName(meta: ComponentMeta): String {
+        val base = meta.name.filter { it.isLetterOrDigit() }.ifBlank { "组件" }
+        val generated = when {
+            meta.kind == ComponentKind.TRIGGER && meta.typeId == "trigger.time" -> "定时触发时间"
+            meta.kind == ComponentKind.TRIGGER -> base + "触发时间"
+            else -> base + "结果"
+        }
+        return sanitizeName(generated).ifBlank { if (meta.kind == ComponentKind.TRIGGER) "触发时间" else "动作结果" }
     }
+
+    private fun primarySpec(meta: ComponentMeta): OutputSpec? {
+        if (meta.kind == ComponentKind.CONDITION || meta.outputs.isNotEmpty()) return null
+        val label = primaryLabel(meta)
+        return OutputSpec(
+            key = "${meta.typeId}.primary",
+            label = label,
+            type = VariableType.TEXT,
+            defaultName = primaryDefaultName(meta),
+            description = if (meta.kind == ComponentKind.TRIGGER) {
+                "本次触发的时间（HH:mm）"
+            } else {
+                "动作执行结果摘要"
+            },
+        )
+    }
+
+    /** Dedicated declarations, or one component-specific primary output when none exist. */
+    fun allOutputs(meta: ComponentMeta): List<OutputSpec> = when {
+        meta.kind == ComponentKind.CONDITION -> emptyList()
+        meta.outputs.isNotEmpty() -> meta.outputs
+        else -> listOfNotNull(primarySpec(meta))
+    }
+
+    /** Stable key of the generated primary output, or null when the component declares outputs. */
+    fun primaryKey(meta: ComponentMeta): String? = primarySpec(meta)?.key
 
     fun spec(meta: ComponentMeta, key: String): OutputSpec? = allOutputs(meta).firstOrNull { it.key == key }
 
+    fun defaultName(spec: OutputSpec): String = spec.defaultName.ifBlank { spec.label }
+
     fun defaultBindings(meta: ComponentMeta): List<OutputBinding> =
-        allOutputs(meta).map { OutputBinding(it.key, it.defaultName) }
+        allOutputs(meta).map { spec -> OutputBinding(spec.key, defaultName(spec)) }
+
+    /**
+     * Editor view of saved bindings. Drops keys that are no longer in the schema and fills any
+     * newly declared outputs, so opening an old rule never shows an empty output page.
+     */
+    fun bindingsForEditor(outputs: List<OutputBinding>, meta: ComponentMeta): List<OutputBinding> {
+        if (outputs.isEmpty()) return defaultBindings(meta)
+        val used = linkedSetOf<String>()
+        return allOutputs(meta).flatMap { spec ->
+            val candidates = outputs.filter { it.key == spec.key }
+            if (candidates.isEmpty()) {
+                listOf(OutputBinding(spec.key, allocateName(defaultName(spec), used, meta.name)))
+            } else {
+                candidates.map { binding ->
+                    if (VariableName.isValid(binding.name) && used.add(binding.name)) {
+                        binding
+                    } else {
+                        binding.copy(name = allocateName(binding.name.ifBlank { defaultName(spec) }, used, meta.name))
+                    }
+                }
+            }
+        }
+    }
 
     /**
      * Bindings that are effective at runtime. A component saved before this model existed has no
-     * bindings; it falls back to the declared defaults instead of publishing nothing.
+     * bindings, or only old shared keys that are no longer in the schema; fall back to the declared
+     * defaults instead of publishing nothing.
      */
-    fun effectiveBindings(outputs: List<OutputBinding>, meta: ComponentMeta): List<OutputBinding> =
-        if (outputs.isEmpty()) defaultBindings(meta) else outputs
+    fun effectiveBindings(outputs: List<OutputBinding>, meta: ComponentMeta): List<OutputBinding> {
+        if (outputs.isEmpty()) return defaultBindings(meta)
+        val known = allOutputs(meta).map { it.key }.toSet()
+        val filtered = outputs.filter { it.key in known }
+        return if (filtered.isEmpty()) defaultBindings(meta) else filtered
+    }
 
     fun effectiveBindings(component: RuleComponent, meta: ComponentMeta): List<OutputBinding> =
         effectiveBindings(component.outputs, meta)
@@ -119,7 +162,7 @@ object OutputCatalog {
     fun bindingsForNew(meta: ComponentMeta, used: Set<String>): List<OutputBinding> {
         val taken = used.toMutableSet()
         return allOutputs(meta).map { spec ->
-            OutputBinding(spec.key, allocateName(spec.defaultName, taken, meta.name))
+            OutputBinding(spec.key, allocateName(defaultName(spec), taken, meta.name))
         }
     }
 
@@ -162,7 +205,7 @@ object OutputCatalog {
                         if (candidates.isEmpty()) {
                             result += OutputBinding(
                                 spec.key,
-                                allocateName(spec.defaultName.ifBlank { spec.label }, used, meta.name),
+                                allocateName(defaultName(spec), used, meta.name),
                             )
                         } else {
                             candidates.forEach { binding ->

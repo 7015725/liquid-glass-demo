@@ -415,6 +415,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
         val names = linkedSetOf<String>()
         names += com.flowglass.engine.BuiltInVariables.all.map { it.name }
         val cmd = find(cmdId) ?: return names
+        names += localsOf(cmdId).map { it.name }
+        names += engineGlobals.keys
         fun walk(items: List<CommandItem>) {
             for (item in items) {
                 names += item.outputs.map { it.name }

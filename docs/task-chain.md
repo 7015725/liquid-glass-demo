@@ -238,7 +238,7 @@ interface ConditionEvaluator {
 
 - 触发器路径：`TriggerConditions.evaluate` 改为调用同一个 `evaluate`，行为不变（回归测试锁住）。
 - 任务路径：块条件传当前 `RunContext.variables`，所以能读 `run.` 变量。
-- 触发器路径：传入事件变量（如 `{电池电量}`、`{触发时间}`），条件里可以直接使用内置变量；不传整个 `RunContext`，因为触发器侧没有 Rule。
+- 触发器路径：传入组件专属输出（如 `{电池电量}`、`{通知标题}`），条件里可以直接使用内置变量；没有专属输出的触发器使用自己的主输出（如 `{开机完成触发时间}`）。不传整个 `RunContext`，因为触发器侧没有 Rule。
 - 现有 5 个条件之外，`condition.dnd_state` / `condition.network_type` 目前是 `comingSoon = true`
   （编辑器不可选，引擎里也恒为 false）。块的条件列表要沿用同一过滤，不把 `comingSoon` 组件放进去；
   否则会出现「选了但永远不成立」。补实现留到后续 PR。

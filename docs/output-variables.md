@@ -28,14 +28,19 @@ data class OutputSpec(
 )
 ```
 
-`OutputSpec` 只存在于组件元数据，不写进规则文件。组件作者只声明专属输出；`OutputCatalog`
-按组件种类派生通用输出：
+`OutputSpec` 只存在于组件元数据，不写进规则文件。每个组件声明自己的专属输出；`OutputCatalog`
+不再派生共享的触发器/动作通用三项：
 
-- 触发器：`trigger.firedAt`、`trigger.reason`、`trigger.name`。
-- 动作和流程块：`action.status`、`action.result`、`action.name`。
+- 有专属声明的组件：只使用 `meta.outputs`。
+- 没有专属声明的触发器：生成一个组件专属主输出，key 为 `<typeId>.primary`，默认名为
+  「组件名 + 触发时间」，值为本次触发时间（HH:mm）。
+- 没有专属声明的动作和流程块：生成一个组件专属主输出，key 为 `<typeId>.primary`，默认名为
+  「组件名 + 结果」，值为动作/流程块的结果摘要。
 - 条件：没有输出。
 
-因此新增一个动作时，即使只声明参数，它也自动获得三个通用动作变量。
+因此每个触发器、动作、流程块都至少有一个自己的输出，但不同组件不会再共用
+`触发时间`、`动作状态`、`动作结果`、`动作名称` 这些名字。一个组件可以声明多个专属输出，
+例如通知触发器有标题/正文/应用，Shell 有标准输出/错误/退出码。
 
 ## 3. 规则实例：OutputBinding
 
@@ -51,17 +56,23 @@ data class OutputBinding(
 - `key` 必须属于组件的完整输出 schema（`OutputCatalog.allOutputs`）。
 - `name` 按 `VariableName` 校验：中文/字母/数字/`_`/`-`，1–64，不含空格和点。
 - 同一 `key` 可以有多个别名，但同一规则内所有启用名必须唯一。
-- 每个触发器/动作至少启用一个绑定。
+- 每个触发器/动作/流程块至少启用一个绑定；默认绑定全部启用。
 - 条件不保存输出绑定。
 
-旧规则没有绑定时，运行期按元数据默认名补全；保存时会规范化并写回。
+旧规则没有绑定时，运行期按元数据默认名补全；保存时会规范化并写回。旧版的共享通用绑定
+（`trigger.firedAt` / `action.status` 等）已经不在 schema 里，会被 `normalizeRule` 丢弃，
+不再作为别名保留。
 
 ## 4. 命名与冲突
 
-`OutputCatalog.allocateName` 先尝试 `defaultName`，冲突时追加 `2`、`3`……；保存和加载时
+有专属输出的组件使用声明里的默认名；没有专属输出的组件使用组件名派生的主输出名，例如
+「振动结果」「Toast提示结果」「启动应用结果」「开机完成触发时间」。已有专属绑定保留原名和
+启用状态，不会因为升级自动改名；输出页的「恢复默认」使用当前 schema 的默认名。
+
+`OutputCatalog.allocateName` 先尝试默认名，冲突时追加 `2`、`3`……；保存和加载时
 `normalizeRule` 会：
 
-1. 丢弃未知 key；
+1. 丢弃未知 key（包括已移除的共享通用 key）；
 2. 为新增的元数据输出补默认绑定；
 3. 把与内置、局部、全局、方法提取名或其他输出冲突的名字改成唯一名；
 4. 清空条件上的绑定。
@@ -74,8 +85,8 @@ data class OutputBinding(
 
 `TriggerDispatcher` 在匹配后构造一次触发器上下文：
 
-- 通用输出来自触发时间、触发原因、触发器名称；
-- 专属输出来自事件（电量、WiFi、通知、应用、位置、耳机等）；
+- 有专属输出时，从事件读取电量、WiFi、通知、应用、位置、耳机等值；
+- 没有专属输出时，写入该组件的唯一主输出（默认名为「组件名触发时间」）；
 - 方法调用触发器还包含固定字段和用户提取字段。
 
 条件和后续动作使用同一份上下文。队列模式保留触发时的快照。触发器输出名会作为
@@ -85,12 +96,13 @@ data class OutputBinding(
 
 `ActionOutcome.outputs` 以稳定 key 返回值。执行器写入：
 
-- 通用：`action.status`、`action.result`、`action.name`；
-- 具体：`shell.stdout`、`shell.stderr`、`shell.code`、`http.body`、`http.status`、
-  `script.result` 等。
+- 专属：`shell.stdout`、`shell.stderr`、`shell.code`、`http.body`、`http.status`、
+  `script.result` 等；
+- 没有专属输出的动作/流程块：写入该组件的唯一主输出，值为执行结果摘要。
 
-只写当前实例启用的绑定；动作失败也写通用状态/结果，缺省的具体输出不写。`RETRY` 只保留
-最终一次尝试的结果。流程块执行完成后同样写通用输出。
+只写当前实例启用的绑定。动作失败也会写自己的主输出（如果该组件没有专属输出）；有专属输出
+的动作只写专属值，不再写共享状态/结果/名称。`RETRY` 只保留最终一次尝试的结果。流程块执行
+完成后写自己的主输出。
 
 ### 5.3 类型
 
@@ -124,7 +136,9 @@ data class OutputBinding(
 | `trigger.location_enter`、`trigger.location_exit` | `trigger.location.lat`、`.lng` |
 | `trigger.app_method_call` | `trigger.method.app`、`.user`、`.process`、`.method`、`.signature`、`.hookId` |
 
-其余触发器（时间、亮屏/熄屏、充电、开机、用户在场等）只有通用三项。
+其余触发器（时间、亮屏/熄屏、充电、开机、用户在场等）没有专属声明，各自生成一个主输出
+`<typeId>.primary`，默认名分别为「定时触发时间」「亮屏触发时间」「开机完成触发时间」等。
+这些主输出彼此独立，不再共用 `触发时间`。
 
 ### 6.2 动作专属输出
 
@@ -134,7 +148,8 @@ data class OutputBinding(
 | `action.script` | `script.result` |
 | `action.http_request` | `http.body`、`http.status` |
 
-其余普通动作和 7 个流程块只有通用三项。
+其余普通动作和 7 个流程块没有专属声明，各自生成一个主输出 `<typeId>.primary`，默认名为
+「动作名 + 结果」，例如「Toast提示结果」「振动结果」「启动应用结果」「如果结果」。
 
 ### 6.3 方法调用提取项
 
@@ -154,6 +169,7 @@ data class OutputBinding(
 
 - `RuleJson.CURRENT_FORMAT_VERSION = 6`。
 - v5 文件按「没有输出绑定」加载，由 `normalizeRule` 生成默认绑定；不写旧变量别名。
+- 旧版共享通用 key 不再属于 schema，加载/保存时被丢弃；没有专属输出的组件会补一个主输出。
 - `RuleComponent.outputs`、`CommandItem.outputs`、`TriggerComponent.outputs` 随规则/触发器传递。
 - `ParameterCodec.validateDocument` 拒绝未知 key、非法名、重名和全部禁用。
 - `RuleValidator` 额外检查跨组件重名，以及与内置、局部、全局、方法提取名的冲突。
@@ -162,9 +178,10 @@ data class OutputBinding(
 
 新增触发器或动作时：
 
-1. 在 `ComponentMeta.outputs` 声明专属 `OutputSpec`，不要重复通用 key。
-2. 给 `OutputCatalog.allOutputs` 的 key 保持稳定，不改已发布 key。
-3. 运行时在对应位置返回 `outputs` map。
-4. 补 engine 测试：schema 非空、key 唯一、默认名合法、运行期可见性。
-5. 补 UI 测试：输出页可打开、至少一个启用、条件无入口。
-6. 更新本文矩阵和 `docs/component-output-checklist.md`。
+1. 在 `ComponentMeta.outputs` 声明专属 `OutputSpec`。有自然数据就声明完整字段，不要用共享通用 key。
+2. 如果组件没有自然数据，可以只声明参数，`OutputCatalog` 会生成一个 `<typeId>.primary` 主输出。
+3. 给 `OutputCatalog.allOutputs` 的 key 保持稳定，不改已发布 key。
+4. 运行时在对应位置返回专属 `outputs` map；主输出由执行器写结果摘要。
+5. 补 engine 测试：schema 非空、key 唯一、默认名合法、运行期可见性。
+6. 补 UI 测试：输出页可打开、至少一个启用、条件无入口。
+7. 更新本文矩阵和 `docs/component-output-checklist.md`。

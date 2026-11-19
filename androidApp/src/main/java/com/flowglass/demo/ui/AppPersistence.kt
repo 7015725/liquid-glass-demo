@@ -340,7 +340,7 @@ internal object AppStateJson {
             } else {
                 val decoded = RuleJson.decodeWithMigration(text)
                 Decoded(
-                    decoded.document.toPersistedAppState(),
+                    OutputCatalog.normalizeDocument(decoded.document).toPersistedAppState(),
                     migrated = decoded.migratedFrom != null,
                     backupName = when (decoded.migratedFrom) {
                         2 -> "commands.v2.bak.json"

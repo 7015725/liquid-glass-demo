@@ -57,10 +57,7 @@ internal fun ComponentOutputPage(
     if (meta.kind == ComponentKind.CONDITION) return
     val specs = remember(meta.typeId) { OutputCatalog.allOutputs(meta) }
     var outputs by remember(item.id) {
-        mutableStateOf(
-            (if (item.outputs.isEmpty()) OutputCatalog.defaultBindings(meta) else item.outputs)
-                .filter { binding -> specs.any { it.key == binding.key } },
-        )
+        mutableStateOf(OutputCatalog.bindingsForEditor(item.outputs, meta))
     }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -109,7 +106,7 @@ internal fun ComponentOutputPage(
                     outputs = outputs + binding.copy(name = "", enabled = true)
                     error = null
                 },
-                onRestore = { update(index, binding.copy(name = spec.defaultName)) },
+                onRestore = { update(index, binding.copy(name = OutputCatalog.defaultName(spec))) },
             )
         }
 
