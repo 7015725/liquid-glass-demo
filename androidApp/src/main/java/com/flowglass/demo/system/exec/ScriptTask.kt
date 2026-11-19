@@ -91,7 +91,7 @@ internal object ScriptTask {
                 if (logText.isNotBlank()) append(logText).append('\n')
                 append(if (output.isBlank()) "脚本执行完成" else "脚本返回：$output")
             }
-            TaskOutcome(StepStatus.SUCCESS, detail.take(900), output)
+            TaskOutcome(StepStatus.SUCCESS, detail.take(900), mapOf("script.result" to output))
         } catch (timeout: ScriptTimeoutException) {
             TaskOutcome(StepStatus.FAILURE, "${timeout.message}（上限 ${timeoutSeconds} 秒）")
         } catch (memory: ScriptMemoryException) {
@@ -243,7 +243,7 @@ internal object ScriptTask {
         val spec = HttpRequestSpec(method, url, if (method == "GET") null else body)
         val outcome = runBlocking { HttpTask.run(spec, timeoutMs = 8_000) }
         if (outcome.status != StepStatus.SUCCESS) throw IllegalStateException(outcome.detail)
-        return outcome.output.orEmpty()
+        return outcome.outputs["script.result"]?.toString().orEmpty()
     }
 
     private fun notify(context: Context, title: String, text: String) {

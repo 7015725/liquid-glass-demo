@@ -48,6 +48,7 @@ class TriggerPolicyTest {
             binding: TriggerBinding,
             reason: String,
             variables: Map<String, Any?>,
+            readOnlyNames: Set<String>,
         ): Boolean {
             calls += rule.id
             return true

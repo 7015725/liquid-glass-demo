@@ -114,7 +114,7 @@ class VariableSetActionTest {
 
     @Test
     fun writingABuiltinIsRejected() = runSuspend {
-        val log = executor().run(rule(set("触发时间", "x")), "测试")
+        val log = executor().run(rule(set("上一步结果", "x")), "测试")
         assertEquals(StepStatus.FAILURE, log.status)
         assertTrue(log.steps.single().detail.contains("只读"))
     }

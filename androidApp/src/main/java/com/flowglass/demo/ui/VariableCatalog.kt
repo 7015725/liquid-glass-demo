@@ -22,6 +22,7 @@ data class VariableOption(
     val value: String,
     val references: Int,
     val ownerId: Long? = null,
+    val ownerItemId: Long? = null,
     val ownerTitle: String = "",
     val legacyKey: String? = null,
 )
@@ -29,6 +30,8 @@ data class VariableOption(
 object VariableCatalog {
     fun forEditor(state: AppState, cmdId: Long): List<VariableOption> = buildList {
         addAll(builtins(state))
+        addAll(outputs(state, cmdId))
+        addAll(methodExtractionOptions(state))
         state.localsOf(cmdId).forEach { local ->
             add(
                 VariableOption(
@@ -48,6 +51,8 @@ object VariableCatalog {
 
     fun forManager(state: AppState): List<VariableOption> = buildList {
         addAll(builtins(state))
+        addAll(outputs(state, null))
+        addAll(methodExtractionOptions(state))
         state.engineRules.forEach { rule ->
             val owner = state.allCommands().firstOrNull { state.ruleIdFor(it.id) == rule.id }
             rule.locals.forEach { local ->
@@ -75,14 +80,19 @@ object VariableCatalog {
         scope: VariableScope,
         ignoreOwner: Long? = null,
         ignoreName: String? = null,
+        ignoreItem: Long? = null,
     ): String? {
         VariableName.error(name)?.let { return it }
         if (BuiltInVariables.byName.containsKey(name)) return "名字已被占用：$name 是内置变量"
         if (methodCallExtractions(state).any { it.extraction.name == name }) {
-            return "名字已被占用：$name 是应用方法调用提供的内置变量"
+            return "名字已被占用：$name 是应用方法调用提供的输出变量"
         }
+        val sameRuleOnly = scope == VariableScope.OUTPUT
         val clash = forManager(state).firstOrNull {
             it.name == name && it.scope != VariableScope.BUILTIN &&
+                // Output names are unique per rule, not across the whole app.
+                (it.scope != VariableScope.OUTPUT || !sameRuleOnly || it.ownerId == ignoreOwner) &&
+                !(ignoreItem != null && it.scope == scope && it.ownerItemId == ignoreItem) &&
                 !(it.name == ignoreName && it.scope == scope && it.ownerId == ignoreOwner)
         }
         return if (clash != null) "名字已被占用：$name" else null
@@ -109,11 +119,49 @@ object VariableCatalog {
 
     fun scopeLabel(scope: VariableScope): String = when (scope) {
         VariableScope.BUILTIN -> "内置"
+        VariableScope.OUTPUT -> "输出"
         VariableScope.LOCAL -> "局部"
         VariableScope.GLOBAL -> "全局"
     }
 
     fun token(name: String): String = "{$name}"
+
+    private fun outputs(state: AppState, cmdId: Long?): List<VariableOption> = buildList {
+        val commands = if (cmdId == null) state.allCommands() else listOfNotNull(state.find(cmdId))
+        for (command in commands) {
+            fun walk(items: List<CommandItem>) {
+                for (item in items) {
+                    val meta = item.typeId?.let { BuiltInComponents.registry().find(it) }
+                    if (meta != null && meta.kind != com.flowglass.engine.ComponentKind.CONDITION) {
+                        val bindings = if (item.outputs.isEmpty()) {
+                            com.flowglass.engine.OutputCatalog.defaultBindings(meta)
+                        } else item.outputs
+                        for (binding in bindings) {
+                            if (!binding.enabled) continue
+                            val spec = com.flowglass.engine.OutputCatalog.spec(meta, binding.key) ?: continue
+                            add(
+                                VariableOption(
+                                    name = binding.name,
+                                    scope = VariableScope.OUTPUT,
+                                    type = spec.type,
+                                    note = "组件输出：${meta.name} · ${spec.label}",
+                                    value = "运行时提供",
+                                    references = references(state, binding.name, VariableScope.OUTPUT, null),
+                                    ownerId = command.id,
+                                    ownerItemId = item.id,
+                                    ownerTitle = command.title,
+                                ),
+                            )
+                        }
+                    }
+                    walk(item.conditions)
+                    walk(item.children)
+                    item.branches.forEach { branch -> walk(branch.conditions); walk(branch.children) }
+                }
+            }
+            walk(command.triggers + command.conditions + command.actions)
+        }
+    }.distinctBy { it.name to it.ownerId }
 
     private fun builtins(state: AppState): List<VariableOption> =
         BuiltInVariables.all.map { spec ->
@@ -126,7 +174,11 @@ object VariableCatalog {
                 references = references(state, spec.name, VariableScope.BUILTIN, null),
                 legacyKey = spec.legacyKey,
             )
-        } + methodCallExtractions(state).map { (owner, extraction) ->
+        }
+
+    /** Extraction fields are dynamic outputs of the method-call trigger, not global builtins. */
+    private fun methodExtractionOptions(state: AppState): List<VariableOption> =
+        methodCallExtractions(state).map { (owner, extraction) ->
             val name = MethodHookNames.normalizeExtractionName(extraction.name)
             val where = when (extraction.source) {
                 MethodExtractionSource.ARGUMENT -> "参数 ${extraction.argIndex ?: "?"}"
@@ -135,7 +187,7 @@ object VariableCatalog {
             val path = extraction.path.trim()
             VariableOption(
                 name = name,
-                scope = VariableScope.BUILTIN,
+                scope = VariableScope.OUTPUT,
                 type = VariableType.TEXT,
                 note = buildString {
                     append("应用方法调用「$owner」")
@@ -143,7 +195,7 @@ object VariableCatalog {
                     if (path.isNotEmpty()) append(" · $path")
                 },
                 value = "运行时提供",
-                references = references(state, name, VariableScope.BUILTIN, null),
+                references = references(state, name, VariableScope.OUTPUT, null),
                 ownerTitle = owner,
             )
         }

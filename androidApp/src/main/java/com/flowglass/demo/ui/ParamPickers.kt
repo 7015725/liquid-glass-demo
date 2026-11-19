@@ -115,6 +115,7 @@ internal fun VariableListDialog(variables: List<VariableOption>, onDismiss: () -
                             item(key = "group-$scope") {
                                 val label = when (scope) {
                                     VariableScope.BUILTIN -> "系统环境变量"
+                                    VariableScope.OUTPUT -> "输出变量"
                                     VariableScope.LOCAL -> "局部变量"
                                     VariableScope.GLOBAL -> "全局变量"
                                 }

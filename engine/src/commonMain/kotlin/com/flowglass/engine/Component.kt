@@ -216,7 +216,8 @@ data class ComponentMeta(
     val supports: List<LayerSupport>,
     /** How an application picker should treat this component; see [ApplicationCapability]. */
     val applicationCapability: ApplicationCapability = ApplicationCapability.GENERAL,
-    val outputs: List<String> = emptyList(),
+    /** Component-specific output declarations; generic rows are derived by [OutputCatalog]. */
+    val outputs: List<OutputSpec> = emptyList(),
     val description: String = "",
     /** Visible in the add panel but not selectable until a later stage lands. */
     val comingSoon: Boolean = false,
@@ -243,6 +244,8 @@ class RuleComponent(
     val conditions: List<RuleComponent> = emptyList(),
     /** Stable UI identity; the engine never interprets it and it is excluded from equality. */
     val id: Long? = null,
+    /** Instance-level output names this component publishes after it runs / fires. */
+    val outputs: List<OutputBinding> = emptyList(),
 ) {
     fun copy(
         type: String = this.type,
@@ -252,12 +255,14 @@ class RuleComponent(
         branches: List<RuleBranch> = this.branches,
         conditions: List<RuleComponent> = this.conditions,
         id: Long? = this.id,
-    ): RuleComponent = RuleComponent(type, params, onError, children, branches, conditions, id)
+        outputs: List<OutputBinding> = this.outputs,
+    ): RuleComponent = RuleComponent(type, params, onError, children, branches, conditions, id, outputs)
 
     // UI ids must not make two semantically identical rules compare unequal.
     override fun equals(other: Any?): Boolean = other is RuleComponent &&
         type == other.type && params == other.params && onError == other.onError &&
-        children == other.children && branches == other.branches && conditions == other.conditions
+        children == other.children && branches == other.branches && conditions == other.conditions &&
+        outputs == other.outputs
 
     override fun hashCode(): Int {
         var result = type.hashCode()
@@ -266,12 +271,13 @@ class RuleComponent(
         result = 31 * result + children.hashCode()
         result = 31 * result + branches.hashCode()
         result = 31 * result + conditions.hashCode()
+        result = 31 * result + outputs.hashCode()
         return result
     }
 
     override fun toString(): String =
         "RuleComponent(type=$type, params=$params, onError=$onError, children=$children, " +
-            "branches=$branches, conditions=$conditions, id=$id)"
+            "branches=$branches, conditions=$conditions, id=$id, outputs=$outputs)"
 }
 
 @Serializable

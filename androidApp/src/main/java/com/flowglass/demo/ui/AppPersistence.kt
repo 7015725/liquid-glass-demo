@@ -16,6 +16,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.findViewTreeLifecycleOwner
+import com.flowglass.engine.OutputCatalog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -330,7 +331,9 @@ internal object AppStateJson {
             if (PreviewV2Migration.looksLikePreview(root)) {
                 // Pre-release 0.6.0-alpha1 bytes: same formatVersion, old presentation sidecar.
                 Decoded(
-                    LegacyCommandMigration.migrate(PreviewV2Migration.toLegacyJson(root)).toPersistedAppState(),
+                    OutputCatalog.normalizeDocument(
+                        LegacyCommandMigration.migrate(PreviewV2Migration.toLegacyJson(root)),
+                    ).toPersistedAppState(),
                     migrated = true,
                     backupName = "commands.preview-v2.bak.json",
                 )
@@ -347,7 +350,7 @@ internal object AppStateJson {
                 )
             }
         } else {
-            val document = LegacyCommandMigration.migrate(text)
+            val document = OutputCatalog.normalizeDocument(LegacyCommandMigration.migrate(text))
             Decoded(document.toPersistedAppState(), migrated = true, backupName = "commands.v1.bak.json")
         }
     }

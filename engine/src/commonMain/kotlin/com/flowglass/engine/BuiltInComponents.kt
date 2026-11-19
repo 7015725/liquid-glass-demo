@@ -3,6 +3,14 @@ package com.flowglass.engine
 import kotlinx.serialization.json.JsonPrimitive
 
 object BuiltInComponents {
+    private fun out(
+        key: String,
+        label: String,
+        type: VariableType,
+        defaultName: String,
+        description: String = "",
+    ) = OutputSpec(key, label, type, defaultName, description)
+
     private fun param(
         key: String,
         label: String,
@@ -44,7 +52,7 @@ object BuiltInComponents {
                 param("time", "时间", "08:00", ParamType.TIME, required = true),
                 param("days", "重复", allWeekdays, ParamType.WEEKDAYS, required = true,
                     hint = "可选每天、工作日、周末，或点选具体星期。"),
-            ), supports = normalLayer, outputs = listOf("event.time")),
+            ), supports = normalLayer),
         ComponentMeta("trigger.screen_on", "亮屏", "设备", ComponentKind.TRIGGER, supports = normalLayer),
         ComponentMeta("trigger.screen_off", "熄屏", "设备", ComponentKind.TRIGGER, supports = normalLayer),
         ComponentMeta("trigger.user_present", "解锁", "设备", ComponentKind.TRIGGER, supports = normalLayer),
@@ -55,13 +63,18 @@ object BuiltInComponents {
                 param("direction", "方向", "below", ParamType.ENUM, required = true,
                     options = listOf(ParamOption("below", "低于"), ParamOption("above", "高于"))),
                 param("threshold", "阈值", "20%", ParamType.PERCENTAGE, required = true),
-            ), supports = normalLayer, outputs = listOf("event.battery")),
+            ), supports = normalLayer, outputs = listOf(
+                out("trigger.battery.level", "电量", VariableType.INT, "电量", "触发时的电池电量（0–100）"),
+            )),
         ComponentMeta("trigger.boot_completed", "开机完成", "设备", ComponentKind.TRIGGER, supports = normalLayer),
 
         // Kept for rules saved by earlier builds. Hidden from the add panel; the runtime maps
         // them onto the new battery / power sources so existing rules keep working.
         ComponentMeta("trigger.battery_low", "电量低于", "设备", ComponentKind.TRIGGER,
-            listOf(param("threshold", "电量", "20%", ParamType.PERCENTAGE)), supports = normalLayer),
+            listOf(param("threshold", "电量", "20%", ParamType.PERCENTAGE)), supports = normalLayer,
+            outputs = listOf(
+                out("trigger.battery.level", "电量", VariableType.INT, "电量", "触发时的电池电量（0–100）"),
+            )),
         ComponentMeta("trigger.charging", "充电状态", "设备", ComponentKind.TRIGGER,
             listOf(param("state", "状态", "charging", ParamType.ENUM, options = listOf(
                 ParamOption("charging", "开始充电"), ParamOption("stopped", "停止充电")))),
@@ -73,7 +86,11 @@ object BuiltInComponents {
                 param("ssid", "网络名称", "", ParamType.TEXT, required = false,
                     hint = "留空匹配任意 WiFi。读取网络名称需要定位权限。",
                     source = ParamSource.WIFI_NETWORKS),
-            ), permissions = listOf("location"), supports = normalSupport("location")),
+            ), permissions = listOf("location"), supports = normalSupport("location"),
+            outputs = listOf(
+                out("trigger.wifi.ssid", "WiFi 名称", VariableType.TEXT, "WiFi名称", "本次事件的网络名称"),
+                out("trigger.wifi.state", "WiFi 状态", VariableType.TEXT, "WiFi状态", "connected 或 disconnected"),
+            )),
         ComponentMeta("trigger.bluetooth", "蓝牙连接/断开", "网络", ComponentKind.TRIGGER,
             listOf(
                 param("state", "状态", "connected", ParamType.ENUM, required = true, options = listOf(
@@ -81,14 +98,24 @@ object BuiltInComponents {
                 param("name", "设备名称", "", ParamType.TEXT, required = false,
                     hint = "留空匹配任意设备；填写后按名称包含匹配。",
                     source = ParamSource.PAIRED_BLUETOOTH),
-            ), permissions = listOf("bluetooth_connect"), supports = normalSupport("bluetooth_connect")),
+            ), permissions = listOf("bluetooth_connect"), supports = normalSupport("bluetooth_connect"),
+            outputs = listOf(
+                out("trigger.bluetooth.name", "蓝牙名称", VariableType.TEXT, "蓝牙名称", "本次事件的设备名称"),
+                out("trigger.bluetooth.state", "蓝牙状态", VariableType.TEXT, "蓝牙状态", "connected 或 disconnected"),
+            )),
         ComponentMeta("trigger.notification", "收到通知", "通知", ComponentKind.TRIGGER,
             listOf(
                 param("app", "应用", "", ParamType.APPLICATION, required = false,
                     hint = "留空匹配任意应用。"),
                 param("title", "标题关键字", "", ParamType.TEXT, required = false),
                 param("text", "内容关键字", "", ParamType.TEXT, required = false),
-            ), permissions = listOf("notification_listener"), supports = normalSupport("notification_listener")),
+            ), permissions = listOf("notification_listener"), supports = normalSupport("notification_listener"),
+            outputs = listOf(
+                out("trigger.notification.app", "通知应用", VariableType.TEXT, "通知应用", "发出通知的应用包名；分身会带 @用户"),
+                out("trigger.notification.user", "通知用户", VariableType.INT, "通知用户", "通知所属的 Android 用户 ID"),
+                out("trigger.notification.title", "通知标题", VariableType.TEXT, "通知标题", "收到的通知标题"),
+                out("trigger.notification.text", "通知内容", VariableType.TEXT, "通知内容", "收到的通知正文"),
+            )),
         ComponentMeta("trigger.app_foreground", "应用前台/离开", "应用", ComponentKind.TRIGGER,
             listOf(
                 param("state", "状态", "foreground", ParamType.ENUM, required = true, options = listOf(
@@ -101,7 +128,11 @@ object BuiltInComponents {
                 LayerSupport(ExecutionLayer.ROOT),
                 LayerSupport(ExecutionLayer.NORMAL, permissions = listOf("foreground_app")),
             ),
-            applicationCapability = ApplicationCapability.FOREGROUND_EVENTS),
+            applicationCapability = ApplicationCapability.FOREGROUND_EVENTS,
+            outputs = listOf(
+                out("trigger.app.package", "应用包名", VariableType.TEXT, "应用包名", "事件所属应用包名；分身会带 @用户"),
+                out("trigger.app.user", "应用用户", VariableType.INT, "应用用户", "事件所属的 Android 用户 ID"),
+            )),
         ComponentMeta("trigger.app_process", "应用进程启动/结束", "应用", ComponentKind.TRIGGER,
             listOf(
                 param("event", "事件", "started", ParamType.ENUM, required = true, options = listOf(
@@ -112,6 +143,10 @@ object BuiltInComponents {
             ), supports = listOf(LayerSupport(ExecutionLayer.XPOSED)),
             minTier = Tier.XPOSED,
             description = "观察应用进程的启动和结束，不是只观察前台 Activity。",
+            outputs = listOf(
+                out("trigger.app.package", "应用包名", VariableType.TEXT, "应用包名", "事件所属应用包名；分身会带 @用户"),
+                out("trigger.app.user", "应用用户", VariableType.INT, "应用用户", "事件所属的 Android 用户 ID"),
+            ),
         ),
         ComponentMeta("trigger.app_crash", "应用崩溃 / ANR", "应用", ComponentKind.TRIGGER,
             listOf(
@@ -123,13 +158,21 @@ object BuiltInComponents {
             ), supports = listOf(LayerSupport(ExecutionLayer.XPOSED)),
             minTier = Tier.XPOSED,
             description = "应用崩溃或 ANR 时触发；不发送崩溃堆栈。",
+            outputs = listOf(
+                out("trigger.app.package", "应用包名", VariableType.TEXT, "应用包名", "事件所属应用包名；分身会带 @用户"),
+                out("trigger.app.user", "应用用户", VariableType.INT, "应用用户", "事件所属的 Android 用户 ID"),
+                out("trigger.app.event", "应用事件", VariableType.TEXT, "应用事件", "crash 或 anr"),
+            ),
         ),
         ComponentMeta("trigger.keyguard", "锁屏 / 解锁", "设备", ComponentKind.TRIGGER,
             listOf(param("state", "状态", "locked", ParamType.ENUM, required = true, options = listOf(
                 ParamOption("locked", "已锁屏"), ParamOption("unlocked", "已解锁")))),
             supports = listOf(LayerSupport(ExecutionLayer.XPOSED)),
             minTier = Tier.XPOSED,
-            description = "只观察锁屏状态变化；需要 LSPosed 系统钩子。"
+            description = "只观察锁屏状态变化；需要 LSPosed 系统钩子。",
+            outputs = listOf(
+                out("trigger.keyguard.state", "锁屏状态", VariableType.TEXT, "锁屏状态", "locked 或 unlocked"),
+            )
         ),
         ComponentMeta("trigger.media", "媒体播放状态", "媒体", ComponentKind.TRIGGER,
             listOf(
@@ -144,6 +187,11 @@ object BuiltInComponents {
             ), supports = listOf(LayerSupport(ExecutionLayer.XPOSED)),
             minTier = Tier.XPOSED,
             description = "观察媒体会话的播放 / 暂停 / 停止状态；只读，不控制播放。",
+            outputs = listOf(
+                out("trigger.app.package", "应用包名", VariableType.TEXT, "应用包名", "事件所属应用包名；分身会带 @用户"),
+                out("trigger.app.user", "应用用户", VariableType.INT, "应用用户", "事件所属的 Android 用户 ID"),
+                out("trigger.app.event", "应用事件", VariableType.TEXT, "应用事件", "playing、paused 或 stopped"),
+            ),
         ),
         ComponentMeta("trigger.foreground_service", "前台服务", "应用", ComponentKind.TRIGGER,
             listOf(
@@ -157,6 +205,10 @@ object BuiltInComponents {
             ), supports = listOf(LayerSupport(ExecutionLayer.XPOSED)),
             minTier = Tier.XPOSED,
             description = "观察应用前台服务的进入 / 退出；只读，不读取通知内容。",
+            outputs = listOf(
+                out("trigger.app.package", "应用包名", VariableType.TEXT, "应用包名", "事件所属应用包名；分身会带 @用户"),
+                out("trigger.app.user", "应用用户", VariableType.INT, "应用用户", "事件所属的 Android 用户 ID"),
+            ),
         ),
         ComponentMeta("trigger.app_method_call", "应用方法调用", "应用", ComponentKind.TRIGGER,
             listOf(
@@ -177,6 +229,14 @@ object BuiltInComponents {
             ), supports = listOf(LayerSupport(ExecutionLayer.XPOSED)),
             minTier = Tier.XPOSED,
             description = "当指定应用里的某个方法被调用时触发（需 LSPosed）",
+            outputs = listOf(
+                out("trigger.method.app", "目标应用", VariableType.TEXT, "调用应用", "目标应用包名；分身会带 @用户"),
+                out("trigger.method.user", "目标用户", VariableType.INT, "调用用户", "目标应用的 Android 用户 ID"),
+                out("trigger.method.process", "触发进程", VariableType.TEXT, "调用进程", "实际触发进程名"),
+                out("trigger.method.method", "方法", VariableType.TEXT, "调用方法", "类名#方法名"),
+                out("trigger.method.signature", "签名", VariableType.TEXT, "调用签名", "实际匹配的参数签名"),
+                out("trigger.method.hookId", "调用标识", VariableType.TEXT, "调用标识", "本规则的钩子标识"),
+            ),
         ),
         ComponentMeta("trigger.headset", "耳机插入/拔出", "设备", ComponentKind.TRIGGER,
             listOf(
@@ -185,7 +245,12 @@ object BuiltInComponents {
                 param("kind", "类型", "any", ParamType.ENUM, required = true, options = listOf(
                     ParamOption("any", "任意耳机"), ParamOption("wired", "有线耳机"),
                     ParamOption("bluetooth", "蓝牙音频设备"))),
-            ), supports = normalLayer),
+            ), supports = normalLayer,
+            outputs = listOf(
+                out("trigger.headset.name", "耳机名称", VariableType.TEXT, "耳机名称", "耳机或蓝牙音频设备名称"),
+                out("trigger.headset.kind", "耳机类型", VariableType.TEXT, "耳机类型", "wired 或 bluetooth"),
+                out("trigger.headset.state", "耳机状态", VariableType.TEXT, "耳机状态", "plugged 或 unplugged"),
+            )),
         ComponentMeta("trigger.location_enter", "进入地点", "位置", ComponentKind.TRIGGER,
             listOf(
                 ParamSpec("location", "地点", ParamType.TEXT, defaultValue = JsonPrimitive(""),
@@ -193,7 +258,11 @@ object BuiltInComponents {
                     editor = ParamEditor.LOCATION, source = ParamSource.CURRENT_LOCATION),
                 ParamSpec("radius", "半径", ParamType.INTEGER, defaultValue = JsonPrimitive(500),
                     hint = "100–5000 米", minValue = 100, maxValue = 5000),
-            ), permissions = listOf("location"), supports = normalSupport("location")),
+            ), permissions = listOf("location"), supports = normalSupport("location"),
+            outputs = listOf(
+                out("trigger.location.lat", "纬度", VariableType.TEXT, "纬度", "位置事件的纬度"),
+                out("trigger.location.lng", "经度", VariableType.TEXT, "经度", "位置事件的经度"),
+            )),
         ComponentMeta("trigger.location_exit", "离开地点", "位置", ComponentKind.TRIGGER,
             listOf(
                 ParamSpec("location", "地点", ParamType.TEXT, defaultValue = JsonPrimitive(""),
@@ -201,7 +270,11 @@ object BuiltInComponents {
                     editor = ParamEditor.LOCATION, source = ParamSource.CURRENT_LOCATION),
                 ParamSpec("radius", "半径", ParamType.INTEGER, defaultValue = JsonPrimitive(500),
                     hint = "100–5000 米", minValue = 100, maxValue = 5000),
-            ), permissions = listOf("location"), supports = normalSupport("location")),
+            ), permissions = listOf("location"), supports = normalSupport("location"),
+            outputs = listOf(
+                out("trigger.location.lat", "纬度", VariableType.TEXT, "纬度", "位置事件的纬度"),
+                out("trigger.location.lng", "经度", VariableType.TEXT, "经度", "位置事件的经度"),
+            )),
     )
 
     val conditions = listOf(

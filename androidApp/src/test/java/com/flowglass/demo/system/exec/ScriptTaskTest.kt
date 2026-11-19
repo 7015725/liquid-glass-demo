@@ -60,7 +60,7 @@ class ScriptTaskTest {
         assertTrue(result.detail, result.status == StepStatus.SUCCESS)
         assertEquals(1L, map["count"])
         assertEquals("ok", map["last"])
-        assertEquals("1-done", result.output)
+        assertEquals("1-done", result.outputs["script.result"])
     }
 
     @Test
@@ -104,7 +104,7 @@ class ScriptTaskTest {
         )
 
         assertTrue(result.detail, result.status == StepStatus.SUCCESS)
-        assertEquals(dangerous, result.output)
+        assertEquals(dangerous, result.outputs["script.result"])
     }
 
     @Test
@@ -119,7 +119,7 @@ class ScriptTaskTest {
         )
 
         assertTrue(result.detail, result.status == StepStatus.SUCCESS)
-        assertEquals("original", result.output)
+        assertEquals("original", result.outputs["script.result"])
         assertEquals("original", map["名字"])
     }
 
@@ -133,7 +133,7 @@ class ScriptTaskTest {
         )
 
         assertTrue(result.detail, result.status == StepStatus.SUCCESS)
-        assertEquals("1", result.output)
+        assertEquals("1", result.outputs["script.result"])
     }
 
     @Test
@@ -148,7 +148,7 @@ class ScriptTaskTest {
         )
 
         assertTrue(result.detail, result.status == StepStatus.SUCCESS)
-        assertEquals("3:2", result.output)
+        assertEquals("3:2", result.outputs["script.result"])
         assertEquals(listOf(1L, 2L, 3L), map["复制"])
     }
 
@@ -164,7 +164,7 @@ class ScriptTaskTest {
         )
 
         assertTrue(result.detail, result.status == StepStatus.SUCCESS)
-        assertEquals("小明！", result.output)
+        assertEquals("小明！", result.outputs["script.result"])
         assertEquals("小明！", map["结果"])
     }
 

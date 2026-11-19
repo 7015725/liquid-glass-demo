@@ -191,8 +191,11 @@ object RuleJson {
 
     fun encode(document: RuleDocument): String {
         require(document.formatVersion == CURRENT_FORMAT_VERSION) { "不支持的格式版本" }
-        ParameterCodec.validateDocument(document)
-        return format.encodeToString(document)
+        // Saving repairs missing/legacy bindings so the file is self-contained and every
+        // registered trigger/action carries at least one output name.
+        val normalized = OutputCatalog.normalizeDocument(document)
+        ParameterCodec.validateDocument(normalized)
+        return format.encodeToString(normalized)
     }
 
     fun decode(text: String): RuleDocument = decodeWithMigration(text).document
@@ -216,7 +219,9 @@ object RuleJson {
         val meta = linkedMapOf<String, GlobalVariableMeta>()
         for (name in base.globals.keys) meta[name] = base.globalMeta[name] ?: GlobalVariableMeta()
         for ((name, value) in base.globalMeta) meta.putIfAbsent(name, value)
-        return base.copy(formatVersion = CURRENT_FORMAT_VERSION, globalMeta = meta)
+        return OutputCatalog.normalizeDocument(
+            base.copy(formatVersion = CURRENT_FORMAT_VERSION, globalMeta = meta),
+        )
     }
 
     private fun RuleDocument.migrateToV3(): RuleDocument {
@@ -261,4 +266,4 @@ object RuleJson {
     )
 }
 
-const val CURRENT_FORMAT_VERSION = 5
+const val CURRENT_FORMAT_VERSION = 6

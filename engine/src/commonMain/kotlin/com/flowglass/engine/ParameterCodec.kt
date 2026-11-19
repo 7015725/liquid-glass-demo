@@ -328,6 +328,14 @@ object ParameterCodec {
             metadata[component.type]?.params?.forEach { spec ->
                 component.params[spec.key]?.let { validate(spec, it) }
             }
+            metadata[component.type]?.let { meta ->
+                if (meta.kind == ComponentKind.CONDITION) {
+                    require(component.outputs.isEmpty()) { "条件不能声明输出" }
+                } else if (component.outputs.isNotEmpty()) {
+                    val issues = OutputCatalog.validateBindings(meta, component.outputs)
+                    require(issues.isEmpty()) { issues.joinToString("；") }
+                }
+            }
             component.conditions.forEach(::walk)
             component.children.forEach(::walk)
             component.branches.forEach { branch -> branch.conditions.forEach(::walk); branch.children.forEach(::walk) }

@@ -52,11 +52,11 @@ data class RunContext(
     var scriptVariables: ScriptVariableAccess? = null,
 )
 
-/** [output] is published to the run context under the first key of `ComponentMeta.outputs`. */
+/** [outputs] maps stable output keys (for example `shell.stdout`) to their runtime values. */
 data class ActionOutcome(
     val status: StepStatus,
     val detail: String,
-    val output: String? = null,
+    val outputs: Map<String, Any?> = emptyMap(),
     /** Layer used by the host; engine tests can omit it. */
     val layer: ExecutionLayer? = null,
 )
@@ -138,10 +138,14 @@ internal class RunScopes(
     initial: Map<String, Any?>,
     globals: Map<String, Any?>,
     globalVariableMeta: Map<String, GlobalVariableMeta> = emptyMap(),
+    initialOutputNames: Set<String> = emptySet(),
 ) {
     val event: MutableMap<String, Any?> = linkedMapOf()
     val builtins: MutableMap<String, Any?> = linkedMapOf()
     val run: MutableMap<String, Any?> = linkedMapOf()
+    /** Read-only instance outputs; the name is what parameters and conditions reference. */
+    val outputs: MutableMap<String, Any?> = linkedMapOf()
+    val outputNames: MutableSet<String> = linkedSetOf<String>().apply { addAll(initialOutputNames) }
     val ruleVars: MutableMap<String, Any?> = linkedMapOf()
     val global: MutableMap<String, Any?> = LinkedHashMap(globals)
     private val ruleDirty = linkedSetOf<String>()
@@ -158,6 +162,7 @@ internal class RunScopes(
         }
         for ((key, value) in initial) {
             when {
+                key in outputNames -> outputs[key] = value
                 key.startsWith("event.") -> event[key.removePrefix("event.")] = value
                 BuiltInVariables.byName.containsKey(key) -> builtins[key] = value
                 else -> run[key] = value
@@ -172,14 +177,14 @@ internal class RunScopes(
     }
 
     fun flattened(): Map<String, Any?> = buildMap {
-        // Bare names resolve local -> global -> builtin, matching the documented order.
-        // Run keys are the lowest-priority compatibility bucket; explicit prefixes below stay
-        // unambiguous.
+        // Bare names resolve local -> global -> builtin -> output -> run, matching the
+        // documented order. Later puts win; explicit prefixes stay unambiguous.
         putAll(run)
         run.forEach { (k, v) -> put("run.$k", v) }
+        outputs.forEach { (k, v) -> put(k, v) }
+        putAll(builtins)
         global.forEach { (k, v) -> put(k, v); put("global.$k", v) }
         ruleVars.forEach { (k, v) -> put(k, v); put("rule.$k", v) }
-        putAll(builtins)
         event.forEach { (k, v) -> put("event.$k", v) }
     }
 
@@ -201,7 +206,7 @@ internal class RunScopes(
             trimmed.startsWith("rule.") -> ruleVars[trimmed.removePrefix("rule.")]
             trimmed.startsWith("run.") -> run[trimmed.removePrefix("run.")]
             trimmed.startsWith("event.") -> event[trimmed.removePrefix("event.")]
-            else -> ruleVars[trimmed] ?: global[trimmed] ?: builtins[trimmed] ?: run[trimmed]
+            else -> ruleVars[trimmed] ?: global[trimmed] ?: builtins[trimmed] ?: outputs[trimmed] ?: run[trimmed]
         }
     }
 
@@ -231,6 +236,7 @@ internal class RunScopes(
             else -> trimmed.removePrefix("run.")
         }
         require(key.isNotEmpty()) { "变量名不能为空" }
+        if (key in outputNames) throw IllegalArgumentException("输出变量「$key」只读，不能修改")
         if (prefix == null && (key in builtins || BuiltInVariables.byName.containsKey(key))) {
             throw IllegalArgumentException("内置变量「$key」只读，不能修改")
         }
@@ -279,9 +285,12 @@ internal class RunScopes(
     fun writeScript(name: String, value: Any?): Any? {
         val trimmed = clean(name)
         require(trimmed.isNotEmpty()) { "变量名不能为空" }
+        val bare = trimmed.substringAfter('.', trimmed)
+        if (bare in outputNames) throw IllegalArgumentException("输出变量「$bare」只读，不能修改")
         if (trimmed.startsWith("global.")) {
             val key = trimmed.removePrefix("global.")
             require(key.isNotEmpty()) { "变量名不能为空" }
+            if (key in outputNames) throw IllegalArgumentException("输出变量「$key」只读，不能修改")
             val type = VariableType.fromStorage(globalMeta[key]?.type) ?: VariableValues.inferType(value)
             val converted = VariableValues.fromScript(value, type)
             global[key] = converted
@@ -301,6 +310,7 @@ internal class RunScopes(
             return value
         }
         if (trimmed.startsWith("event.")) throw IllegalArgumentException("事件变量「$trimmed」只读，不能修改")
+        if (trimmed in outputNames) throw IllegalArgumentException("输出变量「$trimmed」只读，不能修改")
         if (trimmed in builtins || BuiltInVariables.byName.containsKey(trimmed)) {
             throw IllegalArgumentException("内置变量「$trimmed」只读，不能修改")
         }
@@ -384,20 +394,18 @@ class RuleExecutor(
         globals: Map<String, Any?> = emptyMap(),
         budget: RunBudget = RunBudget(maxSteps),
         startDepth: Int = 0,
+        initialReadOnlyNames: Set<String> = emptySet(),
     ): RunLog {
         cancellationCheckpoint.ensureActive()
         val start = clock.nowEpochMs()
         val monotonicStart = kotlin.time.TimeSource.Monotonic.markNow()
         val steps = mutableListOf<StepResult>()
-        val context = RunContext(rule, reason)
-        // Battery is a live device value, not only a battery-trigger payload. A manual / one-tap
-        // run has no trigger event, so without this seed `{电池电量}` would stay literal even
-        // though the variable picker offers it. Event variables (including a battery trigger's
-        // measured value) still win because they are merged last.
-        val liveBuiltins = buildMap<String, Any?> {
-            environment?.batteryPercent()?.let { put("电池电量", it) }
-        }
-        val scopes = RunScopes(rule, liveBuiltins + initialVariables, globals, globalVariableMeta)
+        // Normalise output bindings before the first step so a hand-edited or pre-migration
+        // rule still gets unique, read-only names.
+        val normalized = OutputCatalog.normalizeRule(rule, registry)
+        val context = RunContext(normalized, reason)
+        val outputNames = readOnlyOutputNames(normalized) + initialReadOnlyNames
+        val scopes = RunScopes(normalized, initialVariables, globals, globalVariableMeta, outputNames)
         context.scriptVariables = object : ScriptVariableAccess {
             override fun read(name: String): Any? = scopes.read(name)
             override fun write(name: String, value: Any?) {
@@ -409,7 +417,7 @@ class RuleExecutor(
         var stopped: StopSignal? = null
 
         try {
-            execSequence(rule.actions, emptyList(), startDepth, context, scopes, budget, steps)
+            execSequence(normalized.actions, emptyList(), startDepth, context, scopes, budget, steps)
         } catch (stop: StopSignal) {
             stopped = stop
         } catch (broken: BreakSignal) {
@@ -503,6 +511,7 @@ class RuleExecutor(
             // A growing variable (e.g. 10k appends) must not turn one step detail into megabytes.
             val text = if (detail.length <= 200) detail else detail.take(200) + "…"
             steps += StepResult(node.type, status, text, ms, path)
+            publishOutputs(node, meta, status, text, emptyMap(), scopes)
         }
         val block = meta.block ?: return runPlainStep(node, meta, path, context, scopes, steps)
 
@@ -550,12 +559,53 @@ class RuleExecutor(
         steps += StepResult(node.type, result.status, result.detail, duration, path, result.layer)
         scopes.run[LAST_DETAIL] = result.detail
         scopes.builtins["上一步结果"] = result.detail
-        val outputKey = meta.outputs.firstOrNull()
-        if (outputKey != null && result.output != null) {
-            scopes.run[outputKey] = result.output
-            BuiltInVariables.outputName(outputKey)?.let { scopes.builtins[it] = result.output }
-        }
+        publishOutputs(node, meta, result.status, result.detail, result.outputs, scopes)
         return SequenceOutcome(result.status, result.detail)
+    }
+
+    /** Converts and publishes every enabled binding of one component instance. */
+    private fun publishOutputs(
+        node: RuleComponent,
+        meta: ComponentMeta,
+        status: StepStatus,
+        detail: String,
+        extra: Map<String, Any?>,
+        scopes: RunScopes,
+    ) {
+        val values = linkedMapOf<String, Any?>(
+            "action.status" to when (status) {
+                StepStatus.SUCCESS -> "成功"
+                StepStatus.FAILURE -> "失败"
+                StepStatus.SKIPPED -> "跳过"
+            },
+            "action.result" to detail,
+            "action.name" to meta.name,
+        )
+        values.putAll(extra)
+        for (binding in OutputCatalog.effectiveBindings(node, meta)) {
+            if (!binding.enabled) continue
+            val spec = OutputCatalog.spec(meta, binding.key) ?: continue
+            val converted = OutputValues.convert(spec, values[binding.key]) ?: continue
+            scopes.outputs[binding.name] = converted
+            scopes.outputNames += binding.name
+        }
+    }
+
+    /** Every output name declared inside the tree; trigger names are added by the host. */
+    private fun readOnlyOutputNames(rule: Rule): Set<String> {
+        val names = linkedSetOf<String>()
+        fun walk(component: RuleComponent) {
+            val meta = registry.find(component.type)
+            if (meta != null) names += OutputCatalog.enabledNames(component, meta)
+            component.conditions.forEach(::walk)
+            component.children.forEach(::walk)
+            component.branches.forEach { branch ->
+                branch.conditions.forEach(::walk)
+                branch.children.forEach(::walk)
+            }
+        }
+        (rule.triggers + rule.conditions + rule.actions).forEach(::walk)
+        return names
     }
 
     private suspend fun runIf(
