@@ -390,7 +390,14 @@ class RuleExecutor(
         val monotonicStart = kotlin.time.TimeSource.Monotonic.markNow()
         val steps = mutableListOf<StepResult>()
         val context = RunContext(rule, reason)
-        val scopes = RunScopes(rule, initialVariables, globals, globalVariableMeta)
+        // Battery is a live device value, not only a battery-trigger payload. A manual / one-tap
+        // run has no trigger event, so without this seed `{电池电量}` would stay literal even
+        // though the variable picker offers it. Event variables (including a battery trigger's
+        // measured value) still win because they are merged last.
+        val liveBuiltins = buildMap<String, Any?> {
+            environment?.batteryPercent()?.let { put("电池电量", it) }
+        }
+        val scopes = RunScopes(rule, liveBuiltins + initialVariables, globals, globalVariableMeta)
         context.scriptVariables = object : ScriptVariableAccess {
             override fun read(name: String): Any? = scopes.read(name)
             override fun write(name: String, value: Any?) {

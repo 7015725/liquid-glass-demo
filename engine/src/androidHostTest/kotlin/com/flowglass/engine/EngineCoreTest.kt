@@ -180,6 +180,74 @@ class EngineCoreTest {
         assertEquals("\"15\"", seen)
     }
 
+    @Test
+    fun manualRunExposesLiveBatteryToBuiltInVariable() {
+        val registry = ComponentRegistry()
+        registry.register(ComponentMeta(
+            "action.echo", "回显", "测试", ComponentKind.ACTION,
+            params = listOf(ParamSpec("text", "文本", ParamType.TEXT, required = true)),
+            supports = listOf(LayerSupport(ExecutionLayer.NORMAL)),
+        ))
+        var seen: String? = null
+        val echo = Action { _, component ->
+            seen = component.params["text"]?.toString()
+            ActionOutcome(StepStatus.SUCCESS, "echoed")
+        }
+        val environment = object : ConditionEnvironment {
+            override fun zoneOffsetMinutes(atEpochMs: Long): Int = 0
+            override fun batteryPercent(): Int = 42
+            override fun isCharging(): Boolean = false
+            override fun isScreenOn(): Boolean = true
+        }
+        val executor = RuleExecutor(
+            registry,
+            mapOf("action.echo" to echo),
+            CancellationCheckpoint { },
+            environment = environment,
+        )
+        val rule = RuleFactory.create(RuleType.MANUAL, "手动变量").copy(
+            actions = listOf(RuleComponent("action.echo", mapOf("text" to JsonPrimitive("{电池电量}")))),
+        )
+
+        runSuspend { executor.run(rule, "手动执行") }
+
+        assertEquals("\"42\"", seen)
+    }
+
+    @Test
+    fun batteryTriggerValueOverridesLiveBatteryDefault() {
+        val registry = ComponentRegistry()
+        registry.register(ComponentMeta(
+            "action.echo", "回显", "测试", ComponentKind.ACTION,
+            params = listOf(ParamSpec("text", "文本", ParamType.TEXT, required = true)),
+            supports = listOf(LayerSupport(ExecutionLayer.NORMAL)),
+        ))
+        var seen: String? = null
+        val echo = Action { _, component ->
+            seen = component.params["text"]?.toString()
+            ActionOutcome(StepStatus.SUCCESS, "echoed")
+        }
+        val environment = object : ConditionEnvironment {
+            override fun zoneOffsetMinutes(atEpochMs: Long): Int = 0
+            override fun batteryPercent(): Int = 42
+            override fun isCharging(): Boolean = false
+            override fun isScreenOn(): Boolean = true
+        }
+        val executor = RuleExecutor(
+            registry,
+            mapOf("action.echo" to echo),
+            CancellationCheckpoint { },
+            environment = environment,
+        )
+        val rule = RuleFactory.create(RuleType.AUTO, "电量触发").copy(
+            actions = listOf(RuleComponent("action.echo", mapOf("text" to JsonPrimitive("{电池电量}")))),
+        )
+
+        runSuspend { executor.run(rule, "触发：电量", mapOf("电池电量" to 15)) }
+
+        assertEquals("\"15\"", seen)
+    }
+
     private fun <T> runSuspend(block: suspend () -> T): T {
         var result: Result<T>? = null
         block.startCoroutine(object : Continuation<T> {
