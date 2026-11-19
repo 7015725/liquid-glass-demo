@@ -511,7 +511,7 @@ class RuleExecutor(
             // A growing variable (e.g. 10k appends) must not turn one step detail into megabytes.
             val text = if (detail.length <= 200) detail else detail.take(200) + "…"
             steps += StepResult(node.type, status, text, ms, path)
-            publishOutputs(node, meta, status, text, emptyMap(), scopes)
+            publishOutputs(node, meta, text, emptyMap(), scopes)
         }
         val block = meta.block ?: return runPlainStep(node, meta, path, context, scopes, steps)
 
@@ -559,7 +559,7 @@ class RuleExecutor(
         steps += StepResult(node.type, result.status, result.detail, duration, path, result.layer)
         scopes.run[LAST_DETAIL] = result.detail
         scopes.builtins["上一步结果"] = result.detail
-        publishOutputs(node, meta, result.status, result.detail, result.outputs, scopes)
+        publishOutputs(node, meta, result.detail, result.outputs, scopes)
         return SequenceOutcome(result.status, result.detail)
     }
 
@@ -567,20 +567,12 @@ class RuleExecutor(
     private fun publishOutputs(
         node: RuleComponent,
         meta: ComponentMeta,
-        status: StepStatus,
         detail: String,
         extra: Map<String, Any?>,
         scopes: RunScopes,
     ) {
-        val values = linkedMapOf<String, Any?>(
-            "action.status" to when (status) {
-                StepStatus.SUCCESS -> "成功"
-                StepStatus.FAILURE -> "失败"
-                StepStatus.SKIPPED -> "跳过"
-            },
-            "action.result" to detail,
-            "action.name" to meta.name,
-        )
+        val values = linkedMapOf<String, Any?>()
+        OutputCatalog.primaryKey(meta)?.let { values[it] = detail }
         values.putAll(extra)
         for (binding in OutputCatalog.effectiveBindings(node, meta)) {
             if (!binding.enabled) continue

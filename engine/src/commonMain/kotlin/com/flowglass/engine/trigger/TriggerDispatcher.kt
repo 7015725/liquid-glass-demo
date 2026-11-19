@@ -321,11 +321,10 @@ class TriggerDispatcher(
         event: TriggerEvent,
         localTime: String,
     ): Map<String, Any?> {
-        val values = linkedMapOf<String, Any?>(
-            "trigger.firedAt" to localTime,
-            "trigger.reason" to reasonFor(binding),
-            "trigger.name" to binding.component.name,
-        )
+        val values = linkedMapOf<String, Any?>()
+        BuiltInComponents.registry().find(binding.component.typeId)?.let { meta ->
+            OutputCatalog.primaryKey(meta)?.let { values[it] = localTime }
+        }
         val data = event.data
         fun putText(key: String, value: String?) {
             if (!value.isNullOrEmpty()) values[key] = value
