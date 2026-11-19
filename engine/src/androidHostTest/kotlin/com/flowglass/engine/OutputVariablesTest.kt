@@ -286,6 +286,26 @@ class OutputVariablesTest {
     }
 
     @Test
+    fun currentFileWithLegacyGenericBindingsIsRepairedOnDecode() {
+        val raw = """{"formatVersion":6,"rules":[{"id":"r1","name":"旧绑定","type":"auto",
+            "triggers":[{"type":"trigger.boot_completed","outputs":[
+                {"key":"trigger.firedAt","name":"触发时间"},
+                {"key":"trigger.reason","name":"触发原因"},
+                {"key":"trigger.name","name":"触发器名称"}]}],
+            "actions":[{"type":"action.toast","params":{"text":"x"},"outputs":[
+                {"key":"action.status","name":"动作状态"},
+                {"key":"action.result","name":"动作结果"},
+                {"key":"action.name","name":"动作名称"}]}]}]}"""
+        val decoded = RuleJson.decode(raw)
+        val trigger = decoded.rules.single().triggers.single()
+        assertEquals("trigger.boot_completed.primary", trigger.outputs.single().key)
+        assertEquals("开机完成触发时间", trigger.outputs.single().name)
+        val action = decoded.rules.single().actions.single()
+        assertEquals("action.toast.primary", action.outputs.single().key)
+        assertEquals("Toast提示结果", action.outputs.single().name)
+    }
+
+    @Test
     fun ruleJsonRoundTripsBindingsAndMigratesV5WithDefaults() {
         val registry = BuiltInComponents.registry()
         val rule = RuleFactory.create(RuleType.MANUAL, "序列化").copy(actions = listOf(

@@ -209,7 +209,13 @@ object RuleJson {
         require(version in 2..CURRENT_FORMAT_VERSION) { "不支持的格式版本 $version" }
         val document = format.decodeFromJsonElement(RuleDocument.serializer(), element)
         val migrated = version < CURRENT_FORMAT_VERSION
-        val upgraded = if (migrated) document.migrateToCurrent() else document
+        val upgraded = if (migrated) {
+            document.migrateToCurrent()
+        } else {
+            // Current files may still contain the old shared output keys; repair them before
+            // validation so an upgrade can open the rule instead of failing closed.
+            OutputCatalog.normalizeDocument(document)
+        }
         ParameterCodec.validateDocument(upgraded)
         return Decoded(upgraded, if (migrated) version else null)
     }
