@@ -105,6 +105,20 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
         else state.closeEditor()
     }
     BackHandler(enabled = state.editing == cmd.id) { back() }
+    // 输出变量入口在动作/触发器列表行上（与删除按钮同排）。这里用覆盖层而不是替换整页：
+    // 列表一直留在组合里，返回时滚动位置和展开状态都不会被重置。
+    val outputTarget = state.outputItemId?.let { id ->
+        when {
+            cmd.triggers.any { it.id == id } ->
+                cmd.triggers.first { it.id == id } to CommandSection.TRIGGERS
+            cmd.actions.findItem(id) != null ->
+                requireNotNull(cmd.actions.findItem(id)) to CommandSection.ACTIONS
+            else -> null
+        }
+    }
+    if (outputTarget != null) {
+        BackHandler(enabled = true) { state.outputItemId = null }
+    }
     Box(Modifier.fillMaxSize().background(C.Bg).testTag("command-editor")
         .pointerInput(Unit) { detectTapGestures { } }) {
     if (currentBlock == null) {
@@ -320,6 +334,31 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
             }
         }
     }
+    if (outputTarget != null) {
+        // 覆盖层而不是替换整页：下层列表保持组合，返回时滚动位置不会回到顶部。
+        val (outputItem, outputSection) = outputTarget
+        Box(
+            Modifier.fillMaxSize().zIndex(3f)
+                .pointerInput(Unit) { detectTapGestures { } },
+        ) {
+            ComponentOutputPage(
+                item = outputItem,
+                section = outputSection,
+                cmdTitle = cmd.title,
+                onBack = { state.outputItemId = null },
+                onSave = { outputs ->
+                    state.updateItemOutputs(cmd.id, outputSection, outputItem.id, outputs)
+                    state.outputItemId = null
+                },
+                validateName = { name ->
+                    VariableCatalog.validateName(
+                        state, name, cmd.id, com.flowglass.engine.VariableScope.OUTPUT,
+                        ignoreItem = outputItem.id,
+                    )
+                },
+            )
+        }
+    }
     }
 }
 
@@ -368,7 +407,7 @@ private fun BlockPage(
             title = { T(block.name, 20.sp, FontWeight.Bold, modifier = Modifier.fillMaxWidth(), maxLines = 1) },
             trailing = {
                 TopBarIconButton(Ic.UpDown, "移动到其他位置") { onPanel(EditorPanel.Move(block.id)) }
-                if (meta != null) TopBarIconButton(Ic.Output, "配置输出变量") { outputPage = true }
+                if (meta != null) TopBarIconButton(Ic.OutputVars, "配置输出变量") { outputPage = true }
             },
         )
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -688,6 +727,8 @@ private val Ic.editorLabel: String
         Ic.Tap -> "轻点"; Ic.Back -> "返回"; Ic.Lock -> "锁"; Ic.Terminal -> "终端"
         Ic.Puzzle -> "拼图"; Ic.Key -> "钥匙"; Ic.Pin -> "置顶"; Ic.Edit -> "编辑"
         Ic.Share -> "分享"; Ic.Trash -> "删除"
+        Ic.OutputVars -> "输出变量"; Ic.TrashMin -> "删除"; Ic.ArrowRight -> "向右箭头"
+        Ic.Close -> "关闭"
     }
 
 /** Original press spring, with equivalent keyboard/accessibility activation. */
@@ -777,7 +818,7 @@ private fun DeleteItemButton(
             .editorAction(label, onClick),
         contentAlignment = Alignment.Center,
     ) {
-        LineIcon(Ic.Trash, C.Bad, if (size < 48.dp) 20.dp else 22.dp)
+        LineIcon(Ic.Close, C.Bad, if (size < 48.dp) 20.dp else 22.dp)
     }
 }
 
@@ -835,6 +876,13 @@ private fun ConfigItemRow(
             Column(Modifier.weight(1f).testTag("item-text-${item.id}")) {
                 T(item.name, 15.sp, FontWeight.SemiBold, maxLines = 1)
                 T(itemParameterLabel(section, item), 13.sp, color = C.OnSurfaceVar, maxLines = 1)
+            }
+            val rowHasOutputs = itemMeta != null &&
+                itemMeta.kind != com.flowglass.engine.ComponentKind.CONDITION &&
+                com.flowglass.engine.OutputCatalog.allOutputs(itemMeta).isNotEmpty()
+            if (rowHasOutputs) {
+                ActionOutputButton(state, item)
+                Spacer(Modifier.width(6.dp))
             }
             DeleteItemButton(
                 label = deleteLabel,
@@ -960,7 +1008,7 @@ private fun NoticeCard(text: String, color: androidx.compose.ui.graphics.Color, 
     Row(Modifier.fillMaxWidth().clip(RoundedRectangle(18.dp)).background(background).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically) {
         T(text, 12.sp, color = color, lineHeight = 17.sp, modifier = Modifier.weight(1f))
-        if (onDismiss != null) EditorIconButton(Ic.Trash, "关闭提示") { onDismiss() }
+        if (onDismiss != null) EditorIconButton(Ic.Close, "关闭提示") { onDismiss() }
     }
 }
 
@@ -1007,7 +1055,7 @@ private fun VariableRow(name: String, value: String, onName: (String) -> Unit, o
             textStyle = TextStyle(color = C.OnSurface, fontSize = 13.sp), singleLine = true,
             cursorBrush = SolidColor(C.Primary),
             decorationBox = { inner -> Box { if (value.isEmpty()) T("值", 13.sp, color = C.Muted); inner() } })
-        EditorIconButton(Ic.Trash, "删除变量$name") { onDelete() }
+        EditorIconButton(Ic.Close, "删除变量$name") { onDelete() }
     }
 }
 
@@ -1141,6 +1189,23 @@ private fun ActionDeleteButton(
         size = if (compact) 40.dp else 48.dp,
     ) {
         state.removeActionItemWithUndo(cmd.id, item.id)
+    }
+}
+
+@Composable
+private fun ActionOutputButton(
+    state: AppState,
+    item: CommandItem,
+    compact: Boolean = false,
+) {
+    val size = if (compact) 40.dp else 48.dp
+    Box(
+        Modifier.size(size).testTag("output-item-${item.id}")
+            .clip(Capsule()).background(C.PrimarySoft)
+            .editorAction("配置输出变量${item.name}") { state.outputItemId = item.id },
+        contentAlignment = Alignment.Center,
+    ) {
+        LineIcon(Ic.OutputVars, C.Primary, if (size < 48.dp) 20.dp else 22.dp)
     }
 }
 
@@ -1432,6 +1497,9 @@ private fun ActionTreeRow(
 ) {
     val meta = item.typeId?.let { com.flowglass.engine.BuiltInComponents.registry().find(it) }
     val block = meta?.block
+    val hasOutputs = meta != null &&
+        meta.kind != com.flowglass.engine.ComponentKind.CONDITION &&
+        com.flowglass.engine.OutputCatalog.allOutputs(meta).isNotEmpty()
     val container = block == com.flowglass.engine.BlockKind.IF ||
         block == com.flowglass.engine.BlockKind.LOOP ||
         block == com.flowglass.engine.BlockKind.WAIT
@@ -1510,6 +1578,10 @@ private fun ActionTreeRow(
                 hint?.let { T(it, 11.sp, color = C.Bad, maxLines = 1) }
             }
             Spacer(Modifier.width(if (compact) 2.dp else 4.dp))
+            if (hasOutputs) {
+                ActionOutputButton(state, item, compact)
+                Spacer(Modifier.width(if (compact) 4.dp else 6.dp))
+            }
             ActionDeleteButton(state, cmd, item, compact)
         }
         if (open) {
@@ -1552,7 +1624,7 @@ private fun ActionTreeRow(
                 Column(Modifier.fillMaxWidth().padding(start = childIndent(depth)), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         T("否则", 12.sp, color = C.Mid, modifier = Modifier.weight(1f))
-                        EditorIconButton(Ic.Trash, "删除分支${branchIndex + 1}") {
+                        EditorIconButton(Ic.Close, "删除分支${branchIndex + 1}") {
                             state.removeBranch(cmd.id, item.id, branchIndex)
                         }
                     }

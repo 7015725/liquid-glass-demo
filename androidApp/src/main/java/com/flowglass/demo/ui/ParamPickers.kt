@@ -100,7 +100,7 @@ internal fun VariableTextField(
                     .editorAction("配置输出变量", onConfigureOutputs),
                 contentAlignment = Alignment.Center,
             ) {
-                LineIcon(Ic.Output, C.Primary, 20.dp)
+                LineIcon(Ic.ArrowRight, C.Primary, 20.dp)
             }
         }
     }

@@ -164,9 +164,6 @@ private fun ComponentEditorPage(
             title = { T(item.name, 20.sp, FontWeight.Bold, maxLines = 1) },
             subtitle = "${parameterSectionLabel(draft.section)}参数 · ${cmd.title}",
             trailing = {
-                if (hasOutputs) {
-                    TopBarIconButton(Ic.Output, "配置输出变量") { outputPage = true }
-                }
                 TopBarTextButton("完成", onClick = ::save)
             },
         )

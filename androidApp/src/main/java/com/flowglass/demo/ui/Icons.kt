@@ -29,7 +29,8 @@ enum class Ic {
     Home, Grid, List, Settings, Bolt, Copy, ChevronRight, UpDown, ArrowUp, ArrowDown,
     Play, Stop, Plus, Bell, Refresh, Shield, Wifi, Moon, Battery, Timer, Location,
     Leaf, Gauge, Rocket, Clock, Phone, Bluetooth, Message, Camera, Info, Search, Accessibility,
-    Tap, Back, Lock, Terminal, Puzzle, Key, Pin, Edit, Share, Trash, More, Variable, Output
+    Tap, Back, Lock, Terminal, Puzzle, Key, Pin, Edit, Share, Trash, More, Variable, Output,
+    OutputVars, TrashMin, ArrowRight, Close
 }
 
 @Composable
@@ -278,6 +279,36 @@ private fun DrawScope.drawIcon(ic: Ic, color: Color, filled: Boolean, strokeUnit
             drawPath(p { moveTo(9f, 6.5f); lineTo(9.5f, 4f); lineTo(14.5f, 4f); lineTo(15f, 6.5f) }, color, style = st)
             drawPath(p { moveTo(6.5f, 6.5f); lineTo(7.5f, 20f); lineTo(16.5f, 20f); lineTo(17.5f, 6.5f) }, color, style = st)
             line(10.5f, 10.5f, 10.5f, 16f); line(13.5f, 10.5f, 13.5f, 16f)
+        }
+        Ic.OutputVars -> {
+            // 一对花括号：一眼是「变量」。旧图标（方框+外抛箭头）容易被读成分享。
+            val left = p {
+                moveTo(9f, 4f); quadraticTo(6f, 4f, 6f, 7f); lineTo(6f, 10f)
+                quadraticTo(6f, 12f, 4f, 12f); quadraticTo(6f, 12f, 6f, 14f)
+                lineTo(6f, 17f); quadraticTo(6f, 20f, 9f, 20f)
+            }
+            val right = p {
+                moveTo(15f, 4f); quadraticTo(18f, 4f, 18f, 7f); lineTo(18f, 10f)
+                quadraticTo(18f, 12f, 20f, 12f); quadraticTo(18f, 12f, 18f, 14f)
+                lineTo(18f, 17f); quadraticTo(18f, 20f, 15f, 20f)
+            }
+            drawPath(left, color, style = st)
+            drawPath(right, color, style = st)
+        }
+        Ic.TrashMin -> {
+            // 更简的垃圾桶：盖 + 提手 + 桶身，去掉内部竖线，小尺寸下更干净。
+            line(4.5f, 7f, 19.5f, 7f)
+            drawPath(p { moveTo(9.5f, 7f); lineTo(9.5f, 4.5f); lineTo(14.5f, 4.5f); lineTo(14.5f, 7f) }, color, style = st)
+            drawPath(p { moveTo(6.8f, 7f); lineTo(7.8f, 19.5f); lineTo(16.2f, 19.5f); lineTo(17.2f, 7f) }, color, style = st)
+        }
+        Ic.ArrowRight -> {
+            line(4.5f, 12f, 19f, 12f)
+            drawPath(p { moveTo(13.5f, 6.5f); lineTo(19f, 12f); lineTo(13.5f, 17.5f) }, color, style = st)
+        }
+        Ic.Close -> {
+            // 手绘的 ×：圆头，45°，比字符更稳，任何字号都不糊。
+            line(6.5f, 6.5f, 17.5f, 17.5f)
+            line(17.5f, 6.5f, 6.5f, 17.5f)
         }
         Ic.Accessibility -> {
             drawCircle(color, 2f, Offset(12f, 5f))

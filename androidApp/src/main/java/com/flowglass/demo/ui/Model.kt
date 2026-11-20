@@ -229,6 +229,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
     var actionEditing by mutableStateOf<Long?>(null)
     /** 统一的组件参数草稿；null 表示参数页关闭。 */
     var componentDraft by mutableStateOf<ComponentDraft?>(null)
+    /** 指令编辑页里正在配置输出变量的动作 id；null 表示未打开。 */
+    var outputItemId by mutableStateOf<Long?>(null)
     var storageError by mutableStateOf<String?>(null)
     /** 编辑页内的即时提示（例如未通过校验时拒绝启用）。 */
     var editorNotice by mutableStateOf<String?>(null)
@@ -324,6 +326,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         actionEditing = null
         actionEditingCmd = null
         componentDraft = null
+        outputItemId = null
     }
     fun setTitle(id: Long, text: String) = update(id) { it.copy(title = text) }
     fun setDescription(id: Long, text: String) = update(id) { it.copy(desc = text, descriptionEdited = true) }
@@ -493,6 +496,20 @@ class AppState internal constructor(saved: PersistedAppState?) {
     /** Block pages edit a saved item directly, not a draft. */
     fun updateBlockOutputs(cmdId: Long, itemId: Long, outputs: List<com.flowglass.engine.OutputBinding>) {
         editActions(cmdId) { items -> items.updateItem(itemId) { it.copy(outputs = outputs) } }
+    }
+
+    /** 输出变量页写回：动作和触发器都能改；条件没有输出，不会走到这里。 */
+    fun updateItemOutputs(
+        cmdId: Long,
+        section: CommandSection,
+        itemId: Long,
+        outputs: List<com.flowglass.engine.OutputBinding>,
+    ) {
+        if (section == CommandSection.ACTIONS) {
+            editActions(cmdId) { items -> items.updateItem(itemId) { it.copy(outputs = outputs) } }
+        } else {
+            editItems(cmdId, section) { items -> items.updateItem(itemId) { it.copy(outputs = outputs) } }
+        }
     }
 
     /** Adds a component without opening the parameter page (blocks and parameterless items). */

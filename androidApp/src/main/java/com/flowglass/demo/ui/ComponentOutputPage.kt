@@ -66,6 +66,9 @@ internal fun ComponentOutputPage(
         error = null
     }
 
+    // 有这个动作/触发器就一定有这个输出，界面不再提供启用/禁用；保存时统一按启用写回。
+    fun normalized(): List<OutputBinding> = outputs.map { if (it.enabled) it else it.copy(enabled = true) }
+
     Column(
         Modifier.fillMaxSize().background(C.Bg).testTag("component-output-page")
             .statusBarsPadding().navigationBarsPadding().imePadding()
@@ -78,8 +81,8 @@ internal fun ComponentOutputPage(
             subtitle = "${meta.name} · ${if (section == CommandSection.TRIGGERS) "触发器" else "动作"} · $cmdTitle",
             trailing = {
                 TopBarTextButton("保存", onClick = {
-                    val issues = validateOutputs(outputs, meta, validateName)
-                    if (issues != null) error = issues else onSave(outputs)
+                    val issues = validateOutputs(normalized(), meta, validateName)
+                    if (issues != null) error = issues else onSave(normalized())
                 })
             },
         )
@@ -96,14 +99,16 @@ internal fun ComponentOutputPage(
 
         for ((index, binding) in outputs.withIndex()) {
             val spec = specs.firstOrNull { it.key == binding.key } ?: continue
+            // 同一 key 的第二条起是历史别名：界面不再新增，但已有数据必须能移除。
+            val isAlias = outputs.take(index).any { it.key == binding.key }
             OutputRow(
                 spec = spec,
                 binding = binding,
                 index = index,
-                enabledCount = outputs.count { it.enabled },
+                isAlias = isAlias,
                 onChange = { update(index, it) },
-                onAlias = {
-                    outputs = outputs + binding.copy(name = "", enabled = true)
+                onRemoveAlias = {
+                    outputs = outputs.toMutableList().also { it.removeAt(index) }
                     error = null
                 },
                 onRestore = { update(index, binding.copy(name = OutputCatalog.defaultName(spec))) },
@@ -133,8 +138,8 @@ internal fun ComponentOutputPage(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             EditorPill("取消", "取消", action = onBack, modifier = Modifier.weight(1f))
             EditorPill("保存", "保存输出变量", action = {
-                val issues = validateOutputs(outputs, meta, validateName)
-                if (issues != null) error = issues else onSave(outputs)
+                val issues = validateOutputs(normalized(), meta, validateName)
+                if (issues != null) error = issues else onSave(normalized())
             }, modifier = Modifier.weight(1f))
         }
     }
@@ -145,9 +150,9 @@ private fun OutputRow(
     spec: com.flowglass.engine.OutputSpec,
     binding: OutputBinding,
     index: Int,
-    enabledCount: Int,
+    isAlias: Boolean = false,
     onChange: (OutputBinding) -> Unit,
-    onAlias: () -> Unit,
+    onRemoveAlias: () -> Unit = {},
     onRestore: () -> Unit,
 ) {
     Column(
@@ -158,16 +163,8 @@ private fun OutputRow(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 T(spec.label, 15.sp, FontWeight.SemiBold)
-                T(typeLabel(spec.type), 12.sp, color = C.Muted)
+                T(if (isAlias) "${typeLabel(spec.type)} · 别名" else typeLabel(spec.type), 12.sp, color = C.Muted)
             }
-            EditorPill(
-                if (binding.enabled) "已启用" else "已禁用",
-                if (binding.enabled) "禁用输出" else "启用输出",
-                action = {
-                    if (binding.enabled && enabledCount <= 1) return@EditorPill
-                    onChange(binding.copy(enabled = !binding.enabled))
-                },
-            )
         }
         BasicTextField(
             binding.name,
@@ -182,7 +179,9 @@ private fun OutputRow(
         )
         if (spec.description.isNotBlank()) T(spec.description, 12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EditorPill("添加别名", "为${spec.label}添加别名", action = onAlias)
+            if (isAlias) {
+                EditorPill("移除别名", "移除${spec.label}的别名", action = onRemoveAlias)
+            }
             EditorPill("恢复默认", "恢复默认名", action = onRestore)
         }
     }
