@@ -83,6 +83,9 @@ enum class ParamEditor {
     RULE,
     LOCATION,
     APP_METHOD_EXTRACTIONS,
+
+    /** Multi-line JavaScript editor: same TEXT storage, syntax highlighting and line numbers. */
+    CODE,
 }
 
 /** Dynamic data source for an editor such as APPLICATION or RULE. */

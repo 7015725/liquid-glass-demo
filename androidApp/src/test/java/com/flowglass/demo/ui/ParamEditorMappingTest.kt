@@ -40,6 +40,11 @@ class ParamEditorMappingTest {
         assertEquals(ParamEditor.SEGMENTED, editor("action.wifi_switch", "mode"))
     }
 
+    @Test fun scriptParameterUsesTheCodeEditor() {
+        val script = requireNotNull(registry.find("action.script")).params.single { it.key == "script" }
+        assertEquals(ParamEditor.CODE, script.resolvedEditor())
+    }
+
     @Test fun onlySemanticOverridesUseDedicatedPickers() {
         val runRule = requireNotNull(registry.find("action.run_rule")).params.single { it.key == "rule" }
         assertEquals(ParamEditor.RULE, runRule.resolvedEditor())

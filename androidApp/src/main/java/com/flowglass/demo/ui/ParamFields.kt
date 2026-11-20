@@ -79,6 +79,8 @@ internal fun ParamField(
             ParamEditor.LOCATION -> LocationField(current, tag, onValue)
             ParamEditor.MULTILINE -> VariableTextField(current, tag, variables, multiline = true, onValue,
                 canConfigureOutputs, onConfigureOutputs)
+            ParamEditor.CODE -> ScriptCodeField(current, tag, variables, onValue,
+                canConfigureOutputs, onConfigureOutputs)
             ParamEditor.TEXT -> VariableTextField(current, tag, variables, multiline = false, onValue,
                 canConfigureOutputs, onConfigureOutputs)
             ParamEditor.APP_METHOD_EXTRACTIONS -> ExtractionEditorField(current, tag, onValue, variables)
