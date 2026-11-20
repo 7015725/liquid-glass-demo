@@ -43,6 +43,13 @@ import io.ma7moud3ly.nemo.model.EditorThemes
 import io.ma7moud3ly.nemo.model.Language
 import kotlinx.coroutines.delay
 
+internal val CodeActionIds = setOf("action.script", "action.root_shell")
+
+private fun codeKeyOf(typeId: String?): String = if (typeId == "action.root_shell") "command" else "script"
+
+private fun codeLanguageOf(typeId: String?): Language =
+    if (typeId == "action.root_shell") Language.SHELL else Language.JAVASCRIPT
+
 /**
  * Dedicated, full-height editor for script actions. Scripts do not fit the shared parameter form:
  * they need the whole page, line numbers and a keyboard that never covers the cursor, while the
@@ -72,14 +79,17 @@ internal fun ScriptActionEditorPage(
         ParameterForm.compose(meta, next).onSuccess(onParameter)
     }
 
-    val script = fields["script"].orEmpty()
+    val codeKey = codeKeyOf(meta.typeId)
+    val language = codeLanguageOf(meta.typeId)
+    val script = fields[codeKey].orEmpty()
+    val hint = meta.params.firstOrNull { it.key == codeKey }?.hint.orEmpty()
     val timeout = fields["timeout"].orEmpty()
-    val code = remember(item.id) { CodeState(initialCode = script, language = Language.JAVASCRIPT) }
+    val code = remember(item.id) { CodeState(initialCode = script, language = language) }
     LaunchedEffect(script) {
         if (code.code != script) code.updateText(script)
     }
     LaunchedEffect(code) {
-        snapshotFlow { code.code }.collect { text -> if (text != fields["script"]) update("script", text) }
+        snapshotFlow { code.code }.collect { text -> if (text != fields[codeKey]) update(codeKey, text) }
     }
     // Nemo grabs focus on its first composition; the page should open without a keyboard.
     val focusManager = LocalFocusManager.current
@@ -121,7 +131,7 @@ internal fun ScriptActionEditorPage(
             Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            T("JavaScript", 12.sp, color = C.Muted)
+            T(if (language == Language.SHELL) "Shell" else "JavaScript", 12.sp, color = C.Muted)
             Spacer(Modifier.weight(1f))
             T("${code.code.lineSequence().count()} 行", 12.sp, color = C.Muted)
         }
@@ -133,6 +143,12 @@ internal fun ScriptActionEditorPage(
                 state = code,
                 modifier = Modifier.fillMaxSize().testTag("script-editor").imeAutoScroll(),
                 settings = settings,
+            )
+        }
+        if (hint.isNotBlank()) {
+            T(
+                hint, 11.sp, color = C.Muted, maxLines = 2,
+                modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 2.dp),
             )
         }
         Row(

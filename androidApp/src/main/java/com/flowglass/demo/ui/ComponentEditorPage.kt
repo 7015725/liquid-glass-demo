@@ -153,7 +153,7 @@ private fun ComponentEditorPage(
         return
     }
 
-    if (item.typeId == "action.script" && meta != null) {
+    if (item.typeId in CodeActionIds && meta != null) {
         ScriptActionEditorPage(
             item = item,
             meta = meta,

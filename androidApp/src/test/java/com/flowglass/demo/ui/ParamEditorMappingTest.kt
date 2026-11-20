@@ -43,6 +43,8 @@ class ParamEditorMappingTest {
     @Test fun scriptParameterUsesTheCodeEditor() {
         val script = requireNotNull(registry.find("action.script")).params.single { it.key == "script" }
         assertEquals(ParamEditor.CODE, script.resolvedEditor())
+        val shell = requireNotNull(registry.find("action.root_shell")).params.single { it.key == "command" }
+        assertEquals(ParamEditor.CODE, shell.resolvedEditor())
     }
 
     @Test fun onlySemanticOverridesUseDedicatedPickers() {
