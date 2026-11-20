@@ -121,6 +121,7 @@ internal fun ScriptActionEditorPage(
     val scope = rememberCoroutineScope()
     var running by remember { mutableStateOf(false) }
     var runResult by remember(item.id) { mutableStateOf<RunInfo?>(null) }
+    var copied by remember(item.id) { mutableStateOf(false) }
     fun runNow() {
         if (running) return
         val parameter = ParameterForm.compose(meta, fields + (codeKey to code.code)).getOrElse { error ->
@@ -130,6 +131,7 @@ internal fun ScriptActionEditorPage(
         val probe = item.copy(parameter = parameter)
         running = true
         runResult = null
+        copied = false
         scope.launch {
             val started = System.nanoTime()
             val outcome = runCatching {
@@ -210,6 +212,23 @@ internal fun ScriptActionEditorPage(
                     )
                     Spacer(Modifier.weight(1f))
                     T("${info.millis} ms", 11.sp, color = C.Muted)
+                    Box(
+                        Modifier.padding(start = 10.dp).heightIn(min = 28.dp)
+                            .clip(RoundedRectangle(9.dp))
+                            .background(C.Card.copy(alpha = 0.7f))
+                            .editorAction("复制运行结果") {
+                                val text = info.detail.ifBlank { "没有输出" }
+                                val manager = appContext.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                    as android.content.ClipboardManager
+                                manager.setPrimaryClip(android.content.ClipData.newPlainText("脚本运行结果", text))
+                                android.widget.Toast.makeText(appContext, "已复制", android.widget.Toast.LENGTH_SHORT).show()
+                                copied = true
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        T(if (copied) "已复制" else "复制", 11.sp, FontWeight.Medium, C.Primary)
+                    }
                 }
                 T(
                     info.detail.ifBlank { "没有输出" }, 12.sp, color = C.OnSurfaceVar, lineHeight = 17.sp,
@@ -241,6 +260,13 @@ internal fun ScriptActionEditorPage(
                     "设置超时",
                 ) { timeoutOpen = true }
             }
+        }
+    }
+
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1500)
+            copied = false
         }
     }
 
