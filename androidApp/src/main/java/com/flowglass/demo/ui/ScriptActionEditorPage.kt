@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -168,17 +169,22 @@ internal fun ScriptActionEditorPage(
     Column(
         Modifier.fillMaxSize().background(C.Bg).statusBarsPadding().navigationBarsPadding().imePadding(),
     ) {
-        DetailTopBar(
-            onBack = onBack,
-            modifier = Modifier.padding(horizontal = 16.dp),
-            title = { T(item.name, 20.sp, FontWeight.Bold, maxLines = 1) },
-            subtitle = "脚本 · ${cmd.title}",
-            trailing = {
-                TopBarIconButton(Ic.UpDown, "移动到其他位置", onClick = onMove)
-                TopBarTextButton(if (running) "运行中…" else "运行", onClick = { if (!running) runNow() })
-                TopBarTextButton("完成", onClick = onDone)
-            },
-        )
+        // The title lives in the page flow rather than inside DetailTopBar: on the Android 10
+        // test device anything except the buttons inside that Row is dropped while drawing.
+        Row(
+            Modifier.fillMaxWidth().height(TopBarControlTouch).padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TopBarIconButton(Ic.Back, "返回", onClick = onBack)
+            Spacer(Modifier.weight(1f))
+            TopBarIconButton(Ic.UpDown, "移动到其他位置", onClick = onMove)
+            TopBarTextButton(if (running) "运行中…" else "运行", onClick = { if (!running) runNow() })
+            TopBarTextButton("完成", onClick = onDone)
+        }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+            T(item.name, 18.sp, FontWeight.Bold, maxLines = 1)
+            T("脚本 · ${cmd.title}", 11.sp, color = C.Muted, maxLines = 1)
+        }
         Row(
             Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
