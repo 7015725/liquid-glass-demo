@@ -79,7 +79,9 @@ internal fun ParamField(
             ParamEditor.LOCATION -> LocationField(current, tag, onValue)
             ParamEditor.MULTILINE -> VariableTextField(current, tag, variables, multiline = true, onValue,
                 canConfigureOutputs, onConfigureOutputs)
-            ParamEditor.CODE -> ScriptCodeField(current, tag, variables, onValue,
+            // Script actions render their own full page; other CODE parameters keep a usable
+            // multi-line fallback here.
+            ParamEditor.CODE -> VariableTextField(current, tag, variables, multiline = true, onValue,
                 canConfigureOutputs, onConfigureOutputs)
             ParamEditor.TEXT -> VariableTextField(current, tag, variables, multiline = false, onValue,
                 canConfigureOutputs, onConfigureOutputs)

@@ -153,6 +153,22 @@ private fun ComponentEditorPage(
         return
     }
 
+    if (item.typeId == "action.script" && meta != null) {
+        ScriptActionEditorPage(
+            item = item,
+            meta = meta,
+            cmdTitle = cmd.title,
+            variables = parameterVariables(state, cmd, draft),
+            hasOutputs = hasOutputs,
+            onParameter = { value -> state.updateComponentDraft(item.copy(parameter = value)) },
+            onDone = ::save,
+            onBack = ::requestClose,
+            onOutputs = { outputPage = true },
+            onMove = { moveOpen = true },
+        )
+        return
+    }
+
     Column(
         Modifier.fillMaxSize().background(C.Bg).testTag("action-editor")
             .statusBarsPadding().navigationBarsPadding().imePadding()
