@@ -157,7 +157,8 @@ private fun ComponentEditorPage(
         ScriptActionEditorPage(
             item = item,
             meta = meta,
-            cmdTitle = cmd.title,
+            cmd = cmd,
+            root = state.root,
             variables = parameterVariables(state, cmd, draft),
             hasOutputs = hasOutputs,
             onParameter = { value -> state.updateComponentDraft(item.copy(parameter = value)) },

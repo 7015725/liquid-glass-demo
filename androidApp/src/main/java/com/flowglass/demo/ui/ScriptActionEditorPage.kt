@@ -1,6 +1,8 @@
 package com.flowglass.demo.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -18,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -25,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -32,6 +37,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.flowglass.demo.system.RootInfo
+import com.flowglass.demo.system.exec.RootTasks
+import com.flowglass.demo.system.exec.ScriptTask
+import com.flowglass.demo.system.exec.StepStatus
+import com.flowglass.demo.system.exec.TaskOutcome
 import com.flowglass.engine.ComponentMeta
 import com.flowglass.engine.ParamSpec
 import com.kyant.shapes.RoundedRectangle
@@ -41,7 +51,10 @@ import io.ma7moud3ly.nemo.model.EditorSettings
 import io.ma7moud3ly.nemo.model.EditorTheme
 import io.ma7moud3ly.nemo.model.EditorThemes
 import io.ma7moud3ly.nemo.model.Language
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 
 internal val CodeActionIds = setOf("action.script", "action.root_shell")
 
@@ -59,7 +72,8 @@ private fun codeLanguageOf(typeId: String?): Language =
 internal fun ScriptActionEditorPage(
     item: CommandItem,
     meta: ComponentMeta,
-    cmdTitle: String,
+    cmd: Cmd,
+    root: RootInfo?,
     variables: List<VariableOption>,
     hasOutputs: Boolean,
     onParameter: (String) -> Unit,
@@ -102,6 +116,41 @@ internal fun ScriptActionEditorPage(
         }
     }
 
+    // A trial run uses the text on screen, not the last saved parameter, so typing is never lost.
+    val appContext = LocalContext.current.applicationContext
+    val scope = rememberCoroutineScope()
+    var running by remember { mutableStateOf(false) }
+    var runResult by remember(item.id) { mutableStateOf<RunInfo?>(null) }
+    fun runNow() {
+        if (running) return
+        val parameter = ParameterForm.compose(meta, fields + (codeKey to code.code)).getOrElse { error ->
+            runResult = RunInfo(false, "参数无效：${error.message?.take(200)}", 0)
+            return
+        }
+        val probe = item.copy(parameter = parameter)
+        running = true
+        runResult = null
+        scope.launch {
+            val started = System.nanoTime()
+            val outcome = runCatching {
+                if (language == Language.SHELL) {
+                    val authorized = root ?: error("需要 Root 授权，请先在设置里授权 Root")
+                    RootTasks.run(appContext, cmd, probe, authorized)
+                } else {
+                    runInterruptible(Dispatchers.Default) { ScriptTask.run(appContext, cmd, probe, null) }
+                }
+            }.getOrElse { error ->
+                TaskOutcome(StepStatus.FAILURE, error.message?.take(400) ?: "执行失败")
+            }
+            runResult = RunInfo(
+                ok = outcome.status == StepStatus.SUCCESS,
+                detail = outcome.detail,
+                millis = (System.nanoTime() - started) / 1_000_000,
+            )
+            running = false
+        }
+    }
+
     val theme = remember(C.dark) { scriptEditorTheme() }
     val settings = remember(theme) {
         EditorSettings(
@@ -121,9 +170,10 @@ internal fun ScriptActionEditorPage(
             onBack = onBack,
             modifier = Modifier.padding(horizontal = 16.dp),
             title = { T(item.name, 20.sp, FontWeight.Bold, maxLines = 1) },
-            subtitle = "脚本 · $cmdTitle",
+            subtitle = "脚本 · ${cmd.title}",
             trailing = {
                 TopBarIconButton(Ic.UpDown, "移动到其他位置", onClick = onMove)
+                TopBarTextButton(if (running) "运行中…" else "运行", onClick = { if (!running) runNow() })
                 TopBarTextButton("完成", onClick = onDone)
             },
         )
@@ -144,6 +194,28 @@ internal fun ScriptActionEditorPage(
                 modifier = Modifier.fillMaxSize().testTag("script-editor").imeAutoScroll(),
                 settings = settings,
             )
+        }
+        runResult?.let { info ->
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 8.dp)
+                    .clip(RoundedRectangle(16.dp))
+                    .background(if (info.ok) C.GoodSoft else C.BadSoft)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    T(
+                        if (info.ok) "运行成功" else "运行失败", 13.sp, FontWeight.SemiBold,
+                        color = if (info.ok) C.GoodText else C.Bad,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    T("${info.millis} ms", 11.sp, color = C.Muted)
+                }
+                T(
+                    info.detail.ifBlank { "没有输出" }, 12.sp, color = C.OnSurfaceVar, lineHeight = 17.sp,
+                    modifier = Modifier.heightIn(max = 120.dp).verticalScroll(rememberScrollState()),
+                )
+            }
         }
         if (hint.isNotBlank()) {
             T(
@@ -205,6 +277,8 @@ internal fun ScriptActionEditorPage(
         }
     }
 }
+
+private data class RunInfo(val ok: Boolean, val detail: String, val millis: Long)
 
 /** Editor palette that follows the app theme; the container supplies the glass. */
 internal fun scriptEditorTheme(): EditorTheme {
