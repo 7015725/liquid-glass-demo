@@ -2,6 +2,8 @@ package com.flowglass.demo.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -66,16 +68,14 @@ internal fun ComponentEditorHost(
             if (item != null) state.openComponentEditor(legacyCmd, CommandSection.ACTIONS, item)
         }
     }
-    var last by remember { mutableStateOf<ComponentDraft?>(null) }
-    if (draft != null) last = draft
-    AnimatedVisibility(
-        draft != null,
-        enter = fadeIn(effect()) + scaleIn(spatial(), initialScale = 0.96f),
-        exit = fadeOut(effect()) + scaleOut(spatial(), targetScale = 0.96f),
-    ) {
-        val shown = draft ?: last
-        if (shown != null) key(shown.item.id, shown.isNew) {
-            ComponentEditorPage(state, shown, onAuthorization)
+    // A plain full-screen slot instead of AnimatedVisibility: the animated container measured
+    // its content with unbounded height, so the page background stopped short of the navigation
+    // bar and the editor underneath showed through.
+    if (draft != null) {
+        Box(Modifier.fillMaxSize().background(C.Bg)) {
+            key(draft.item.id, draft.isNew) {
+                ComponentEditorPage(state, draft, onAuthorization)
+            }
         }
     }
 }
@@ -149,6 +149,23 @@ private fun ComponentEditorPage(
                     ignoreItem = item.id,
                 )
             },
+        )
+        return
+    }
+
+    if (item.typeId in CodeActionIds && meta != null) {
+        ScriptActionEditorPage(
+            item = item,
+            meta = meta,
+            cmd = cmd,
+            root = state.root,
+            variables = parameterVariables(state, cmd, draft),
+            hasOutputs = hasOutputs,
+            onParameter = { value -> state.updateComponentDraft(item.copy(parameter = value)) },
+            onDone = ::save,
+            onBack = ::requestClose,
+            onOutputs = { outputPage = true },
+            onMove = { moveOpen = true },
         )
         return
     }

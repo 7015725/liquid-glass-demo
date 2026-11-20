@@ -76,20 +76,15 @@ internal fun DetailTopBar(
             TopBarIconButton(Ic.Back, "返回", onClick = onBack)
             Spacer(Modifier.width(8.dp))
         }
-        Box(
-            Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-            contentAlignment = Alignment.CenterStart,
+        // A plain weighted Column instead of a filling Box: on some devices the Box measured
+        // zero height inside the Row, which silently dropped the title and subtitle.
+        Column(
+            Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center,
         ) {
-            Column(
-                Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.Center,
-            ) {
-                title()
-                if (subtitle != null) {
-                    T(subtitle, 12.sp, color = C.Muted, maxLines = 1)
-                }
+            title()
+            if (subtitle != null) {
+                T(subtitle, 12.sp, color = C.Muted, maxLines = 1)
             }
         }
         trailing()

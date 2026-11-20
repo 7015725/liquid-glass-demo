@@ -130,6 +130,7 @@ dependencies {
     implementation(libs.kyant.shapes)
     implementation(project(":backdrop"))
     implementation("org.mozilla:rhino:1.9.2")
+    implementation("io.github.ma7moud3ly:nemo-editor:2.0.1")
     implementation(libs.libxposed.service)
     compileOnly("de.robv.android.xposed:api:82")
     compileOnly(libs.libxposed.api)

@@ -33,11 +33,12 @@ object BuiltInActions {
         hint: String = "",
         expansion: ParamExpansion = ParamExpansion.PLAIN,
         durationMs: Long = 1000,
+        editor: ParamEditor = ParamEditor.AUTO,
     ) = ParamSpec(key, label, type, required = required, defaultValue = when (type) {
         ParamType.PERCENTAGE -> JsonPrimitive(default.removeSuffix("%").toInt())
         ParamType.DURATION -> JsonPrimitive(durationMs)
         else -> JsonPrimitive(default)
-    }, hint = hint, expansion = expansion)
+    }, hint = hint, expansion = expansion, editor = editor)
 
     val metadata: List<ComponentMeta> = listOf(
         ComponentMeta("action.wifi_switch", "开关 WiFi", "网络", ComponentKind.ACTION,
@@ -90,7 +91,7 @@ object BuiltInActions {
         ComponentMeta("action.root_shell", "执行 Shell(Root)", "脚本", ComponentKind.ACTION,
             listOf(parameter("command", "命令", ParamType.MULTILINE_TEXT, "echo 流光", false,
                 hint = "格式：非空 Shell 命令，执行前需要 Root 授权。变量值会先写入 FG_Vn 再以引用形式使用；请只执行你理解其作用的命令。",
-                expansion = ParamExpansion.SHELL_QUOTED)),
+                expansion = ParamExpansion.SHELL_QUOTED, editor = ParamEditor.CODE)),
             minTier = Tier.ROOT, supports = rootLayer, outputs = listOf(
                 out("shell.stdout", "标准输出", VariableType.TEXT, "标准输出", "Shell 的标准输出；当前 Root 会话会合并标准错误"),
                 out("shell.stderr", "标准错误", VariableType.TEXT, "标准错误", "当前 Root 会话与标准输出合并，通常为空"),
@@ -108,7 +109,8 @@ object BuiltInActions {
                         "\"完成\";\n" +
                         "可用 API：get(name)、set(name, value)、log(text)、toast(text)、notify(title, text)、http(method, url, body?)、sleep(ms)。" +
                         "直接写 {变量} 会作为只读数据绑定；裸名 get/set 对应局部变量，global./rule./run. 旧前缀继续兼容。脚本不能访问 Java 类、反射或文件系统。",
-                    expansion = ParamExpansion.SCRIPT),
+                    expansion = ParamExpansion.SCRIPT,
+                    editor = ParamEditor.CODE),
                 ParamSpec("timeout", "超时", ParamType.INTEGER, false, JsonPrimitive(10),
                     minValue = 1, maxValue = 60, suffix = "秒",
                     hint = "默认 10 秒；超时会中断脚本并把该动作标记为失败。"),
