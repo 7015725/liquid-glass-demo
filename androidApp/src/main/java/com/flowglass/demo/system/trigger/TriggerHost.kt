@@ -137,8 +137,10 @@ internal class TriggerHost(
             val cmd = state.find(rule.cmdId) ?: return false
             val job = state.executeWithPolicy(cmd, scope, reason, variables, rule.runMode, readOnlyNames) ?: return false
             job.invokeOnCompletion {
-                dispatcher.onRunFinished(rule)
-                scope.launch {
+                // The engine completes on its own dispatcher; the completion mutates the dispatcher
+                // queue and the execution maps, so it belongs to the same serial worker as events.
+                TriggerWorker.scope.launch {
+                    dispatcher.onRunFinished(rule)
                     withContext(Dispatchers.Main.immediate) {
                         AppRuntime.of(context).requestSave { state.snapshot() }
                     }
@@ -152,8 +154,10 @@ internal class TriggerHost(
         environment = environment,
         executor = executor,
         skipRecorder = TriggerSkipRecorder { rule, reason, detail, _ ->
-            state.recordSkippedRun(rule.cmdId, reason, detail)
-            AppRuntime.of(context).requestSave { state.snapshot() }
+            TriggerWorker.scope.launch {
+                state.recordSkippedRun(rule.cmdId, reason, detail)
+                AppRuntime.of(context).requestSave { state.snapshot() }
+            }
         },
     )
     private val sourceRegistry = TriggerSourceRegistry(::installSource, ::uninstallSource)
@@ -177,40 +181,41 @@ internal class TriggerHost(
     }
     private var collectJob: Job? = null
     private var snapshotJob: Job? = null
-    private var started = false
-    private var collectorReady = false
+    @Volatile private var started = false
+    @Volatile private var collectorReady = false
+    /** Bumped when a session starts or a teardown is queued, so a stale teardown cannot apply. */
+    private val generation = java.util.concurrent.atomic.AtomicInteger(0)
+    @Volatile private var pendingCancelAlarms = false
     private val pendingEvents = ArrayDeque<TriggerEvent>()
     private var alarmSignature: String? = null
-    private var lastRules: List<TriggerRule> = emptyList()
+    @Volatile private var lastRules: List<TriggerRule> = emptyList()
 
     /** Routes a verified target-process event into the normal trigger dispatcher. */
     private val methodHookSink: (String, Map<String, String>) -> Unit = { hookId, variables ->
-        // The Binder callback arrives on a binder thread; keep the host's pending queue on main.
-        scope.launch(Dispatchers.Main.immediate) {
-            emit(
-                TriggerEvent(
-                    kind = TriggerKinds.METHOD_CALL,
-                    source = TriggerSource.METHOD_HOOK,
-                    atEpochMs = System.currentTimeMillis(),
-                    data = AppMethodCall.eventData(
-                        packageName = variables[MethodHookVariables.APP].orEmpty(),
-                        userId = variables[MethodHookVariables.USER]?.toIntOrNull() ?: 0,
-                        className = variables[MethodHookVariables.METHOD]
-                            ?.substringBeforeLast('#').orEmpty(),
-                        methodName = variables[MethodHookVariables.METHOD]
-                            ?.substringAfterLast('#').orEmpty(),
-                        signature = variables[MethodHookVariables.SIGNATURE].orEmpty(),
-                    ).let { data ->
-                        // The matcher compares the actual parameter types, not the display string.
-                        data + ("method.parameterTypes" to variables[MethodHookVariables.SIGNATURE]
-                            ?.substringAfter('(', "")
-                            ?.substringBeforeLast(')', "")
-                            .orEmpty())
-                    },
-                    methodHookVariables = variables,
-                )
-            )
-        }
+        // The Binder callback arrives on a binder thread; emit() hands it to the serial worker.
+        emit(
+            TriggerEvent(
+                kind = TriggerKinds.METHOD_CALL,
+                source = TriggerSource.METHOD_HOOK,
+                atEpochMs = System.currentTimeMillis(),
+                data = AppMethodCall.eventData(
+                    packageName = variables[MethodHookVariables.APP].orEmpty(),
+                    userId = variables[MethodHookVariables.USER]?.toIntOrNull() ?: 0,
+                    className = variables[MethodHookVariables.METHOD]
+                        ?.substringBeforeLast('#').orEmpty(),
+                    methodName = variables[MethodHookVariables.METHOD]
+                        ?.substringAfterLast('#').orEmpty(),
+                    signature = variables[MethodHookVariables.SIGNATURE].orEmpty(),
+                ).let { data ->
+                    // The matcher compares the actual parameter types, not the display string.
+                    data + ("method.parameterTypes" to variables[MethodHookVariables.SIGNATURE]
+                        ?.substringAfter('(', "")
+                        ?.substringBeforeLast(')', "")
+                        .orEmpty())
+                },
+                methodHookVariables = variables,
+            ),
+        )
     }
 
     /** True while the host owns listeners and the event collector. */
@@ -224,16 +229,21 @@ internal class TriggerHost(
         // the first snapshotFlow emission and drops the event against an empty rule list.
         val initial = state.triggerInput()
         lastRules = eligibleRules(initial.rules)
-        reconcile(initial)
-        if (!started) return
-        while (pendingEvents.isNotEmpty()) handle(pendingEvents.removeFirst())
-        collectJob = scope.launch {
+        val session = generation.incrementAndGet()
+        pendingCancelAlarms = false
+        collectJob = TriggerWorker.scope.launch {
+            if (!started || generation.get() != session) return@launch
             collectorReady = true
+            // Reconcile on the worker that will evaluate events: a blocking file condition inside a
+            // rule must never stall the UI, and the dispatcher queue has exactly one owner.
+            reconcile(initial)
+            if (!started) return@launch
             while (pendingEvents.isNotEmpty()) handle(pendingEvents.removeFirst())
             events.collect(::handle)
         }
-        scope.launch {
+        TriggerWorker.scope.launch {
             snapshotFlow { state.triggerInput() }.collect { input ->
+                if (generation.get() != session) return@collect
                 lastRules = eligibleRules(input.rules)
                 reconcile(input)
             }
@@ -265,50 +275,76 @@ internal class TriggerHost(
     }
 
     fun emit(event: TriggerEvent) {
+        // Callers arrive on binder, sensor and broadcast threads; the pending queue and the shared
+        // flow belong to the worker, so hand the event over instead of touching them here.
+        TriggerWorker.scope.launch { deliver(event) }
+    }
+
+    private fun deliver(event: TriggerEvent) {
         if (!started) {
             // Keep an event that arrives between stopSelf and the queued restart; the start
             // path drains this queue. Bound it so an engine-off period cannot grow forever.
             if (pendingEvents.size < 16) pendingEvents.addLast(event)
             return
         }
-        if (!collectorReady) pendingEvents.addLast(event) else events.tryEmit(event)
+        // Both windows share one bound: a start-up burst must not grow the queue without limit.
+        if (!collectorReady) {
+            if (pendingEvents.size < 16) pendingEvents.addLast(event)
+        } else {
+            events.tryEmit(event)
+        }
     }
 
     fun stop(cancelAlarms: Boolean) {
-        if (!started) {
-            if (cancelAlarms) alarms.cancelAll()
-            return
-        }
+        val wasStarted = started
+        // Only the flags are touched here: everything below belongs to the serial worker, which may
+        // still be inside a blocking condition. Clearing its maps from this thread would corrupt
+        // them, so the teardown is queued behind that work instead.
         started = false
         collectorReady = false
         MethodHookEventSink.listener = null
-        pendingEvents.clear()
+        // Cancelling a job is safe from any thread; a run already inside a blocking condition keeps
+        // the worker busy, so the collection teardown below still has to wait its turn.
         collectJob?.cancel()
         collectJob = null
         snapshotJob?.cancel()
         snapshotJob = null
-        sourceRegistry.clear()
-        if (cancelAlarms) alarms.cancelAll()
-        alarmSignature = null
-        dispatcher.reset()
-        TriggerStatus.reset()
-        lastRules = emptyList()
+        if (cancelAlarms) pendingCancelAlarms = true
+        // A later stop (onDestroy right after ACTION_STOP) must not invalidate a teardown that is
+        // still waiting behind a blocking run: only the session that was running owns the token.
+        if (!wasStarted && !cancelAlarms) return
+        val teardown = if (wasStarted) generation.incrementAndGet() else generation.get()
+        TriggerWorker.scope.launch {
+            if (generation.get() != teardown || started) return@launch
+            pendingEvents.clear()
+            sourceRegistry.clear()
+            if (pendingCancelAlarms) {
+                pendingCancelAlarms = false
+                alarms.cancelAll()
+            }
+            alarmSignature = null
+            dispatcher.reset()
+            TriggerStatus.reset()
+            lastRules = emptyList()
+        }
     }
 
     /** Rebuild the foreground source after the system hook's first heartbeat. */
     fun refreshAppSource() {
         if (!started) return
-        // A heartbeat also proves that the system hook can receive config now. Re-send the
-        // current rule-derived subscription: an app that started before the hook registered its
-        // receiver may otherwise miss the process/crash families for the whole session.
-        SystemHookSettings.broadcastConfig(
-            context,
-            SystemHookSubscriptions.requiredFamilies(lastRules),
-            SystemHookSubscriptions.watchedPackages(lastRules),
-        )
-        if (TriggerSource.APP !in sourceRegistry.registered) return
-        uninstallSource(TriggerSource.APP)
-        installSource(TriggerSource.APP)
+        // The source registry and the watchers belong to the worker: rebuilding them from the main
+        // thread would race the reconcile that is installing or clearing the same sources.
+        TriggerWorker.scope.launch {
+            if (!started) return@launch
+            SystemHookSettings.broadcastConfig(
+                context,
+                SystemHookSubscriptions.requiredFamilies(lastRules),
+                SystemHookSubscriptions.watchedPackages(lastRules),
+            )
+            if (TriggerSource.APP !in sourceRegistry.registered) return@launch
+            uninstallSource(TriggerSource.APP)
+            installSource(TriggerSource.APP)
+        }
     }
 
     private fun reconcile(input: TriggerInput) {
