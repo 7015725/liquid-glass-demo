@@ -184,7 +184,7 @@ internal object ScriptTask {
             val method = RhinoContext.toString(args.firstOrNull()).uppercase()
             val url = RhinoContext.toString(args.getOrNull(1))
             val body = args.getOrNull(2)?.let { RhinoContext.toString(it) }
-            http(method, url, body)
+            http(method, url, body, deadline)
         }
         put("sleep") { args ->
             val millis = (args.firstOrNull()?.let { org.mozilla.javascript.ScriptRuntime.toNumber(it) } ?: 0.0)
@@ -235,15 +235,23 @@ internal object ScriptTask {
         else -> value
     }
 
-    private fun http(method: String, rawUrl: String, body: String?): String {
+    private fun http(method: String, rawUrl: String, body: String?, deadline: Long): String {
         require(method == "GET" || method == "POST") { "http 仅支持 GET / POST" }
         val url = try { URL(rawUrl) } catch (_: Exception) { throw IllegalArgumentException("http URL 无效") }
         require(url.protocol == "http" || url.protocol == "https") { "http 仅支持 http(s)" }
         require(url.host.isNotBlank()) { "http URL 缺少主机名" }
         val spec = HttpRequestSpec(method, url, if (method == "GET") null else body)
-        val outcome = runBlocking { HttpTask.run(spec, timeoutMs = 8_000) }
-        if (outcome.status != StepStatus.SUCCESS) throw IllegalStateException(outcome.detail)
-        return outcome.outputs["script.result"]?.toString().orEmpty()
+        // The script budget wins over the per-request cap: Rhino cannot observe instructions while
+        // this blocking call runs, so the remaining script deadline has to bound the request itself.
+        val remainingMs = (deadline - System.nanoTime()) / 1_000_000
+        if (remainingMs <= 0) throw ScriptTimeoutException("脚本执行超时")
+        val budget = remainingMs.coerceAtMost(8_000)
+        val outcome = runBlocking { HttpTask.run(spec, timeoutMs = budget) }
+        if (outcome.status != StepStatus.SUCCESS) {
+            if (budget < 8_000 && outcome.detail.contains("超时")) throw ScriptTimeoutException("脚本执行超时")
+            throw IllegalStateException(outcome.detail)
+        }
+        return outcome.outputs["http.body"]?.toString().orEmpty()
     }
 
     private fun notify(context: Context, title: String, text: String) {
