@@ -67,7 +67,6 @@ jobs:
         run: python3 .github/scripts/test_report.py
 
       - name: Upload unit test reports
-        id: test-reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
