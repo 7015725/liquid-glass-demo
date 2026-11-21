@@ -187,6 +187,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         engine.ruleLookup = { target ->
             (autoCmds + oneTaps).firstOrNull { it.title.trim() == target.trim() }
         }
+        engine.globalsProvider = { engineGlobals to engineGlobalMeta }
         engine.ruleResolver = { cmdId ->
             val ruleId = engineUi.presentation.entries.firstOrNull { it.value.legacyId == cmdId }?.key
             engineRules.firstOrNull { it.id == ruleId }

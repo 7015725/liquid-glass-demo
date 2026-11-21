@@ -78,6 +78,9 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
     /** Authoritative rule for a command (locals, id, run mode); set by AppState. */
     var ruleResolver: ((Long) -> Rule?)? = null
 
+    /** Saved global values and their declared types; set by AppState so runs see persisted state. */
+    var globalsProvider: (() -> Pair<Map<String, kotlinx.serialization.json.JsonElement>, Map<String, com.flowglass.engine.GlobalVariableMeta>>)? = null
+
     /** Independent async run (`wait=false`); returns immediately with an accepted/failed outcome. */
     var ruleLauncher: ((String, String, Map<String, Any?>) -> ActionOutcome)? = null
 
@@ -138,12 +141,15 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
         startDepth: Int?,
         readOnlyNames: Set<String> = emptySet(),
     ): RunResult {
+        val stored = globalsProvider?.invoke()
         val state = PersistedAppState(
             autoCmds = if (cmd.auto) listOf(cmd) else emptyList(),
             oneTaps = if (cmd.auto) emptyList() else listOf(cmd),
             logs = emptyList(),
             running = true,
             mode = 1,
+            engineGlobals = stored?.first.orEmpty(),
+            engineGlobalMeta = stored?.second.orEmpty(),
         )
         val document = try {
             state.toRuleDocument(includeTriggersAndConditions = false)
