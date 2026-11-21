@@ -181,6 +181,18 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun bindExecutionContext(context: android.content.Context) =
         bindExecutionEngine(com.flowglass.demo.system.exec.ExecutionRuntime.engine(context))
 
+    /** Persisted rule locals plus globals, keyed by name; the trigger host evaluates conditions before a run. */
+    internal fun persistedVariablesFor(engineRuleId: String): Map<String, Any?> {
+        val rule = engineRules.firstOrNull { it.id == engineRuleId } ?: return emptyMap()
+        val values = LinkedHashMap<String, Any?>()
+        for (local in rule.locals) values[local.name] = local.initial
+        for ((name, json) in engineGlobals) {
+            val type = com.flowglass.engine.VariableType.fromStorage(engineGlobalMeta[name]?.type) ?: continue
+            values[name] = com.flowglass.engine.VariableValues.fromJson(json, type)
+        }
+        return values
+    }
+
     internal fun bindExecutionEngine(engine: com.flowglass.demo.system.exec.ExecutionEngine) {
         executionEngine = engine
         // Async run_rule starts a normal AppState run: its own log row, job, stop button and budget.

@@ -24,6 +24,12 @@ interface TriggerEnvironment {
     fun networkType(): NetworkType = NetworkType.NONE
     fun appProcessRunning(packageName: String, userId: Int): Boolean? = null
     fun fileExists(path: String): Boolean? = null
+
+    /**
+     * Persisted rule-local and global values keyed by name. Trigger conditions are evaluated outside
+     * the rule executor, so the host has to feed them here or `变量判断` treats saved state as unset.
+     */
+    fun persistedVariables(ruleId: String): Map<String, Any?> = emptyMap()
 }
 
 interface TriggerExecutor {
@@ -174,8 +180,11 @@ class TriggerDispatcher(
                 continue
             }
             val triggerVariables = variablesFor(binding, event, now, offset)
+            // Conditions run outside the rule executor, so the host feeds persisted locals/globals here;
+            // event outputs keep precedence over a same-named saved value.
+            val conditionVariables = environment.persistedVariables(rule.id) + triggerVariables.values
             val conditions = TriggerConditions.evaluate(
-                rule.conditions, environment, now, offset, triggerVariables.values,
+                rule.conditions, environment, now, offset, conditionVariables,
             )
             if (!conditions.passed) {
                 val detail = conditions.detail
@@ -327,7 +336,8 @@ class TriggerDispatcher(
         }
         val data = event.data
         fun putText(key: String, value: String?) {
-            if (!value.isNullOrEmpty()) values[key] = value
+            // Only a missing field is "unset"; a present empty string is a real value for set/empty.
+            if (value != null) values[key] = value
         }
         fun putApp() {
             putText("trigger.app.package", data["app"])
