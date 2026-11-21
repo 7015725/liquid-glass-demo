@@ -185,10 +185,16 @@ class AppState internal constructor(saved: PersistedAppState?) {
     internal fun persistedVariablesFor(engineRuleId: String): Map<String, Any?> {
         val rule = engineRules.firstOrNull { it.id == engineRuleId } ?: return emptyMap()
         val values = LinkedHashMap<String, Any?>()
-        for (local in rule.locals) values[local.name] = local.initial
+        // Globals first: a same-named local shadows them, matching RunScopes.flattened().
         for ((name, json) in engineGlobals) {
             val type = com.flowglass.engine.VariableType.fromStorage(engineGlobalMeta[name]?.type) ?: continue
-            values[name] = com.flowglass.engine.VariableValues.fromJson(json, type)
+            // A value that does not match its declared type must not abort trigger dispatch for every rule.
+            values[name] = runCatching { com.flowglass.engine.VariableValues.fromJson(json, type) }.getOrNull() ?: continue
+        }
+        for (local in rule.locals) {
+            val type = com.flowglass.engine.VariableType.fromStorage(local.type) ?: continue
+            values[local.name] = runCatching { com.flowglass.engine.VariableValues.fromJson(local.initial, type) }
+                .getOrNull() ?: continue
         }
         return values
     }

@@ -182,7 +182,8 @@ class TriggerDispatcher(
             val triggerVariables = variablesFor(binding, event, now, offset)
             // Conditions run outside the rule executor, so the host feeds persisted locals/globals here;
             // event outputs keep precedence over a same-named saved value.
-            val conditionVariables = environment.persistedVariables(rule.id) + triggerVariables.values
+            val persisted = runCatching { environment.persistedVariables(rule.id) }.getOrDefault(emptyMap())
+            val conditionVariables = persisted + triggerVariables.values
             val conditions = TriggerConditions.evaluate(
                 rule.conditions, environment, now, offset, conditionVariables,
             )
