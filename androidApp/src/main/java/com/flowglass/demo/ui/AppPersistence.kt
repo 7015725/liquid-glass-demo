@@ -352,14 +352,10 @@ internal object AppStateJson {
 
     fun encode(state: PersistedAppState): String {
         val document = state.toRuleDocument()
-        // Cycles, missing targets and too-deep chains are structural: never write them to disk.
-        // Loading stays tolerant so the user can open the editor and repair them.
-        val fatal = com.flowglass.engine.RuleValidator
-            .validateDocument(document, com.flowglass.engine.BuiltInComponents.registry())
-            .filter {
-                it.message.contains("成环") || it.message.contains("不存在") || it.message.contains("调用层级")
-            }
-        require(fatal.isEmpty()) { fatal.joinToString("；") { it.message } }
+        // A missing call target, a cycle or an over-deep chain is user-repairable. Refusing the
+        // whole snapshot here froze every unrelated edit, global variable and log entry. Loading is
+        // tolerant, the editor reports the link, and execution refuses to run past MAX_DEPTH, so
+        // the document is written as-is and repaired in place.
         return RuleJson.encode(document)
     }
 
