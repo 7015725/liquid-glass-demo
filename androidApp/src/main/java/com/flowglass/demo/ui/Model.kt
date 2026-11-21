@@ -1009,8 +1009,13 @@ class AppState internal constructor(saved: PersistedAppState?) {
     /** Display order: pinned first, otherwise original order. */
     fun sorted(auto: Boolean): List<Cmd> = listFor(auto).sortedByDescending { it.pinned }
 
-    /** Replaces the whole in-memory document after an import/restore has been fully validated. */
+    /**
+     * Replaces the whole in-memory document after an import/restore has been fully validated.
+     * The restored ids are reserved before publishing: a backup from another install may carry
+     * ids far above this process's counter, and the next allocation must not collide with them.
+     */
     internal fun replaceWith(converted: PersistedAppState) {
+        reserveIds(converted)
         autoCmds.clear(); autoCmds.addAll(converted.autoCmds)
         oneTaps.clear(); oneTaps.addAll(converted.oneTaps)
         logs.clear(); logs.addAll(converted.logs)
