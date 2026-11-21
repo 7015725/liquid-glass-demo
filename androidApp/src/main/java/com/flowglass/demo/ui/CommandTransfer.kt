@@ -95,20 +95,27 @@ internal fun exportCommandJson(state: AppState, cmd: Cmd): String {
     return transferJson.encodeToString(
         JsonElement.serializer(),
         envelope(COMMAND_FILE_FORMAT, document),
-    )
+    ).also(::validateTransferText)
 }
 
 internal fun exportBackupJson(
     state: AppState,
     themeMode: ThemeMode,
     appSettings: Map<String, String> = emptyMap(),
+): String = exportBackupJson(state.snapshot(), themeMode, appSettings)
+
+/** Same backup envelope, built from an already-captured immutable snapshot. */
+internal fun exportBackupJson(
+    snapshot: PersistedAppState,
+    themeMode: ThemeMode,
+    appSettings: Map<String, String> = emptyMap(),
 ): String {
-    val document = state.snapshot().toRuleDocument()
+    val document = snapshot.toRuleDocument()
     RuleJson.encode(document)
     return transferJson.encodeToString(
         JsonElement.serializer(),
         envelope(BACKUP_FILE_FORMAT, document, BackupSettings(themeMode.name, appSettings)),
-    )
+    ).also(::validateTransferText)
 }
 
 private fun envelope(format: String, document: RuleDocument, settings: BackupSettings? = null) =
@@ -229,7 +236,7 @@ private fun buildParsed(
         engineGlobalMeta = initial.engineGlobalMeta,
     )
     val commands = converted.autoCmds + converted.oneTaps
-    require(commands.isNotEmpty()) { "文件不包含任何指令" }
+    require(commands.isNotEmpty() || kind == ImportKind.BACKUP) { "文件不包含任何指令" }
     val used = (state.autoCmds + state.oneTaps)
         .mapTo(mutableSetOf()) { it.title.trim().lowercase(Locale.ROOT) }
     val previewCommands = commands.map { cmd ->
@@ -348,21 +355,113 @@ internal fun AppState.applyCommandImport(parsed: ParsedImport) {
  * document has already been validated and converted by [parseImport].
  */
 internal fun restoreBackup(context: Context, state: AppState, parsed: ParsedImport): File =
-    restoreBackup(state, parsed, File(context.filesDir, "backups"))
+    restoreBackup(
+        state,
+        parsed,
+        File(context.filesDir, "backups"),
+        exportBackupJson(state, AppearanceSettings.read(context), readBackupAppSettings(context)),
+    )
 
-internal fun restoreBackup(state: AppState, parsed: ParsedImport, backupFolder: File): File {
+internal fun restoreBackup(
+    state: AppState,
+    parsed: ParsedImport,
+    backupFolder: File,
+    now: () -> Long = System::currentTimeMillis,
+    newId: () -> String = { java.util.UUID.randomUUID().toString() },
+    readBack: (File) -> ByteArray = File::readBytes,
+): File = restoreBackup(state, parsed, backupFolder, exportBackupJson(state, ThemeMode.SYSTEM), now, newId, readBack)
+
+private fun restoreBackup(
+    state: AppState,
+    parsed: ParsedImport,
+    backupFolder: File,
+    safetyText: String,
+    now: () -> Long = System::currentTimeMillis,
+    newId: () -> String = { java.util.UUID.randomUUID().toString() },
+    readBack: (File) -> ByteArray = File::readBytes,
+): File {
     require(parsed.kind == ImportKind.BACKUP) { "这不是备份文件" }
-    val safety = writeSafetyBackup(backupFolder, state)
+    val safety = writeSafetyBackup(backupFolder, safetyText, now, newId, readBack)
     state.replaceWith(parsed.converted)
     return safety
 }
 
-private fun writeSafetyBackup(folder: File, state: AppState): File {
+/**
+ * Immutable inputs for the pre-restore safety copy. Captured on the caller's thread so that the
+ * blocking serialization, write and read-back pass never has to read live state from a worker.
+ */
+internal class RestoreSafetyInput internal constructor(
+    internal val snapshot: PersistedAppState,
+    internal val themeMode: ThemeMode,
+    internal val appSettings: Map<String, String>,
+)
+
+/** Captures the safety-copy inputs without writing anything; safe to call on the main thread. */
+internal fun restoreSafetyInput(context: Context, state: AppState): RestoreSafetyInput =
+    RestoreSafetyInput(
+        snapshot = state.snapshot(),
+        themeMode = AppearanceSettings.read(context),
+        appSettings = readBackupAppSettings(context),
+    )
+
+/**
+ * Serializes, writes and byte-verifies the pre-restore safety copy. This performs blocking disk
+ * I/O and must be called from a worker dispatcher, never from the Compose main thread.
+ */
+internal fun writeRestoreSafety(folder: File, input: RestoreSafetyInput): File =
+    writeSafetyBackup(
+        folder,
+        exportBackupJson(input.snapshot, input.themeMode, input.appSettings),
+        System::currentTimeMillis,
+        { java.util.UUID.randomUUID().toString() },
+        File::readBytes,
+    )
+
+private fun writeSafetyBackup(folder: File, text: String, now: () -> Long, newId: () -> String, readBack: (File) -> ByteArray): File {
     check(folder.exists() || folder.mkdirs()) { "无法创建备份目录" }
-    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-    val file = File(folder, "before-restore-$stamp.json")
-    file.writeText(AppStateJson.encode(state.snapshot()), Charsets.UTF_8)
-    return file
+    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(now()))
+    repeat(32) {
+        val file = File(folder, "before-restore-$stamp-${newId()}.json")
+        if (!file.createNewFile()) return@repeat
+        val atomic = android.util.AtomicFile(file)
+        var stream: java.io.FileOutputStream? = null
+        try {
+            stream = atomic.startWrite()
+            stream.write(text.toByteArray(Charsets.UTF_8))
+            atomic.finishWrite(stream)
+            check(readBack(file).contentEquals(text.toByteArray(Charsets.UTF_8))) { "安全副本校验失败，已取消恢复" }
+            return file
+        } catch (failure: Throwable) {
+            runCatching { atomic.failWrite(stream) }
+            runCatching { atomic.delete() }
+            throw failure
+        }
+    }
+    error("无法创建不重复的安全副本")
+}
+
+internal fun listSafetyBackups(folder: File, state: AppState): List<File> =
+    folder.listFiles().orEmpty()
+        .filter { file ->
+            file.isFile && file.name.startsWith("before-restore-") && file.extension == "json" &&
+                file.canonicalFile.parentFile == folder.canonicalFile &&
+                runCatching { readSafetyBackup(file, state) }.isSuccess
+        }
+        .sortedWith(compareByDescending<File> { it.lastModified() }.thenByDescending { it.name })
+
+internal fun readSafetyBackup(file: File, state: AppState): ParsedImport {
+    val text = file.bufferedReader(Charsets.UTF_8).use { reader ->
+        val text = StringBuilder()
+        val buffer = CharArray(8192)
+        while (true) {
+            val count = reader.read(buffer)
+            if (count < 0) break
+            require(text.length + count <= MAX_TRANSFER_CHARS) { "文件过大" }
+            text.append(buffer, 0, count)
+        }
+        text.toString()
+    }
+    return parseImport(text, state).also { require(it.kind == ImportKind.BACKUP) { "这不是完整备份文件" } }
 }
 
 private fun validateTransferText(text: String) {

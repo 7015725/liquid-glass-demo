@@ -1,6 +1,11 @@
 package com.flowglass.demo.ui
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import com.flowglass.engine.GlobalVariableMeta
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,11 +16,17 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.io.File
 import java.nio.file.Files
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class CommandTransferTest {
+    private fun taskTempFolder(prefix: String): File = Files.createTempDirectory(
+        File(requireNotNull(System.getenv("TMPDIR")) { "TMPDIR must point inside this task's evidence workspace" }).toPath(),
+        prefix,
+    ).toFile()
+
     private fun command(title: String = "测试指令", auto: Boolean = true): Cmd = Cmd(
         id = 100L,
         auto = auto,
@@ -216,6 +227,225 @@ class CommandTransferTest {
         val preview = parseImport(exportCommandJson(AppState().also { it.autoCmds += cmd }, cmd), AppState())
             .preview.commands.single()
         assertTrue(preview.sensitive.contains("HTTP 请求"))
+    }
+
+    @Test
+    fun emptyFullBackupIsRestorable() {
+        val state = AppState()
+
+        val parsed = parseImport(exportBackupJson(state, ThemeMode.SYSTEM), state)
+
+        assertEquals(ImportKind.BACKUP, parsed.kind)
+        assertTrue(parsed.converted.autoCmds.isEmpty())
+        assertTrue(parsed.converted.oneTaps.isEmpty())
+    }
+
+    @Test
+    fun fullBackupExportRejectsPayloadBeyondImportBudget() {
+        val state = AppState().also {
+            it.engineGlobals = mapOf("payload" to JsonPrimitive("x".repeat(2_000_001)))
+        }
+
+        val error = runCatching { exportBackupJson(state, ThemeMode.SYSTEM) }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+        assertEquals("文件过大", error?.message)
+    }
+
+    @Test
+    fun fullBackupExportRejectsExcessiveJsonDepth() {
+        var nested: JsonElement = JsonPrimitive("leaf")
+        repeat(140) { nested = JsonArray(listOf(nested)) }
+        val state = AppState().also { it.engineGlobals = mapOf("nested" to nested) }
+
+        val error = runCatching { exportBackupJson(state, ThemeMode.SYSTEM) }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+        assertEquals("文件嵌套过深", error?.message)
+    }
+
+    @Test
+    fun singleCommandExportRejectsPayloadBeyondImportBudget() {
+        val source = command().copy(
+            actions = listOf(
+                CommandItem(103L, "执行 Shell(Root)", "x".repeat(2_000_001), Ic.Terminal, "action.root_shell"),
+            ),
+        )
+        val state = AppState().also { it.autoCmds.add(source) }
+
+        val error = runCatching { exportCommandJson(state, source) }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+        assertEquals("文件过大", error?.message)
+    }
+
+    @Test
+    fun safetyBackupUsesTheBackupRestoreEntry() {
+        RuntimeEnvironment.getApplication()
+        val state = AppState().also { it.autoCmds.add(command("恢复前")) }
+        val target = AppState().also {
+            it.oneTaps.add(command("恢复目标", auto = false).copy(triggers = emptyList(), conditions = emptyList()))
+        }
+        val parsed = parseImport(exportBackupJson(target, ThemeMode.LIGHT), state)
+        val folder = taskTempFolder("transfer-safety")
+
+        val safety = restoreBackup(state, parsed, folder)
+        val restored = parseImport(safety.readText(), state)
+
+        assertEquals(ImportKind.BACKUP, restored.kind)
+        assertEquals("恢复前", restored.preview.commands.single().title)
+    }
+
+    @Test
+    fun contextSafetyBackupContainsThemeVariablesLogsAndSafeAppSettings() {
+        val context = RuntimeEnvironment.getApplication()
+        AppearanceSettings.write(context, ThemeMode.DARK)
+        context.getSharedPreferences("keepalive", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("fgs", true).apply()
+        context.getSharedPreferences("keepalive", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("root_granted", true).apply()
+        val state = AppState().also {
+            it.autoCmds.add(command("含状态"))
+            it.engineGlobals = mapOf("token" to JsonPrimitive("保留值"))
+            it.engineGlobalMeta = mapOf("token" to GlobalVariableMeta("text", "变量备注"))
+            it.logs.add(RunLog(901L, "含状态", "测试记录", "现在", true, Ic.Bolt, "日志详情"))
+        }
+        val target = AppState().also {
+            it.oneTaps.add(command("替换目标", auto = false).copy(triggers = emptyList(), conditions = emptyList()))
+        }
+        val parsedTarget = parseImport(exportBackupJson(target, ThemeMode.LIGHT), state)
+
+        val safety = restoreBackup(context, state, parsedTarget)
+        val parsedSafety = parseImport(safety.readText(), state)
+
+        assertEquals(ImportKind.BACKUP, parsedSafety.kind)
+        assertEquals(ThemeMode.DARK, parsedSafety.preview.themeMode)
+        assertEquals(JsonPrimitive("保留值"), parsedSafety.converted.engineGlobals["token"])
+        assertEquals("变量备注", parsedSafety.converted.engineGlobalMeta["token"]?.note)
+        assertEquals("日志详情", parsedSafety.converted.logs.single().detail)
+        assertEquals("true", parsedSafety.settings?.appSettings?.get("keepalive.fgs"))
+        assertFalse(parsedSafety.settings?.appSettings?.keys.orEmpty().any { "root" in it })
+    }
+
+    @Test
+    fun safetyBackupDoesNotOverwriteAnEarlierBackupInTheSameSecond() {
+        RuntimeEnvironment.getApplication()
+        val state = AppState().also { it.autoCmds.add(command("恢复前的旧副本")) }
+        val target = AppState().also {
+            it.oneTaps.add(command("恢复目标", auto = false).copy(triggers = emptyList(), conditions = emptyList()))
+        }
+        val parsed = parseImport(exportBackupJson(target, ThemeMode.LIGHT), state)
+        val folder = taskTempFolder("transfer-unique-safety")
+        val fixedTime = { 1_800_000_000_000L }
+        val ids = listOf("collision", "collision", "retry").iterator()
+        val nextId = { ids.next() }
+
+        val first = restoreBackup(state, parsed, folder, fixedTime, nextId)
+        val firstBytes = first.readBytes()
+        val second = restoreBackup(state, parsed, folder, fixedTime, nextId)
+
+        assertNotEquals(first.canonicalPath, second.canonicalPath)
+        assertTrue(firstBytes.contentEquals(first.readBytes()))
+        assertEquals(2, folder.listFiles()?.count { it.extension == "json" })
+    }
+
+    @Test
+    fun safetyBackupListContainsOnlyReadableFullBackups() {
+        val state = AppState()
+        val folder = taskTempFolder("transfer-safety-list")
+        val valid = java.io.File(folder, "before-restore-20260101-010101-valid.json")
+            .also { it.writeText(exportBackupJson(state, ThemeMode.DARK)) }
+        java.io.File(folder, "before-restore-20260101-010102-broken.json").writeText("not json")
+        java.io.File(folder, "before-restore-20260101-010103-command.json")
+            .writeText(exportCommandJson(AppState(), command()))
+        java.io.File(folder, "unrelated.json").writeText(valid.readText())
+        java.io.File(folder, "before-restore-20260101-010104-directory.json").mkdir()
+        val before = AppStateJson.encode(state.snapshot())
+
+        assertEquals(listOf(valid), listSafetyBackups(folder, state))
+        assertEquals(before, AppStateJson.encode(state.snapshot()))
+    }
+
+    @Test
+    fun failedSafetyBackupReadbackLeavesStateAndEarlierCopiesUnchanged() {
+        val state = AppState().also { it.autoCmds.add(command("原数据")) }
+        val target = AppState().also {
+            it.oneTaps.add(command("替换数据", auto = false).copy(triggers = emptyList(), conditions = emptyList()))
+        }
+        val parsed = parseImport(exportBackupJson(target, ThemeMode.LIGHT), state)
+        val folder = taskTempFolder("transfer-readback-failure")
+        val earlier = java.io.File(folder, "before-restore-earlier.json")
+            .also { it.writeText(exportBackupJson(state, ThemeMode.DARK)) }
+        val earlierBytes = earlier.readBytes()
+        val before = AppStateJson.encode(state.snapshot())
+        var readAttempted = false
+
+        val failure = runCatching {
+            restoreBackup(state, parsed, folder, readBack = { readAttempted = true; byteArrayOf(0) })
+        }.exceptionOrNull()
+
+        assertTrue("损坏的安全副本必须阻止恢复", failure is IllegalStateException)
+        assertTrue(readAttempted)
+        assertEquals(before, AppStateJson.encode(state.snapshot()))
+        assertTrue(earlierBytes.contentEquals(earlier.readBytes()))
+        assertEquals(listOf(earlier), folder.listFiles().orEmpty().toList())
+    }
+
+    @Test
+    fun failedSafetyBackupReadKeepsTheOriginalStateAndCopies() {
+        val state = AppState().also { it.autoCmds.add(command("原数据")) }
+        val target = AppState().also {
+            it.oneTaps.add(command("替换数据", auto = false).copy(triggers = emptyList(), conditions = emptyList()))
+        }
+        val parsed = parseImport(exportBackupJson(target, ThemeMode.LIGHT), state)
+        val folder = taskTempFolder("transfer-read-error")
+        val earlier = java.io.File(folder, "before-restore-earlier.json")
+            .also { it.writeText(exportBackupJson(state, ThemeMode.DARK)) }
+        val earlierBytes = earlier.readBytes()
+        val before = AppStateJson.encode(state.snapshot())
+
+        val failure = runCatching {
+            restoreBackup(state, parsed, folder, readBack = { throw java.io.IOException("read failed") })
+        }.exceptionOrNull()
+
+        assertTrue(failure is java.io.IOException)
+        assertEquals(before, AppStateJson.encode(state.snapshot()))
+        assertTrue(earlierBytes.contentEquals(earlier.readBytes()))
+        assertEquals(listOf(earlier), folder.listFiles().orEmpty().toList())
+    }
+
+    @Test
+    fun failedSafetyBackupWriteKeepsTheOriginalStateAndCopies() {
+        val state = AppState().also { it.autoCmds.add(command("原数据")) }
+        val target = AppState().also {
+            it.oneTaps.add(command("替换数据", auto = false).copy(triggers = emptyList(), conditions = emptyList()))
+        }
+        val parsed = parseImport(exportBackupJson(target, ThemeMode.LIGHT), state)
+        val folder = taskTempFolder("transfer-write-error")
+        val occupied = java.io.File(folder, "occupied").also { it.writeText("keep") }
+        val earlier = java.io.File(folder, "before-restore-earlier.json")
+            .also { it.writeText(exportBackupJson(state, ThemeMode.DARK)) }
+        val earlierBytes = earlier.readBytes()
+        val before = AppStateJson.encode(state.snapshot())
+
+        val failure = runCatching { restoreBackup(state, parsed, occupied) }.exceptionOrNull()
+
+        assertTrue(failure is java.io.IOException)
+        assertEquals(before, AppStateJson.encode(state.snapshot()))
+        assertTrue(earlierBytes.contentEquals(earlier.readBytes()))
+        assertEquals("keep", occupied.readText())
+    }
+
+    @Test
+    fun emptySingleCommandFileIsStillRejected() {
+        val state = AppState()
+        val text = exportBackupJson(state, ThemeMode.SYSTEM)
+            .replace("\"flowglass.backup\"", "\"flowglass.command\"")
+
+        val failure = runCatching { parseImport(text, state) }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertEquals("文件不包含任何指令", failure?.message)
     }
 
 }

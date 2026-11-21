@@ -69,7 +69,9 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -877,6 +879,9 @@ private fun BackupRestorePage(
     var pending by remember { mutableStateOf<ParsedImport?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var exportText by remember { mutableStateOf<String?>(null) }
+    var safetyFiles by remember { mutableStateOf<List<File>?>(null) }
+    var restoring by remember { mutableStateOf(false) }
+    var restoreJob by remember { mutableStateOf<Job?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
@@ -907,6 +912,8 @@ private fun BackupRestorePage(
                 }
                 pending = parsed
                 notice = null
+            } catch (cancel: CancellationException) {
+                throw cancel
             } catch (error: Exception) {
                 notice = "读取失败：${error.message.orEmpty()}"
             }
@@ -965,35 +972,143 @@ private fun BackupRestorePage(
             Row1(Ic.Refresh, "从备份恢复", sub = "恢复前自动备份当前数据") {
                 backupLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
             },
+            true,
+        )
+        ListRow(
+            Row1(Ic.Refresh, "选择恢复前自动副本", sub = "查看本机保存的安全副本，预览后确认恢复") {
+                val previewState = AppState(state.snapshot())
+                scope.launch {
+                    try {
+                        safetyFiles = withContext(Dispatchers.IO) {
+                            listSafetyBackups(File(context.filesDir, "backups"), previewState)
+                        }
+                        notice = null
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (error: Exception) {
+                        notice = "读取副本失败：${error.message.orEmpty()}"
+                    }
+                }
+            },
             false,
         )
     }
     NoteCard(k++, "导入的文件一律视为不可信，导入预览会列出触发器、条件和任务；含 Root Shell、HTTP 请求、执行另一条指令或脚本时会用红色提示，Root-only 动作会标注「需要 Root」。自动指令导入后默认关闭。备份包含 App 内设置，但不包含 Root 授权；恢复失败不会覆盖原数据。")
     notice?.let { NoteCard(k++, it) }
 
+    safetyFiles?.let { files ->
+        Dialog(
+            onDismissRequest = { safetyFiles = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(24.dp).clip(RoundedRectangle(28.dp))
+                    .background(C.Card).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                T("恢复前自动副本", 20.sp, FontWeight.Bold)
+                Column(
+                    Modifier.fillMaxWidth().heightIn(max = 430.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (files.isEmpty()) T("暂无可恢复的安全副本", 13.sp, color = C.Muted)
+                    files.forEach { file ->
+                        Column(
+                            Modifier.fillMaxWidth().clip(RoundedRectangle(18.dp)).background(C.Tonal)
+                                .pressable {
+                                    safetyFiles = null
+                                    val previewState = AppState(state.snapshot())
+                                    scope.launch {
+                                        try {
+                                            pending = withContext(Dispatchers.IO) { readSafetyBackup(file, previewState) }
+                                            notice = null
+                                        } catch (cancel: CancellationException) {
+                                            throw cancel
+                                        } catch (error: Exception) {
+                                            notice = "读取副本失败：${error.message.orEmpty()}"
+                                        }
+                                    }
+                                }.padding(14.dp),
+                        ) { T(file.name, 13.sp, FontWeight.SemiBold) }
+                    }
+                }
+                Column(
+                    Modifier.fillMaxWidth().clip(Capsule()).background(C.Tonal)
+                        .pressable { safetyFiles = null }.padding(horizontal = 16.dp, vertical = 12.dp),
+                ) { T("取消", 14.sp, FontWeight.SemiBold) }
+            }
+        }
+    }
+
     pending?.let { parsed ->
         ImportPreviewDialog(
             preview = parsed.preview,
-            onDismiss = { pending = null },
+            onDismiss = {
+                // Dismissing (button, back or outside tap) during a restore cancels the pending
+                // restore so it can never publish an unexpected state after the dialog closed.
+                restoreJob?.cancel()
+                restoreJob = null
+                restoring = false
+                pending = null
+            },
+            confirmBusy = restoring,
             onConfirm = {
-                try {
+                if (!restoring) {
                     if (parsed.kind == ImportKind.BACKUP) {
-                        val safety = restoreBackup(context, state, parsed)
-                        val theme = parsed.preview.themeMode
-                        if (theme != null) {
-                            AppearanceSettings.write(context, theme)
-                            onThemeModeChange(theme)
+                        // Capture immutable inputs on main; all serialization and disk I/O below
+                        // run on Dispatchers.IO so a slow safety copy cannot block the UI.
+                        val attempt = runCatching { restoreSafetyInput(context, state) }
+                        val input = attempt.getOrNull()
+                        if (input == null) {
+                            notice = "操作失败，原数据未改变：" + attempt.exceptionOrNull()?.message.orEmpty()
+                        } else {
+                            restoring = true
+                            lateinit var job: Job
+                            job = scope.launch {
+                                try {
+                                    val safety = withContext(Dispatchers.IO) {
+                                        writeRestoreSafety(File(context.filesDir, "backups"), input)
+                                    }
+                                    // withContext re-checks cancellation on resume: a restore that was
+                                    // cancelled while the blocking write ran never reaches this point.
+                                    state.replaceWith(parsed.converted)
+                                    if (pending === parsed) pending = null
+                                    val settingsError = runCatching {
+                                        val theme = parsed.preview.themeMode
+                                        if (theme != null) {
+                                            AppearanceSettings.write(context, theme)
+                                            onThemeModeChange(theme)
+                                        }
+                                        parsed.settings?.let { applyBackupAppSettings(context, it.appSettings) }
+                                    }.exceptionOrNull()
+                                    notice = if (settingsError == null) {
+                                        "已恢复备份；原数据已保存到 ${safety.name}"
+                                    } else {
+                                        "已恢复备份；原数据已保存到 ${safety.name}（外观或设置未能应用：${settingsError.message.orEmpty()}）"
+                                    }
+                                } catch (cancel: CancellationException) {
+                                    throw cancel
+                                } catch (error: Exception) {
+                                    notice = "操作失败，原数据未改变：${error.message.orEmpty()}"
+                                } finally {
+                                    if (restoreJob === job) {
+                                        restoreJob = null
+                                        restoring = false
+                                    }
+                                }
+                            }
+                            restoreJob = job
                         }
-                        parsed.settings?.let { applyBackupAppSettings(context, it.appSettings) }
-                        notice = "已恢复备份；原数据已保存到 ${safety.name}"
                     } else {
-                        val count = parsed.preview.commands.size
-                        state.applyCommandImport(parsed)
-                        notice = "已导入 $count 条指令"
+                        try {
+                            val count = parsed.preview.commands.size
+                            state.applyCommandImport(parsed)
+                            notice = "已导入 $count 条指令"
+                            pending = null
+                        } catch (error: Exception) {
+                            notice = "操作失败，原数据未改变：${error.message.orEmpty()}"
+                        }
                     }
-                    pending = null
-                } catch (error: Exception) {
-                    notice = "操作失败，原数据未改变：${error.message.orEmpty()}"
                 }
             },
         )

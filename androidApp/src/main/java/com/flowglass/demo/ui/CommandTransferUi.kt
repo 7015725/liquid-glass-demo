@@ -120,6 +120,7 @@ internal fun ImportPreviewDialog(
     preview: ImportPreview,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
+    confirmBusy: Boolean = false,
 ) {
     val isBackup = preview.kind == ImportKind.BACKUP
     Dialog(
@@ -175,8 +176,9 @@ internal fun ImportPreviewDialog(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 DialogButton("取消", Modifier.weight(1f), onClick = onDismiss)
                 DialogButton(
-                    if (isBackup) "确认恢复" else "确认导入",
-                    Modifier.weight(1f), primary = true, onClick = onConfirm,
+                    if (confirmBusy) "正在恢复…" else if (isBackup) "确认恢复" else "确认导入",
+                    Modifier.weight(1f), primary = true,
+                    onClick = { if (!confirmBusy) onConfirm() },
                 )
             }
         }
