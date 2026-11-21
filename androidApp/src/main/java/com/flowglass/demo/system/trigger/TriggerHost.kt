@@ -53,7 +53,10 @@ internal data class TriggerInput(val running: Boolean, val rules: List<TriggerRu
 private fun AppState.triggerInput(): TriggerInput =
     TriggerInput(running, autoCmds.map(Cmd::toTriggerRule), permissionsEpoch)
 
-internal class AndroidTriggerEnvironment(private val context: Context) : TriggerEnvironment {
+internal class AndroidTriggerEnvironment(
+    private val context: Context,
+    private val persisted: (String) -> Map<String, Any?> = { emptyMap() },
+) : TriggerEnvironment {
     override fun zoneOffsetMinutes(atEpochMs: Long): Int =
         java.util.TimeZone.getDefault().getOffset(atEpochMs) / 60_000
 
@@ -79,6 +82,8 @@ internal class AndroidTriggerEnvironment(private val context: Context) : Trigger
         SystemEventCache.isProcessRunning(packageName, userId)
 
     override fun fileExists(path: String): Boolean? = ConditionFileAccess.exists(path)
+
+    override fun persistedVariables(ruleId: String): Map<String, Any?> = persisted(ruleId)
 
     override fun isDndOn(): Boolean? {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return null
@@ -114,7 +119,7 @@ internal class TriggerHost(
     private val onStatus: (listeningRules: Int, sources: Int) -> Unit,
     private val onShouldStop: () -> Unit,
 ) {
-    private val environment = AndroidTriggerEnvironment(context)
+    private val environment = AndroidTriggerEnvironment(context) { ruleId -> state.persistedVariablesFor(ruleId) }
     private val events = MutableSharedFlow<TriggerEvent>(
         extraBufferCapacity = 64,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
