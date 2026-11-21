@@ -59,6 +59,16 @@ object Perms {
             { c -> c.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED },
             Grant.Runtime(Manifest.permission.BLUETOOTH_CONNECT)
         ))
+        // Android 17 起访问局域网/.local 地址需要运行时授权；低于 37 没有这个权限，按已满足处理，
+        // 但目录条目必须始终存在，否则组件声明与权限目录会对不上。
+        add(PermItem(
+            "local_network", Ic.Wifi, "本地网络",
+            "访问局域网设备与 .local 服务（Android 17+ 默认阻断）", false,
+            { c -> Build.VERSION.SDK_INT < 37 ||
+                c.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) == PackageManager.PERMISSION_GRANTED },
+            if (Build.VERSION.SDK_INT >= 37) Grant.Runtime(Manifest.permission.ACCESS_LOCAL_NETWORK)
+            else Grant.Page { c -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkgUri(c)) }
+        ))
         add(PermItem(
             "battery", Ic.Battery, "忽略电池优化",
             "防止系统省电策略冻结后台服务", true,

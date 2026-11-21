@@ -126,7 +126,7 @@ object BuiltInActions {
             outputs = listOf(
                 out("http.body", "响应正文", VariableType.TEXT, "响应正文", "HTTP 响应正文，最多保留前 200 个字符"),
                 out("http.status", "状态码", VariableType.INT, "状态码", "HTTP 状态码"),
-            ), supports = normalLayer),
+            ), permissions = listOf("local_network"), supports = normalLayer),
         ComponentMeta("action.vibrate", "振动", "设备", ComponentKind.ACTION,
             listOf(parameter("duration", "时长", ParamType.DURATION, "500 毫秒", false,
                 hint = "格式：非负数字 + 毫秒 / 秒 / 分钟。", durationMs = 500)), supports = normalLayer),

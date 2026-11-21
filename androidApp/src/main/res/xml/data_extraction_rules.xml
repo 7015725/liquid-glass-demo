@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ 的云备份与设备迁移规则。与 backup_rules.xml 同一组排除项：
+  方法钩子凭证、根状态、运行时钩子配置与闹钟快照不随备份或换机迁移。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="method_hook_secrets.xml" />
+        <exclude domain="sharedpref" path="flowglass_method_hooks.xml" />
+        <exclude domain="sharedpref" path="root_state.xml" />
+        <exclude domain="sharedpref" path="system_hook.xml" />
+        <exclude domain="sharedpref" path="trigger_alarms.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="method_hook_secrets.xml" />
+        <exclude domain="sharedpref" path="flowglass_method_hooks.xml" />
+        <exclude domain="sharedpref" path="root_state.xml" />
+        <exclude domain="sharedpref" path="system_hook.xml" />
+        <exclude domain="sharedpref" path="trigger_alarms.xml" />
+    </device-transfer>
+</data-extraction-rules>
