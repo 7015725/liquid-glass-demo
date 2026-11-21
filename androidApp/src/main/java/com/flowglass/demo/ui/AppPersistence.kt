@@ -88,6 +88,14 @@ internal class AppRuntime private constructor(private val context: Context) {
         }
     }
 
+    /** Test seam: whether ordinary saving is currently allowed. */
+    internal fun canSaveForTest(): Boolean = store.canSave
+
+    /** Test seam: waits until every queued write finished. */
+    internal suspend fun drainForTest() {
+        queue.submit { }.await()
+    }
+
     /** Test-only reset; production ownership is the process-wide singleton. */
     internal fun resetForTest() {
         synchronized(lock) {
@@ -120,10 +128,13 @@ internal class AppRuntime private constructor(private val context: Context) {
 
     fun requestSave(capture: () -> PersistedAppState) {
         if (!store.canSave) return
+        // Captured on the caller thread: a restore that starts before this save lands bumps the
+        // epoch, and the stale snapshot is dropped instead of overwriting the restored document.
+        val epoch = store.currentEpoch()
         val snapshot = capture()
         queue.submit {
             val error = try {
-                store.save(snapshot)
+                if (!store.save(snapshot, epoch)) return@submit
                 com.flowglass.demo.xposed.method.MethodHookConfigPublisher.publish(context, snapshot)
                 null
             } catch (invalid: IllegalArgumentException) {
@@ -132,6 +143,41 @@ internal class AppRuntime private constructor(private val context: Context) {
                 "本地保存失败，请检查可用空间；修改尚未保存。"
             }
             if (error != null) storageCallbacks.launch { appState?.storageError = error }
+        }
+    }
+
+    /**
+     * Explicit restore transaction. The durable write happens while ordinary saving is still
+     * blocked, so a lifecycle flush or trigger save during the window is dropped instead of being
+     * queued behind the repair; [publish] then makes the document live and only afterwards may
+     * saving resume. Returns the preserved original bytes, if any.
+     */
+    suspend fun commitRestore(candidate: PersistedAppState, publish: () -> Unit): File? {
+        // Synchronous on the caller: ordinary saving is closed before the write is queued, even
+        // when the store was healthy and writable.
+        val couldSave = store.beginRepair()
+        var preserved: File? = null
+        var repaired = false
+        try {
+            preserved = queue.submit { store.repair(candidate) }.await()
+            repaired = true
+            publish()
+            queue.submit {
+                store.completeRepair()
+                // Hook configuration is derived data; a failure here must not mask a completed repair.
+                runCatching {
+                    com.flowglass.demo.xposed.method.MethodHookConfigPublisher.publish(context, candidate)
+                }
+            }.await()
+            return preserved
+        } catch (failure: Throwable) {
+            if (repaired) {
+                // The candidate may already be on disk although it never became live.
+                val kept = preserved
+                if (kept != null) runCatching { queue.submit { store.rollbackTo(kept) }.await() }
+            }
+            store.abortRepair(couldSave)
+            throw failure
         }
     }
 

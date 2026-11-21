@@ -875,6 +875,7 @@ private fun BackupRestorePage(
     onThemeModeChange: (ThemeMode) -> Unit,
 ) {
     val context = LocalContext.current
+    val runtime = remember(context) { AppRuntime.of(context.applicationContext) }
     val scope = rememberCoroutineScope()
     var pending by remember { mutableStateOf<ParsedImport?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -882,6 +883,10 @@ private fun BackupRestorePage(
     var safetyFiles by remember { mutableStateOf<List<File>?>(null) }
     var restoring by remember { mutableStateOf(false) }
     var restoreJob by remember { mutableStateOf<Job?>(null) }
+    var restoreError by remember { mutableStateOf<String?>(null) }
+    // Once the durable repair write starts, dismissing must not cancel it: a committed document
+    // that never reaches the UI would resurface on the next launch. The window is milliseconds.
+    var committing by remember { mutableStateOf(false) }
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
@@ -1046,14 +1051,19 @@ private fun BackupRestorePage(
             onDismiss = {
                 // Dismissing (button, back or outside tap) during a restore cancels the pending
                 // restore so it can never publish an unexpected state after the dialog closed.
-                restoreJob?.cancel()
-                restoreJob = null
-                restoring = false
-                pending = null
+                if (!committing) {
+                    restoreJob?.cancel()
+                    restoreJob = null
+                    restoring = false
+                    restoreError = null
+                    pending = null
+                }
             },
             confirmBusy = restoring,
+            statusMessage = restoreError,
             onConfirm = {
                 if (!restoring) {
+                    restoreError = null
                     if (parsed.kind == ImportKind.BACKUP) {
                         // Capture immutable inputs on main; all serialization and disk I/O below
                         // run on Dispatchers.IO so a slow safety copy cannot block the UI.
@@ -1069,9 +1079,17 @@ private fun BackupRestorePage(
                                     val safety = withContext(Dispatchers.IO) {
                                         writeRestoreSafety(File(context.filesDir, "backups"), input)
                                     }
-                                    // withContext re-checks cancellation on resume: a restore that was
-                                    // cancelled while the blocking write ran never reaches this point.
-                                    state.replaceWith(parsed.converted)
+                                    // Durable repair transaction before anything becomes live: a
+                                    // restore that cannot be written must not report success.
+                                    committing = true
+                                    // The durable write happens with saving still blocked; the state
+                                    // becomes live inside the transaction, and only then does saving
+                                    // resume. A flush in between cannot queue the old document.
+                                    val preserved = runtime.commitRestore(parsed.converted) {
+                                        state.replaceWith(parsed.converted)
+                                        // The old failure banner no longer describes the store.
+                                        state.storageError = null
+                                    }
                                     if (pending === parsed) pending = null
                                     val settingsError = runCatching {
                                         val theme = parsed.preview.themeMode
@@ -1081,16 +1099,19 @@ private fun BackupRestorePage(
                                         }
                                         parsed.settings?.let { applyBackupAppSettings(context, it.appSettings) }
                                     }.exceptionOrNull()
+                                    val kept = preserved?.let { "；修复前存档保留为 ${it.name}" }.orEmpty()
                                     notice = if (settingsError == null) {
-                                        "已恢复备份；原数据已保存到 ${safety.name}"
+                                        "已恢复备份并写入本地存档；原数据已保存到 ${safety.name}$kept"
                                     } else {
-                                        "已恢复备份；原数据已保存到 ${safety.name}（外观或设置未能应用：${settingsError.message.orEmpty()}）"
+                                        "已恢复备份并写入本地存档；原数据已保存到 ${safety.name}$kept（外观或设置未能应用：${settingsError.message.orEmpty()}）"
                                     }
                                 } catch (cancel: CancellationException) {
                                     throw cancel
                                 } catch (error: Exception) {
-                                    notice = "操作失败，原数据未改变：${error.message.orEmpty()}"
+                                    restoreError = "恢复失败，原数据未改变：${error.message.orEmpty()}"
+                                    notice = restoreError
                                 } finally {
+                                    committing = false
                                     if (restoreJob === job) {
                                         restoreJob = null
                                         restoring = false

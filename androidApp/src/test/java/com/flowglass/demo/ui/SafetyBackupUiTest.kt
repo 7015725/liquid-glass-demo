@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -27,6 +28,7 @@ import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.annotation.RealObject
 import org.robolectric.shadow.api.Shadow
+import java.io.File
 import java.io.FileOutputStream
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
@@ -164,6 +166,91 @@ class SafetyBackupUiTest {
             BlockingAtomicFile.entered = null
             BlockingAtomicFile.release = null
             BlockingAtomicFile.onMainThread = null
+            activity.setContent { }
+            controller.pause().stop().destroy()
+            shadowOf(Looper.getMainLooper()).idle()
+        }
+    }
+
+    @Test
+    fun restoreWritesTheDocumentBeforeReportingSuccess() {
+        val context = RuntimeEnvironment.getApplication()
+        val commands = File(context.filesDir, "commands.json")
+        commands.writeText("{ broken", Charsets.UTF_8)
+        val state = AppState().also {
+            it.autoCmds.add(command(921L, "恢复前规则", auto = true))
+            it.settingsPage = SettingsPage.Main
+        }
+        val target = AppState().also { it.oneTaps.add(command(922L, "恢复后规则", auto = false)) }
+        val targetImport = parseImport(exportBackupJson(target, ThemeMode.LIGHT), state)
+        val safety = restoreBackup(context, state, targetImport)
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        val activity = controller.get()
+
+        try {
+            activity.setContent { SettingsHost(state, state.settingsPage, ThemeMode.SYSTEM) }
+            pump(activity)
+            clickText(activity.window.decorView, activity, "备份与恢复")
+            clickText(activity.window.decorView, activity, "选择恢复前自动副本")
+            awaitDialogText(activity, "恢复前自动副本")
+            val picker = requireNotNull(ShadowDialog.getLatestDialog())
+            clickText(requireNotNull(picker.window).decorView, activity, safety.name)
+            awaitDialogText(activity, "恢复备份")
+            val preview = requireNotNull(ShadowDialog.getLatestDialog())
+            clickText(requireNotNull(preview.window).decorView, activity, "确认恢复")
+
+            awaitStateTitle(activity, state, "恢复前规则")
+            val stored = CommandStore(commands).load()
+            assertNull("恢复必须先写入磁盘存档再报成功，实际读取错误=${stored.error}", stored.error)
+            assertEquals("恢复前规则", stored.saved!!.autoCmds.single().title)
+        } finally {
+            activity.setContent { }
+            controller.pause().stop().destroy()
+            shadowOf(Looper.getMainLooper()).idle()
+        }
+    }
+
+    @Test
+    fun restoreFailureKeepsLiveDataAndShowsTheReason() {
+        val context = RuntimeEnvironment.getApplication()
+        val commands = File(context.filesDir, "commands.json")
+        assertTrue(commands.mkdirs())
+        File(commands, "child").writeText("keep")
+        val state = AppState().also {
+            it.autoCmds.add(command(931L, "恢复前规则", auto = true))
+            it.settingsPage = SettingsPage.Main
+        }
+        val target = AppState().also { it.oneTaps.add(command(932L, "恢复后规则", auto = false)) }
+        val targetImport = parseImport(exportBackupJson(target, ThemeMode.LIGHT), state)
+        val safety = restoreBackup(context, state, targetImport)
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        val activity = controller.get()
+
+        try {
+            activity.setContent { SettingsHost(state, state.settingsPage, ThemeMode.SYSTEM) }
+            pump(activity)
+            clickText(activity.window.decorView, activity, "备份与恢复")
+            clickText(activity.window.decorView, activity, "选择恢复前自动副本")
+            awaitDialogText(activity, "恢复前自动副本")
+            val picker = requireNotNull(ShadowDialog.getLatestDialog())
+            clickText(requireNotNull(picker.window).decorView, activity, safety.name)
+            awaitDialogText(activity, "恢复备份")
+            val preview = requireNotNull(ShadowDialog.getLatestDialog())
+            val previewDecor = requireNotNull(preview.window).decorView
+            val before = AppStateJson.encode(state.snapshot())
+            clickText(previewDecor, activity, "确认恢复")
+
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(4)
+            while (System.nanoTime() < deadline && !texts(previewDecor).any { it.contains("恢复失败") }) {
+                pump(activity)
+                Thread.sleep(10)
+            }
+            assertEquals("落盘失败时不得发布恢复结果", before, AppStateJson.encode(state.snapshot()))
+            assertTrue(
+                "恢复失败原因必须在预览对话框中可见，实际=${texts(previewDecor)}",
+                texts(previewDecor).any { it.contains("恢复失败") },
+            )
+        } finally {
             activity.setContent { }
             controller.pause().stop().destroy()
             shadowOf(Looper.getMainLooper()).idle()

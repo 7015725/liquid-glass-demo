@@ -24,6 +24,8 @@ internal class CommandStore(private val file: File) {
     private val atomic = AtomicFile(file)
     @Volatile private var loaded = false
     @Volatile private var blocked = false
+    // Guarded by storeLock for writes; volatile so requestSave can capture it off the UI thread.
+    @Volatile private var epoch = 0L
     // UI flushes must never wait for an ongoing disk transaction's lock.
     val canSave: Boolean get() = loaded && !blocked
 
@@ -65,11 +67,92 @@ internal class CommandStore(private val file: File) {
         }
     }
 
-    fun save(snapshot: PersistedAppState) = synchronized(storeLock) {
+    /**
+     * Writes [snapshot] unless [epochToken] was captured before a restore transaction began.
+     * Returns false when the save is stale and was deliberately dropped.
+     */
+    fun save(snapshot: PersistedAppState, epochToken: Long = -1L): Boolean = synchronized(storeLock) {
+        if (epochToken >= 0L && epochToken != epoch) return@synchronized false
         check(loaded && !blocked) { "本地数据尚未安全恢复，已停止写入。" }
         writeAtomic(AppStateJson.encode(snapshot).toByteArray(Charsets.UTF_8))
+        true
     }
 
+    /** Monotonic token for saves; bumped whenever the store enters or leaves a restore. */
+    fun currentEpoch(): Long = epoch
+
+    /**
+     * First half of the restore transaction: validates and durably writes [candidate] while
+     * ordinary saving stays blocked, so a flush during the window cannot queue the old document
+     * behind this write. Call [completeRepair] only after the candidate is live.
+     * Returns the preserved original file, or null when there was nothing to preserve.
+     */
+    fun repair(candidate: PersistedAppState): File? = synchronized(storeLock) {
+        val encoded = AppStateJson.encode(candidate).toByteArray(Charsets.UTF_8)
+        val preserved = preserveOriginal()
+        writeAtomic(encoded)
+        val written = atomic.openRead().use { it.readBytes() }
+        check(written.contentEquals(encoded)) {
+            if (preserved != null) {
+                "修复写入校验失败；原始字节已保留在 ${preserved.name}。"
+            } else {
+                "修复写入校验失败。"
+            }
+        }
+        preserved
+    }
+
+    /**
+     * Blocks ordinary saving for the whole restore transaction, including healthy stores where
+     * saving was allowed before. Returns the previous writability so a failed restore can restore it.
+     */
+    fun beginRepair(): Boolean = synchronized(storeLock) {
+        val couldSave = loaded && !blocked
+        epoch += 1
+        loaded = true
+        blocked = true
+        couldSave
+    }
+
+    /** Ends a restore that never became live and restores the previous writability. */
+    fun abortRepair(couldSave: Boolean) = synchronized(storeLock) {
+        epoch += 1
+        loaded = true
+        blocked = !couldSave
+    }
+
+    /** Second half of the restore transaction: resumes ordinary saving for the live document. */
+    fun completeRepair() = synchronized(storeLock) {
+        epoch += 1
+        loaded = true
+        blocked = false
+    }
+
+    /** Best-effort rollback when the restored document was written but never became live. */
+    fun rollbackTo(preserved: File) = synchronized(storeLock) {
+        epoch += 1
+        writeAtomic(preserved.readBytes())
+    }
+
+    /**
+     * Copies the current bytes (base file or its AtomicFile backup) to a unique repair file.
+     * Fails closed: if the source exists but cannot be read, the restore must abort instead of
+     * overwriting bytes that were never preserved.
+     */
+    private fun preserveOriginal(): File? {
+        val source = listOf(file, File("${file.path}.bak")).firstOrNull { it.exists() } ?: return null
+        val bytes = source.readBytes()
+        if (bytes.isEmpty()) return null
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US)
+            .format(java.util.Date())
+        val target = File(
+            file.parentFile,
+            "commands.before-repair-$stamp-${java.util.UUID.randomUUID()}.json",
+        )
+        target.writeBytes(bytes)
+        check(target.readBytes().contentEquals(bytes)) { "原始字节保留校验失败，已停止恢复。" }
+        return target
+    }
 
     private fun writeAtomic(bytes: ByteArray) {
         val stream = atomic.startWrite()
