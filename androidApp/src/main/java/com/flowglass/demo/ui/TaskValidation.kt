@@ -5,7 +5,7 @@ import com.flowglass.engine.BuiltInComponents
 
 /**
  * C2 编辑期校验：块是否完整、调用目标是否存在、是否成环。
- * 保存路径仍由 RuleValidator 兜底，这里只负责在界面上提前说清楚。
+ * 这里只负责在界面上提前说清楚；保存不因调用图问题失败，执行期由深度上限兜底。
  */
 internal data class ValidationIssue(val ownerId: Long?, val text: String)
 
@@ -74,20 +74,21 @@ internal fun AppState.validationItems(cmd: Cmd): List<ValidationIssue> {
             }
         }
         collect(command.actions)
-        graph[command.title.trim()] = targets
+        graph[command.title.trim()] = targets.distinct()
     }
     val start = cmd.title.trim()
     val stack = ArrayDeque<String>()
-    val visiting = mutableSetOf<String>()
+    // Reachability only needs one visit per node: a node that did not lead back to [start] once
+    // cannot lead back later, and forgetting it re-walks the same subgraph per duplicate edge.
+    val seen = mutableSetOf<String>()
     fun findCycle(node: String): List<String>? {
         if (node == start && stack.isNotEmpty()) return stack.toList() + node
-        if (!visiting.add(node)) return null
+        if (!seen.add(node)) return null
         stack.addLast(node)
         for (next in graph[node].orEmpty()) {
             findCycle(next)?.let { return it }
         }
         stack.removeLast()
-        visiting.remove(node)
         return null
     }
     findCycle(start)?.let { path ->

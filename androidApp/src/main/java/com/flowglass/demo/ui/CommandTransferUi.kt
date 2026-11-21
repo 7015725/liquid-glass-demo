@@ -120,6 +120,8 @@ internal fun ImportPreviewDialog(
     preview: ImportPreview,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
+    confirmBusy: Boolean = false,
+    statusMessage: String? = null,
 ) {
     val isBackup = preview.kind == ImportKind.BACKUP
     Dialog(
@@ -137,6 +139,7 @@ internal fun ImportPreviewDialog(
                 else "以下内容来自不可信文件，确认前不会写入。",
                 13.sp, color = C.Muted, lineHeight = 19.sp,
             )
+            statusMessage?.let { T(it, 12.sp, color = C.Bad, lineHeight = 18.sp) }
             Column(
                 Modifier.fillMaxWidth().heightIn(max = 430.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -175,8 +178,9 @@ internal fun ImportPreviewDialog(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 DialogButton("取消", Modifier.weight(1f), onClick = onDismiss)
                 DialogButton(
-                    if (isBackup) "确认恢复" else "确认导入",
-                    Modifier.weight(1f), primary = true, onClick = onConfirm,
+                    if (confirmBusy) "正在恢复…" else if (isBackup) "确认恢复" else "确认导入",
+                    Modifier.weight(1f), primary = true,
+                    onClick = { if (!confirmBusy) onConfirm() },
                 )
             }
         }
