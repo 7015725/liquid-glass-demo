@@ -78,7 +78,71 @@ data class UndoInfo(
     val restoreCommand: Boolean = false,
     /** Optional undo-bar text; delete keeps the existing wording. */
     val message: String? = null,
+    /**
+     * Local inverse of one delete or move, applied to the live command. Undo must not restore the
+     * snapshot taken before the action, or edits made while the bar is visible are lost.
+     */
+    val patch: ((Cmd) -> Cmd)? = null,
 )
+
+/** Where one node lived, so a delete or move can be reversed in the current tree. */
+private data class NodeSlot(val parentId: Long?, val branch: Int?, val index: Int)
+
+private fun List<CommandItem>.locateStep(id: Long, parentId: Long? = null, branch: Int? = null): NodeSlot? {
+    forEachIndexed { index, item ->
+        if (item.id == id) return NodeSlot(parentId, branch, index)
+        item.children.locateStep(id, item.id, null)?.let { return it }
+        item.branches.forEachIndexed { bi, b -> b.children.locateStep(id, item.id, bi)?.let { found -> return found } }
+    }
+    return null
+}
+
+private fun List<CommandItem>.locateCondition(id: Long, parentId: Long? = null): NodeSlot? {
+    forEach { item ->
+        item.conditions.forEachIndexed { ci, child -> if (child.id == id) return NodeSlot(item.id, null, ci) }
+        item.branches.forEachIndexed { bi, b ->
+            b.conditions.forEachIndexed { ci, child -> if (child.id == id) return NodeSlot(item.id, bi, ci) }
+        }
+        item.children.locateCondition(id, item.id)?.let { return it }
+        item.branches.forEachIndexed { bi, b -> b.children.locateCondition(id, item.id)?.let { found -> return found } }
+    }
+    return null
+}
+
+private fun insertStep(items: List<CommandItem>, slot: NodeSlot, node: CommandItem): List<CommandItem> {
+    if (slot.parentId == null) {
+        if (slot.branch != null) return items
+        return items.toMutableList().apply { add(slot.index.coerceIn(0, size), node) }
+    }
+    return items.updateItem(slot.parentId) { parent ->
+        if (slot.branch == null) {
+            parent.copy(children = parent.children.toMutableList().apply { add(slot.index.coerceIn(0, size), node) })
+        } else {
+            parent.copy(branches = parent.branches.mapIndexed { index, branch ->
+                if (index != slot.branch) branch
+                else branch.copy(children = branch.children.toMutableList().apply { add(slot.index.coerceIn(0, size), node) })
+            })
+        }
+    }
+}
+
+private fun insertCondition(items: List<CommandItem>, slot: NodeSlot, node: CommandItem): List<CommandItem> =
+    items.updateItem(slot.parentId ?: return items) { parent ->
+        if (slot.branch == null) {
+            parent.copy(conditions = parent.conditions.toMutableList().apply { add(slot.index.coerceIn(0, size), node) })
+        } else {
+            parent.copy(branches = parent.branches.mapIndexed { index, branch ->
+                if (index != slot.branch) branch
+                else branch.copy(conditions = branch.conditions.toMutableList().apply { add(slot.index.coerceIn(0, size), node) })
+            })
+        }
+    }
+
+private fun Cmd.withItems(section: CommandSection, items: List<CommandItem>): Cmd = when (section) {
+    CommandSection.TRIGGERS -> copy(triggers = items)
+    CommandSection.CONDITIONS -> copy(conditions = items)
+    CommandSection.ACTIONS -> copy(actions = items)
+}
 
 private var nextId = 1000L
 @Synchronized
@@ -834,17 +898,30 @@ class AppState internal constructor(saved: PersistedAppState?) {
             return
         }
         val before = find(cmdId) ?: return
-        val item = before.items(section).firstOrNull { it.id == itemId } ?: return
+        val list = before.items(section)
+        val index = list.indexOfFirst { it.id == itemId }
+        val item = list.getOrNull(index) ?: return
         editItems(cmdId, section) { items -> items.removeItem(itemId) }
-        undo = UndoInfo(before, index = -1, label = item.name, restoreCommand = true)
+        undo = UndoInfo(
+            before, index = -1, label = item.name,
+            patch = { cmd ->
+                val items = cmd.items(section).toMutableList()
+                items.add(index.coerceIn(0, items.size), item)
+                cmd.withItems(section, items)
+            },
+        )
     }
 
     /** Deletes an action step and keeps the whole command snapshot for the undo bar. */
     fun removeActionItemWithUndo(cmdId: Long, itemId: Long) {
         val before = find(cmdId) ?: return
         val item = before.actions.findItem(itemId) ?: return
+        val slot = before.actions.locateStep(itemId) ?: return
         editActions(cmdId) { items -> items.removeItem(itemId) }
-        undo = UndoInfo(before, index = -1, label = item.name, restoreCommand = true)
+        undo = UndoInfo(
+            before, index = -1, label = item.name,
+            patch = { cmd -> cmd.copy(actions = insertStep(cmd.actions, slot, item)) },
+        )
     }
 
     /** Removes a condition nested in a block (branch null) or in an else-if branch. */
@@ -865,8 +942,12 @@ class AppState internal constructor(saved: PersistedAppState?) {
         val condition = if (branch == null) parent.conditions.firstOrNull { it.id == conditionId }
         else parent.branches.getOrNull(branch)?.conditions?.firstOrNull { it.id == conditionId }
         if (condition == null) return
+        val slot = before.actions.locateCondition(conditionId) ?: return
         removeConditionItem(cmdId, parentId, branch, conditionId)
-        undo = UndoInfo(before, index = -1, label = condition.name, restoreCommand = true)
+        undo = UndoInfo(
+            before, index = -1, label = condition.name,
+            patch = { cmd -> cmd.copy(actions = insertCondition(cmd.actions, slot, condition)) },
+        )
     }
 
     /**
@@ -882,6 +963,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
     ): Boolean {
         val before = find(cmdId) ?: return false
         val source = before.actions.findActionNode(sourceId) ?: return false
+        val origin = before.actions.locateStep(sourceId) ?: return false
         val moved = before.actions.moveActionTo(sourceId, targetParentId, targetBranch, targetIndex) ?: return false
         if (moved == before.actions) return false
         update(cmdId) { cmd ->
@@ -889,8 +971,12 @@ class AppState internal constructor(saved: PersistedAppState?) {
             if (updated.descriptionEdited) updated else updated.copy(desc = updated.automaticDescription())
         }
         undo = UndoInfo(
-            before, index = -1, label = source.name, restoreCommand = true,
+            before, index = -1, label = source.name,
             message = "已移动「${source.name}」",
+            patch = { cmd ->
+                val reverted = cmd.actions.moveActionTo(sourceId, origin.parentId, origin.branch, origin.index)
+                if (reverted != null) cmd.copy(actions = reverted) else cmd
+            },
         )
         return true
     }
@@ -1089,7 +1175,10 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     fun undoDelete() {
         val u = undo ?: return
-        if (u.restoreCommand) {
+        val patch = u.patch
+        if (patch != null) {
+            update(u.cmd.id) { patch(it).withRefreshedDescription() }
+        } else if (u.restoreCommand) {
             update(u.cmd.id) { u.cmd }
         } else {
             val l = listFor(u.cmd.auto)
