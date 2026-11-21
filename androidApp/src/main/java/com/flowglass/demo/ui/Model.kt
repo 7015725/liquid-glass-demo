@@ -603,16 +603,34 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun renameVariable(ownerId: Long?, oldName: String, newName: String, scope: com.flowglass.engine.VariableScope) {
         if (oldName == newName) return
         if (scope == com.flowglass.engine.VariableScope.BUILTIN) return
-        val localRuleId = if (scope == com.flowglass.engine.VariableScope.LOCAL) {
+        val ownerRuleId = if (scope == com.flowglass.engine.VariableScope.LOCAL) {
             ownerId?.let(::ruleIdFor) ?: return
         } else null
-        val renamed = { cmd: Cmd -> renameTokens(cmd, oldName, newName, scope) }
+        // Rewrite only what actually resolves to this definition: a local belongs to one rule, a
+        // global is shadowed by a same-named local, and explicit `rule.`/`global.` prefixes must
+        // follow the rename even when the bare form does not point at it.
         for (list in arrayOf(autoCmds, oneTaps)) {
-            for (index in list.indices) list[index] = renamed(list[index])
+            for (index in list.indices) {
+                val cmd = list[index]
+                val ruleId = ruleIdFor(cmd.id)
+                val shadowed = engineRules.firstOrNull { it.id == ruleId }
+                    ?.locals.orEmpty().any { it.name == oldName }
+                val pairs = when (scope) {
+                    com.flowglass.engine.VariableScope.LOCAL -> if (ruleId == ownerRuleId) {
+                        listOf("{rule.$oldName}" to "{rule.$newName}", "{$oldName}" to "{$newName}")
+                    } else emptyList()
+                    com.flowglass.engine.VariableScope.GLOBAL -> buildList {
+                        add("{global.$oldName}" to "{global.$newName}")
+                        if (!shadowed) add("{$oldName}" to "{$newName}")
+                    }
+                    else -> emptyList()
+                }
+                if (pairs.isNotEmpty()) list[index] = renameTokens(cmd, pairs)
+            }
         }
-        if (localRuleId != null) {
+        if (ownerRuleId != null) {
             engineRules = engineRules.map { rule ->
-                if (rule.id != localRuleId) rule else rule.copy(
+                if (rule.id != ownerRuleId) rule else rule.copy(
                     locals = rule.locals.map { if (it.name == oldName) it.copy(name = newName) else it },
                 )
             }
@@ -690,16 +708,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
         }
     }
 
-    private fun renameTokens(
-        cmd: Cmd,
-        oldName: String,
-        newName: String,
-        scope: com.flowglass.engine.VariableScope,
-    ): Cmd {
-        fun replace(text: String): String {
-            val tokens = listOf("{${oldName}}" to "{${newName}}")
-            return tokens.fold(text) { acc, (from, to) -> acc.replace(from, to) }
-        }
+    private fun renameTokens(cmd: Cmd, tokens: List<Pair<String, String>>): Cmd {
+        fun replace(text: String): String = tokens.fold(text) { acc, (from, to) -> acc.replace(from, to) }
         fun item(value: CommandItem): CommandItem = value.copy(
             parameter = replace(value.parameter),
             children = value.children.map(::item),
