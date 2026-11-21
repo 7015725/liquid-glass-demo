@@ -38,7 +38,7 @@ fun localSigning(): FlowglassSigning? {
 
 val flowglassSigning = environmentSigning() ?: localSigning()
 if (flowglassSigning == null) {
-    logger.warn("FlowGlass signing: no fixed key found in FLOWGLASS_KEYSTORE_PATH or ~/.flowglass/signing/signing.properties; falling back to debug signing.")
+    logger.warn("FlowGlass signing: no fixed key found in FLOWGLASS_KEYSTORE_PATH or ~/.flowglass/signing/signing.properties; release packaging will be refused.")
 }
 
 android {
@@ -50,8 +50,8 @@ android {
         applicationId = "com.flowglass.demo"
         minSdk = 26
         targetSdk = 37
-        versionCode = 98
-        versionName = "0.8.0-alpha60"
+        versionCode = 99
+        versionName = "0.8.0-alpha61"
         androidResources.localeFilters += arrayOf("zh", "en")
     }
 
@@ -69,17 +69,28 @@ android {
 
     buildTypes {
         debug {
-            if (flowglassSigning != null) signingConfig = signingConfigs.getByName("release")
+            // Debug builds must never carry the shipping identity.
+            signingConfig = signingConfigs.getByName("debug")
         }
         release {
-            signingConfig = if (flowglassSigning != null) signingConfigs.getByName("release")
-                else signingConfigs.getByName("debug")
+            // No silent fallback: a release without the fixed key is a configuration error, not a debug build.
+            signingConfig = flowglassSigning?.let { signingConfigs.getByName("release") }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             vcsInfo.include = false
         }
     }
+    // Refuse to package a release APK when the fixed key is absent instead of falling back silently.
+    gradle.taskGraph.whenReady {
+        if (flowglassSigning == null && allTasks.any { it.name == "packageRelease" }) {
+            throw GradleException(
+                "FlowGlass signing: fixed release key missing (FLOWGLASS_KEYSTORE_PATH/PASSWORD/ALIAS/KEY_PASSWORD " +
+                    "or ~/.flowglass/signing/signing.properties). Refusing to package a release APK with the debug key.",
+            )
+        }
+    }
+
     buildFeatures {
         compose = true
         aidl = true

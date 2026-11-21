@@ -44,8 +44,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${FLOWGLASS_KEYSTORE_BASE64:-}" ]; then
-            echo "Fixed signing secret is unavailable; Gradle will fall back to debug signing."
-            exit 0
+            echo "::error::Fixed release signing material is unavailable; refusing to build an unsigned-identity release."
+            exit 1
           fi
           umask 077
           printf '%s' "$FLOWGLASS_KEYSTORE_BASE64" | base64 --decode > "$FLOWGLASS_KEYSTORE_PATH"
@@ -90,6 +90,16 @@ jobs:
           test -n "$APK"
           cp "$APK" out/
           ls -la out
+
+      - name: Verify release certificate
+        run: |
+          set -euo pipefail
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort | tail -1)
+          test -n "$APKSIGNER"
+          APK=$(find out -maxdepth 1 -name 'flowglass-*.apk' -print -quit)
+          CERT=$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
+          echo "release certificate sha256: $CERT"
+          test "$CERT" = "801316ba3da40cfb6700b3224d13f5ee786c609e3cc2369fa4768b9a5efdaee6"
 
       - uses: actions/upload-artifact@v4
         with:
