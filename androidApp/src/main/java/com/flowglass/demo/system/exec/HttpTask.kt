@@ -129,6 +129,10 @@ internal object HttpTask {
                         if (next.protocol !in listOf("http", "https") || next.host.isBlank()) {
                             return TaskOutcome(StepStatus.FAILURE, "HTTP 重定向仅支持有效的 http(s) 地址")
                         }
+                        if (url.protocol == "https" && next.protocol == "http") {
+                            // Following this would send the request in clear text without the user asking for it.
+                            return TaskOutcome(StepStatus.FAILURE, "HTTPS 重定向不允许降级为 HTTP")
+                        }
                         url = next
                         if (method == "POST" && status in listOf(301, 302, 303)) {
                             method = "GET"
