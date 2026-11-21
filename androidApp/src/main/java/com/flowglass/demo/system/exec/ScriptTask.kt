@@ -248,9 +248,11 @@ internal object ScriptTask {
         val budget = remainingMs.coerceAtMost(8_000)
         val outcome = runBlocking { HttpTask.run(spec, timeoutMs = budget) }
         if (outcome.status != StepStatus.SUCCESS) {
-            if (budget < 8_000 && outcome.detail.contains("超时")) throw ScriptTimeoutException("脚本执行超时")
+            // Only the exact HTTP timeout sentinel may be re-attributed; a 4xx/5xx body can contain 超时 too.
+            if (budget < 8_000 && outcome.detail == "HTTP 请求超时") throw ScriptTimeoutException("脚本执行超时")
             throw IllegalStateException(outcome.detail)
         }
+        if (System.nanoTime() >= deadline) throw ScriptTimeoutException("脚本执行超时")
         return outcome.outputs["http.body"]?.toString().orEmpty()
     }
 
