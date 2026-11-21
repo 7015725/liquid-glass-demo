@@ -12,7 +12,7 @@ internal data class StoreLoad(val saved: PersistedAppState?, val error: String? 
 }
 
 /** The old type id is intentionally not migrated; a pre-release build may delete it. */
-private fun PersistedAppState.hasRetiredMethodHookTrigger(): Boolean =
+internal fun PersistedAppState.hasRetiredMethodHookTrigger(): Boolean =
     (autoCmds + oneTaps).any { command ->
         command.triggers.any { it.typeId == "trigger.method_hook" }
     }

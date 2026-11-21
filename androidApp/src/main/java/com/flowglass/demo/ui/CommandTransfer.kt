@@ -166,6 +166,17 @@ private fun usedGlobalNames(cmd: Cmd, candidates: Set<String>): Set<String> {
     }
 }
 
+/** Retired pre-release trigger that [CommandStore.load] refuses to read. */
+private fun RuleComponent.isRetiredMethodHook(): Boolean =
+    type == "trigger.method_hook" ||
+        children.any { it.isRetiredMethodHook() } ||
+        branches.any { branch -> branch.children.any { it.isRetiredMethodHook() } }
+
+private fun RuleDocument.hasRetiredMethodHookTrigger(): Boolean =
+    rules.any { rule ->
+        (rule.triggers + rule.conditions + rule.actions).any { it.isRetiredMethodHook() }
+    }
+
 internal fun parseImport(text: String, state: AppState): ParsedImport {
     validateTransferText(text)
     val root = transferJson.parseToJsonElement(text) as? JsonObject
@@ -215,6 +226,11 @@ private fun buildParsed(
 ): ParsedImport {
     val document = normalizeDocument(rawDocument)
     val initial = document.toPersistedAppState()
+    // Same policy as CommandStore.load: a document that could never be loaded again must never be
+    // written. Checked on the rule document because the legacy conversion drops the retired type.
+    require(!document.hasRetiredMethodHookTrigger()) {
+        "文件包含已退役的方法钩子触发器，当前版本无法导入；请在新版中重新创建该规则。"
+    }
     // A method-listening command is sensitive: importing never silently enables it, even in a
     // full backup. Auto commands are disabled for one-shot command imports below as well.
     fun List<Cmd>.disableMethodCallCommands(): List<Cmd> = map { command ->
