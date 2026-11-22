@@ -138,8 +138,8 @@ class MethodHookEventVerifierTest {
             is MethodHookVerification.Accepted)
         var accepted = 0
         var limited = 0
-        // 默认桶容量 60：同一分钟内第 61 个包之后必须被入口限流挡住，而不是继续进 onEvent。
-        for (seq in 1..80L) {
+        // 默认 spec 60/分 × 8 个进程 = 480/分，突发 120：hello 占 1 个后事件能过 119 个。
+        for (seq in 1..200L) {
             when (val result = verifier.verify(
                 caller,
                 packet(MethodHookWireEnvelope.TYPE_EVENT, seq,
@@ -149,13 +149,37 @@ class MethodHookEventVerifierTest {
                 is MethodHookVerification.Accepted -> accepted++
                 is MethodHookVerification.Rejected -> {
                     assertTrue("意外的拒绝原因：" + result.reason, result.reason.contains("限流"))
+                    // 限流是终态：目标端必须把包出队，不能保留队首无限重试。
+                    assertTrue("限流应标记为不可重试", !result.retryable)
                     limited++
                 }
             }
         }
-        // hello 也消耗一个令牌，所以 60 个额度里事件只拿到 59 个。
-        assertEquals(59, accepted)
-        assertEquals(21, limited)
-        assertEquals(59, events)
+        // hello 也消耗一个令牌，所以 120 个突发额度里事件只拿到 119 个。
+        assertEquals(119, accepted)
+        assertEquals(81, limited)
+        assertEquals(119, events)
+    }
+    @Test
+    fun aWrongCallerCannotDrainTheBudgetOfTheRealTarget() {
+        val intruder = MethodHookCaller(20_002, 0, setOf("com.example.other"))
+        repeat(200) { seq ->
+            assertTrue(
+                verifier.verify(
+                    intruder,
+                    packet(MethodHookWireEnvelope.TYPE_EVENT, seq.toLong(),
+                        variables = mapOf(MethodHookVariables.APP to spec.packageName)),
+                    guard,
+                ) is MethodHookVerification.Rejected
+            )
+        }
+        assertTrue(verifier.verify(caller, packet(MethodHookWireEnvelope.TYPE_HELLO, 0), guard)
+            is MethodHookVerification.Accepted)
+        assertTrue(verifier.verify(
+            caller,
+            packet(MethodHookWireEnvelope.TYPE_EVENT, 1,
+                variables = mapOf(MethodHookVariables.APP to spec.packageName)),
+            guard,
+        ) is MethodHookVerification.Accepted)
     }
 }

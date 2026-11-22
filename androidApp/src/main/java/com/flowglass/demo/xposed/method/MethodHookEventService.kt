@@ -21,12 +21,15 @@ import java.io.File
 class MethodHookEventService : Service() {
     private val secrets by lazy { MethodHookSecrets(this) }
     private val guard = MethodHookReplayGuard()
+    /**
+     * 按调用方 UID 的粗粒度入口预算：在解析包体、读配置之前生效，未知 hookId 也计入。
+     * 单个目标应用最多 8 个进程是文档支持的范围，这里给到 8 × 300 的余量。
+     */
+    private val uidLimiter = MethodHookIngressLimiter(defaultBudgetPerMinute = 2_400)
+    private val runtimeSpecs = RuntimeSpecCache(load = { MethodHookConfigPublisher.readRuntime(this) })
     private val verifier by lazy {
         MethodHookEventVerifier(
-            specFor = { hookId ->
-                MethodHookConfigPublisher.readRuntime(this)
-                    ?.hooks?.firstOrNull { it.spec.id == hookId }?.spec
-            },
+            specFor = { hookId -> runtimeSpecs.spec(hookId) },
             tokenFor = { hookId -> secrets.token(hookId) },
             onEvent = { hookId, variables ->
                 MethodHookEventSink.publish(hookId, variables)
@@ -49,9 +52,11 @@ class MethodHookEventService : Service() {
 
     private val binder = object : IMethodHookEvent.Stub() {
         override fun send(packet: String?): Boolean {
-            if (packet == null || packet.length > MAX_PACKET_CHARS) return false
+            if (packet == null || packet.length > MAX_PACKET_CHARS) return true
             return try {
                 val callingUid = Binder.getCallingUid()
+                // 预算在解析/配置解码之前扣：超量包直接出队，不再消耗宿主 CPU。
+                if (!uidLimiter.tryAcquire("uid:$callingUid")) return true
                 val caller = MethodHookCaller(
                     uid = callingUid,
                     userId = MethodHookUser.idOfUid(callingUid),
@@ -61,7 +66,10 @@ class MethodHookEventService : Service() {
                 if (result is MethodHookVerification.Rejected) {
                     Log.w(TAG, "rejected method-hook packet: ${result.reason.take(120)}")
                 }
-                result is MethodHookVerification.Accepted
+                // 永久性拒绝（含入口限流）返回 true，让目标端把包出队；返回 false 会被当成
+                // 传输失败无限重试，队首过期后还会卡住整个队列。
+                result is MethodHookVerification.Accepted ||
+                    (result is MethodHookVerification.Rejected && !result.retryable)
             } catch (failure: Throwable) {
                 Log.w(TAG, "method-hook packet failed: ${failure.javaClass.simpleName}")
                 false
@@ -74,6 +82,7 @@ class MethodHookEventService : Service() {
         // The App process can be started by this bind before the UI exists. Publish the current
         // hooks so a target app that starts later reads a consistent token/spec pair.
         runCatching { MethodHookConfigPublisher.publish(this) }
+        runtimeSpecs.invalidate()
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -96,7 +105,8 @@ object MethodHookEventSink {
 
 internal sealed interface MethodHookVerification {
     data object Accepted : MethodHookVerification
-    data class Rejected(val reason: String) : MethodHookVerification
+        /** [retryable] 为 false 时目标端应直接把包出队，而不是保留队首无限重试。 */
+    data class Rejected(val reason: String, val retryable: Boolean = false) : MethodHookVerification
 }
 
 internal class MethodHookEventVerifier(
@@ -128,13 +138,14 @@ internal class MethodHookEventVerifier(
         }
         val spec = specFor(packet.hookId)
             ?: return MethodHookVerification.Rejected("未知应用方法调用")
-        // 已授权的目标进程也可能被洪泛：在解析 body、校验 HMAC 之前先按钩子限流，
-        // 让超量包只消耗一次计数更新，而不是把宿主拖进无界的工作量。
-        if (!ingress.tryAcquire(spec.id)) {
-            return MethodHookVerification.Rejected("入口限流：每分钟上限 240 次")
-        }
+        // 调用方校验是廉价的，必须先做：否则任意外部应用都能用猜到的 hookId 消耗目标应用
+        // 的配额，把合法事件挤掉。
         if (!MethodHookCallerValidator.matches(caller, spec)) {
             return MethodHookVerification.Rejected("调用方 UID/user/包名不匹配")
+        }
+        // 预算按「spec 上限 × 8 个进程」给足，避免多进程聚合被误伤；UID 级桶另有总量上限。
+        if (!ingress.tryAcquire(spec.id, spec.maxCallsPerMinute * 8)) {
+            return MethodHookVerification.Rejected("入口限流：该钩子超出每分钟预算", retryable = false)
         }
         val token = tokenFor(spec.id)
             ?: return MethodHookVerification.Rejected("没有应用方法调用 token")
