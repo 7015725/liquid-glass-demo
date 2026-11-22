@@ -345,7 +345,9 @@ internal object SystemHook {
         result: Any?,
     ) {
         if (!canEmit(SystemHookFamily.KEYGUARD)) return
-        val showing = arguments.getOrNull(0) as? Boolean ?: run {
+        // 12 是 (boolean, boolean)，13–15 是 (int displayId, boolean, boolean)：按类型取第一个
+        // Boolean，不能固定取 args[0]。
+        val showing = SystemHookArguments.keyguardShowing(arguments) ?: run {
             logSkip(candidate, "keyguard boolean unavailable")
             return
         }
@@ -380,7 +382,9 @@ internal object SystemHook {
         val kind = when (candidate.source) {
             HookEventSource.FIRST_ARGUMENT_MEDIA_SESSION -> SystemHookProtocol.EVENT_MEDIA_STOPPED
             HookEventSource.FIRST_ARGUMENT_MEDIA_SESSION_WITH_PLAYBACK_STATE -> {
-                val playback = arguments.getOrNull(2) ?: return
+                // 12–14 的回调没有 PlaybackState 参数（只有 record 和 shouldUpdatePriority），
+                // 15 才可能带第三个参数；按类型找，找不到就放弃。
+                val playback = SystemHookArguments.playbackState(arguments) ?: return
                 val state = runCatching {
                     bridge().callMethod(playback, "getState") as? Number
                 }.getOrNull()?.toInt() ?: return

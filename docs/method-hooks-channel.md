@@ -29,8 +29,17 @@
 7. 时间戳窗口 ±5 分钟；新 session 必须比旧 session 更新，旧 session 重放会被拒绝。
 
 `hello` 只建立 session；`install` / `rate` 上报安装或限流状态；`event` 携带固定中文内置变量
-（`钩子应用`、`钩子用户`、`钩子进程`、`钩子方法`、`钩子签名`、`钩子标识`）和用户命名的提取项。
+（`调用应用`、`调用用户`、`调用进程`、`调用方法`、`调用签名`）和用户命名的提取项；钩子标识来自事件里的
+`hook.id`，由触发器的「调用标识」输出暴露，不是线上变量。
 变量名必须在规则里声明过，未知变量直接拒绝；值截断到 512 字符。
+
+## 版本差异
+
+`KeyguardController.setKeyguardShown` 在 Android 12 是 `(boolean, boolean)`，13–15 变成
+`(int displayId, boolean, boolean)`；`MediaSessionService.onSessionPlaybackStateChanged` 在
+AOSP 12–14 只有 `(record, boolean shouldUpdatePriority)`，没有 `PlaybackState`。钩子按类型定位
+参数（第一个 Boolean、类型名以 `PlaybackState` 结尾的参数），不假设固定下标；找不到参数时放弃本次
+事件而不是发错状态。
 
 ## 信任边界
 
