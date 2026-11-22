@@ -7,7 +7,9 @@ import android.os.IBinder
 import android.os.Process
 import android.os.UserHandle
 import android.util.Log
+import com.flowglass.engine.methodhook.MethodHookNames
 import com.flowglass.engine.methodhook.MethodHookStatus
+import com.flowglass.engine.methodhook.MethodHookVariables
 import com.flowglass.engine.methodhook.MethodHookWireEnvelope
 import com.flowglass.engine.methodhook.MethodHookWireJson
 import com.flowglass.engine.methodhook.MethodHookWirePacket
@@ -217,20 +219,27 @@ internal class MethodHookEventVerifier(
                 if (!guard.accept(key, envelope.session, envelope.seq, envelope.timestamp)) {
                     return MethodHookVerification.Rejected("事件 seq/session 无效")
                 }
-                if (envelope.variables.size > MAX_VARIABLES) {
+                // 变量名在发送侧做过 trim，接收侧必须用同一套归一化比较，否则合法名字会被当成未声明。
+                val expected = buildSet {
+                    addAll(MethodHookVariables.reserved)
+                    spec.extractions.mapTo(this) { MethodHookNames.normalizeExtractionName(it.name) }
+                }
+                // 上限按「保留元数据 + 本钩子声明的提取项」计算：固定 40 会在提取项较多时
+                // 把合法事件判成「变量过多」，而模型本身允许更多提取项。
+                if (envelope.variables.size > expected.size) {
                     return MethodHookVerification.Rejected("变量过多")
                 }
-                val expected = buildSet {
-                    addAll(com.flowglass.engine.methodhook.MethodHookVariables.reserved)
-                    addAll(spec.extractions.map { it.name })
+                val normalized = LinkedHashMap<String, String>(envelope.variables.size)
+                for ((key, value) in envelope.variables) {
+                    normalized[MethodHookNames.normalizeExtractionName(key)] = value
                 }
-                if (envelope.variables.keys.any { it !in expected }) {
+                if (normalized.keys.any { it !in expected }) {
                     return MethodHookVerification.Rejected("包含未声明的变量")
                 }
-                if (envelope.variables.values.any { it.length > MAX_VALUE_CHARS }) {
+                if (normalized.values.any { it.length > MAX_VALUE_CHARS }) {
                     return MethodHookVerification.Rejected("变量值过长")
                 }
-                onEvent(spec.id, envelope.variables)
+                onEvent(spec.id, normalized)
                 return MethodHookVerification.Accepted
             }
             else -> return MethodHookVerification.Rejected("未知包类型")
@@ -246,7 +255,6 @@ internal class MethodHookEventVerifier(
 
     private companion object {
         const val MAX_BODY_CHARS = 48 * 1024
-        const val MAX_VARIABLES = 40
         const val MAX_VALUE_CHARS = 512
         const val MAX_DETAIL_CHARS = 300
         const val TYPE_RATE = "rate"
