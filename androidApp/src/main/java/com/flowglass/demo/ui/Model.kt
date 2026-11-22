@@ -223,14 +223,15 @@ class AppState internal constructor(saved: PersistedAppState?) {
                 com.flowglass.engine.ActionOutcome(com.flowglass.engine.StepStatus.SUCCESS, "已发起「$target」")
             }
         }
-        engine.variableWriter = { ruleId, ruleWrites, globalWrites ->
+        engine.documentEpoch = { documentEpoch }
+        engine.variableWriter = { ruleId, ruleWrites, globalWrites, epoch ->
             com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) {
-                applyVariableWrites(ruleId, ruleWrites, globalWrites)
+                if (epoch == documentEpoch) applyVariableWrites(ruleId, ruleWrites, globalWrites)
             }
         }
-        engine.variableDefinitionWriter = { ruleId, locals, globals ->
+        engine.variableDefinitionWriter = { ruleId, locals, globals, epoch ->
             com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) {
-                applyVariableDefinitions(ruleId, locals, globals)
+                if (epoch == documentEpoch) applyVariableDefinitions(ruleId, locals, globals)
             }
         }
     }
@@ -1052,6 +1053,13 @@ class AppState internal constructor(saved: PersistedAppState?) {
     var autoFilter by mutableIntStateOf(0)
     private val executionTokens = mutableMapOf<Long, MutableSet<Any>>()
     private val executionJobs = mutableMapOf<Long, MutableList<kotlinx.coroutines.Job>>()
+
+    /**
+     * 文档世代：恢复/导入会整份替换规则和变量。旧世代的任务即使已经算完，也不能把结果写进
+     * 新文档（同名 ruleId/cmdId 会命中新规则），更不能追加历史或刷新 lastRun。
+     */
+    internal var documentEpoch = 0
+        private set
     val executing = mutableStateMapOf<Long, Int>() // id -> 1 running, 2 done, 3 failed
     val executionMessages = mutableStateMapOf<Long, String>()
     val logs = mutableStateListOf<RunLog>().apply { addAll(saved?.logs.orEmpty()) }
@@ -1130,6 +1138,18 @@ class AppState internal constructor(saved: PersistedAppState?) {
      * ids far above this process's counter, and the next allocation must not collide with them.
      */
     internal fun replaceWith(converted: PersistedAppState) {
+        // 恢复屏障：先让旧世代失效并取消在途任务，再发布新文档。
+        documentEpoch++
+        executionJobs.values.flatten().forEach { it.cancel() }
+        executionJobs.clear()
+        executionTokens.clear()
+        executing.clear()
+        executionMessages.clear()
+        undo = null
+        historyOpen = false
+        menu = null
+        renaming = null
+        root = null
         reserveIds(converted)
         autoCmds.clear(); autoCmds.addAll(converted.autoCmds)
         oneTaps.clear(); oneTaps.addAll(converted.oneTaps)
@@ -1260,6 +1280,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
     ): kotlinx.coroutines.Job {
         val engine = executionEngine
         val token = Any()
+        val epoch = documentEpoch
         executionTokens.getOrPut(cmd.id) { mutableSetOf() }.add(token)
         executionMessages.remove(cmd.id)
         executing[cmd.id] = 1
@@ -1276,7 +1297,9 @@ class AppState internal constructor(saved: PersistedAppState?) {
                     internalFailure(cmd.id, reason, failure)
                 }
                 if (result.ignored) return@launch
+                if (epoch != documentEpoch) return@launch
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                    if (epoch != documentEpoch) return@withContext
                     executionMessages[cmd.id] = result.detail
                     executing[cmd.id] = if (result.ok) 2 else 3
                     val t = now()
@@ -1289,10 +1312,11 @@ class AppState internal constructor(saved: PersistedAppState?) {
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Throwable) {
+                if (epoch != documentEpoch) return@launch
                 kotlinx.coroutines.withContext(
                     kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.Main.immediate,
                 ) {
-                    recordInternalFailure(cmd, reason, failure)
+                    if (epoch == documentEpoch) recordInternalFailure(cmd, reason, failure)
                 }
                 delay(2000)
             } finally {
