@@ -383,8 +383,13 @@ internal object SystemHook {
             HookEventSource.FIRST_ARGUMENT_MEDIA_SESSION -> SystemHookProtocol.EVENT_MEDIA_STOPPED
             HookEventSource.FIRST_ARGUMENT_MEDIA_SESSION_WITH_PLAYBACK_STATE -> {
                 // 12–14 的回调没有 PlaybackState 参数（只有 record 和 shouldUpdatePriority），
-                // 15 才可能带第三个参数；按类型找，找不到就放弃。
-                val playback = SystemHookArguments.playbackState(arguments) ?: return
+                // 状态要从 record 上读；15 之后才可能直接带 PlaybackState 实参。
+                val playback = SystemHookArguments.playbackState(arguments, record) { target, name ->
+                    bridge().callMethod(target, name)
+                } ?: run {
+                    logSkip(candidate, "playback state unavailable")
+                    return
+                }
                 val state = runCatching {
                     bridge().callMethod(playback, "getState") as? Number
                 }.getOrNull()?.toInt() ?: return

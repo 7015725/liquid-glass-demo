@@ -186,9 +186,10 @@ internal object SystemHookCandidates {
     )
 
     /**
-     * Media-session playback transitions. The playback state is argument #3 on AOSP 12–15;
-     * onSessionDied is the explicit stop edge and does not need a PlaybackState. Both are
-     * filtered by package/user before they enter the queue.
+     * Media-session playback transitions. AOSP 12–14 pass only (record, shouldUpdatePriority),
+     * so the playback state is read from the record; newer releases may pass a PlaybackState
+     * argument directly, which is preferred when present. onSessionDied is the explicit stop
+     * edge. Both are filtered by package/user before they enter the queue.
      */
     val media = listOf(
         HookCandidate(

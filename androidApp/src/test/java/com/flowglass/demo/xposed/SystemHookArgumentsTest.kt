@@ -34,8 +34,16 @@ class SystemHookArgumentsTest {
             state,
             SystemHookArguments.playbackState(arrayOf<Any?>(Any(), state, true)),
         )
-        // 12–14：只有 record 与 shouldUpdatePriority，没有 PlaybackState。
-        assertNull(SystemHookArguments.playbackState(arrayOf<Any?>(Any(), false)))
+        // 12–14：只有 record 与 shouldUpdatePriority，没有 PlaybackState，必须从 record 上读。
+        assertEquals(
+            state,
+            SystemHookArguments.playbackState(arrayOf<Any?>(Any(), false), Any()) { _, name ->
+                if (name == "getPlaybackState") state else null
+            },
+        )
+        assertNull(
+            SystemHookArguments.playbackState(arrayOf<Any?>(Any(), false), null) { _, _ -> state },
+        )
         assertTrue(SystemHookArguments.playbackState(arrayOf<Any?>(state)) === state)
     }
 }

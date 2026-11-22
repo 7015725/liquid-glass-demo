@@ -17,11 +17,22 @@ internal object SystemHookArguments {
     fun keyguardShowing(arguments: Array<Any?>): Boolean? =
         arguments.firstOrNull { it is Boolean } as? Boolean
 
-    /** 找到携带播放状态的参数；12–14 没有，返回 null。 */
+    /** 找到实参里携带的播放状态；12–14 的回调没有这个参数。 */
     fun playbackState(arguments: Array<Any?>): Any? =
         arguments.firstOrNull { value ->
             value != null && value.javaClass.name.let { name ->
                 name.endsWith(".PlaybackState") || name.contains(".PlaybackState\$")
             }
         }
+
+    /**
+     * 12–14 的 onSessionPlaybackStateChanged 只有 (record, shouldUpdatePriority)，状态只能从
+     * record 上读；15 之后才可能直接带 PlaybackState 实参。两条路都走不通才放弃。
+     */
+    fun playbackState(
+        arguments: Array<Any?>,
+        record: Any?,
+        call: (Any, String) -> Any?,
+    ): Any? = playbackState(arguments)
+        ?: record?.let { runCatching { call(it, "getPlaybackState") }.getOrNull() }
 }
