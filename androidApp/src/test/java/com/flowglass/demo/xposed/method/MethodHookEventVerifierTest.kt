@@ -8,6 +8,7 @@ import com.flowglass.engine.methodhook.MethodHookWireEnvelope
 import com.flowglass.engine.methodhook.MethodHookWireJson
 import com.flowglass.engine.methodhook.MethodHookWirePacket
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -181,5 +182,49 @@ class MethodHookEventVerifierTest {
                 variables = mapOf(MethodHookVariables.APP to spec.packageName)),
             guard,
         ) is MethodHookVerification.Accepted)
+    }
+    @Test
+    fun anUnknownHookIdDropsEventsButLetsHelloRetry() {
+        val event = MethodHookWireJson.encodePacket(
+            MethodHookWirePacket(
+                hookId = "call-9-9",
+                body = MethodHookWireJson.encodeEnvelope(
+                    MethodHookWireEnvelope(
+                        hookId = "call-9-9",
+                        packageName = spec.packageName,
+                        userId = spec.userId,
+                        processName = "com.example.target",
+                        session = "session",
+                        seq = 1,
+                        timestamp = now,
+                        type = MethodHookWireEnvelope.TYPE_EVENT,
+                    )
+                ),
+                mac = "00",
+            )
+        )
+        val eventResult = verifier.verify(caller, event, guard) as MethodHookVerification.Rejected
+        assertFalse("未知 hook 的事件不该重试", eventResult.retryable)
+
+        val hello = MethodHookWireJson.encodePacket(
+            MethodHookWirePacket(
+                hookId = "call-9-9",
+                body = MethodHookWireJson.encodeEnvelope(
+                    MethodHookWireEnvelope(
+                        hookId = "call-9-9",
+                        packageName = spec.packageName,
+                        userId = spec.userId,
+                        processName = "com.example.target",
+                        session = "session",
+                        seq = 0,
+                        timestamp = now,
+                        type = MethodHookWireEnvelope.TYPE_HELLO,
+                    )
+                ),
+                mac = "00",
+            )
+        )
+        val helloResult = verifier.verify(caller, hello, guard) as MethodHookVerification.Rejected
+        assertTrue("未知 hook 的 hello 必须允许重试，否则进程永久失联", helloResult.retryable)
     }
 }
