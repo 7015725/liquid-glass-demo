@@ -17,12 +17,16 @@
 目标进程 `bindService` 到导出的 `MethodHookEventService`（无签名权限，因为目标应用不可能持有
 我们的签名）。每个包：
 
-1. 外层 `hookId` 仅用于选择 token；
-2. 按精确 UTF-8 `body` 计算 HMAC-SHA256（每钩子 32 字节随机 token，只存 app-private prefs 与
+1. App 先按 `Binder.getCallingUid()` 扣一次 UID 级入口预算（2400/分、突发 600），未知 hookId 也计入；
+2. 解析外层包，用 `hookId` 选择 spec 与 token；
+3. 校验调用 UID、调用用户、`getPackagesForUid` 是否包含目标包（这一步在扣钩子预算之前，外部应用
+   无法用猜到的 hookId 挤掉目标应用的配额）；
+4. 通过调用方校验后扣钩子级预算（`maxCallsPerMinute × 8` 个进程，默认 480/分）；超限是**终态拒绝**，
+   客户端把包出队而不是保留队首重试；
+5. 按精确 UTF-8 `body` 计算 HMAC-SHA256（每钩子 32 字节随机 token，只存 app-private prefs 与
    framework remote preferences）；
-3. App 校验 `Binder.getCallingUid()`、调用用户、`getPackagesForUid` 是否包含目标包；
-4. MAC 通过后才解析 body，再校验包名/用户/进程名、session 和严格递增 seq；
-5. 时间戳窗口 ±5 分钟；新 session 必须比旧 session 更新，旧 session 重放会被拒绝。
+6. MAC 通过后才解析 body，再校验包名/用户/进程名、session 和严格递增 seq；
+7. 时间戳窗口 ±5 分钟；新 session 必须比旧 session 更新，旧 session 重放会被拒绝。
 
 `hello` 只建立 session；`install` / `rate` 上报安装或限流状态；`event` 携带固定中文内置变量
 （`钩子应用`、`钩子用户`、`钩子进程`、`钩子方法`、`钩子签名`、`钩子标识`）和用户命名的提取项。
@@ -36,8 +40,10 @@
   `xposedsharedprefs` 和 modern remote preferences 本身是框架共享面。
 - 目标进程在后台绑定服务可能被系统限制；失败时事件留在有界队列（最多 256 条），不会阻塞目标
   方法。跨用户/分身场景要求目标用户内也能访问本 App 的服务，当前不做跨用户绕过。
-- 速率：每钩子 token bucket（默认 60/分钟、突发 10）在目标进程内先限流，App 侧再做状态/事件
-  校验；超限只上报 `rate_limited`，不执行提取。
+- 速率：每钩子 token bucket（默认 60/分钟、突发 10）在目标进程内先限流；App 侧入口还有两道：
+  UID 级总量（2400/分、突发 600）与钩子级预算（默认 480/分，即目标侧上限 × 8 个进程）。任一道
+  触发都只丢弃该包，不执行提取；目标进程把 `false` 当传输失败重试，所以宿主对终态拒绝返回 `true`，
+  避免队首过期后卡死整个队列。
 
 ## 测试
 

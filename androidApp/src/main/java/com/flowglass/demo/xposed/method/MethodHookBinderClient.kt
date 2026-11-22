@@ -41,12 +41,15 @@ internal class MethodHookBinderClient(
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             executor.execute {
                 binder = service?.let { IMethodHookEvent.Stub.asInterface(it) }
+                // 宿主 Service 重建后内存里的 session 表是空的：这里清掉 greeted，让下一次事件
+                // 重新发 hello，否则该进程的所有事件都会因为 session 未知被拒。
+                greeted.clear()
                 flush()
             }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            executor.execute { binder = null }
+            executor.execute { binder = null; greeted.clear() }
         }
     }
 
