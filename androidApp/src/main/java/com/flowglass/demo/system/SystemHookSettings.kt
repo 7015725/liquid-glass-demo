@@ -211,7 +211,9 @@ object SystemHookSettings {
             putInt(KEY_SUBSCRIBED_FAMILIES, 0)
             putString(KEY_WATCHED, "")
         }
-        send(context, SystemHookProtocol.ACTION_CONFIG, 0, emptySet())
+        if (!send(context, SystemHookProtocol.ACTION_CONFIG, 0, emptySet())) {
+            scheduleConfigRetry(context)
+        }
     }
 
     /**

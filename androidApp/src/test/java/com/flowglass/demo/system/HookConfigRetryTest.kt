@@ -55,4 +55,22 @@ class HookConfigRetryTest {
         assertTrue("末态 A 必须最终送达钩子", configIntents(a).size > immediate)
         assertEquals(a, SystemHookSettings.subscribedFamilies(app))
     }
+
+    @Test
+    fun clearingWhileThrottledStillDeliversTheEmptyConfig() {
+        SystemHookSettings.resetBroadcastThrottle()
+        var now = 1_000L
+        SystemHookSettings.clock = { now }
+        SystemHookSettings.clearSubscriptions(app)
+        SystemHookSettings.broadcastConfig(app, SystemHookFamily.FOREGROUND.mask, emptyList())
+        // 第三次是清空：与第一次的 0 同 key，被限流，必须补发。
+        SystemHookSettings.clearSubscriptions(app)
+        val immediate = configIntents(0).size
+
+        now += 3_000
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(3, TimeUnit.SECONDS)
+
+        assertTrue("关闭订阅也必须最终送达", configIntents(0).size > immediate)
+        assertEquals(0, SystemHookSettings.subscribedFamilies(app))
+    }
 }
