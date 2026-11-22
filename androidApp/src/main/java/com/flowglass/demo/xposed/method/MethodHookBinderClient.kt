@@ -33,9 +33,22 @@ internal class MethodHookBinderClient(
     private val session = randomSession()
     private val seq = AtomicLong(0L)
     private val greeted = linkedSetOf<String>()
-    private val pending = ArrayDeque<String>()
     private var binder: IMethodHookEvent? = null
-    private var bindingStarted = false
+    private val outbox = MethodHookOutbox(
+        send = { packet -> binder?.let { runCatching { it.send(packet) }.getOrDefault(false) } ?: false },
+        // 队首 hello 超时被丢弃后要重新武装，否则这个进程再也不会发 hello。
+        onDropHello = { hookId -> greeted.remove(hookId) },
+    )
+    // lazy 打破与 connection 的初始化环（connection 里会调用 binding.reset()）。
+    private val binding: MethodHookBinding by lazy {
+        MethodHookBinding {
+            appContext.bindService(
+                Intent().setComponent(ComponentName(MODULE_PACKAGE, SERVICE_CLASS)),
+                connection,
+                Context.BIND_AUTO_CREATE,
+            )
+        }
+    }
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -44,12 +57,13 @@ internal class MethodHookBinderClient(
                 // 宿主 Service 重建后内存里的 session 表是空的：这里清掉 greeted，让下一次事件
                 // 重新发 hello，否则该进程的所有事件都会因为 session 未知被拒。
                 greeted.clear()
+                binding.reset()
                 flush()
             }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            executor.execute { binder = null; greeted.clear() }
+            executor.execute { binder = null; greeted.clear(); binding.reset() }
         }
     }
 
@@ -94,35 +108,13 @@ internal class MethodHookBinderClient(
         val body = MethodHookWireJson.encodeEnvelope(envelope)
         val mac = MethodHookHmac.sign(token, body)
         val packet = MethodHookWireJson.encodePacket(MethodHookWirePacket(spec.id, body, mac))
-        if (pending.size >= MAX_PENDING) pending.removeFirst()
-        pending.addLast(packet)
-        ensureBound()
-        flush()
-    }
-
-    private fun ensureBound() {
-        if (bindingStarted) return
-        bindingStarted = true
-        runCatching {
-            appContext.bindService(
-                Intent().setComponent(ComponentName(MODULE_PACKAGE, SERVICE_CLASS)),
-                connection,
-                Context.BIND_AUTO_CREATE,
-            )
-        }.onFailure {
-            // The App may be unavailable in this user. Keep queued packets for a later retry.
-            bindingStarted = false
-        }
+        outbox.add(packet, spec.id, type == MethodHookWireEnvelope.TYPE_HELLO)
+        binding.ensure()
+        outbox.drain()
     }
 
     private fun flush() {
-        val service = binder ?: return
-        while (pending.isNotEmpty()) {
-            val packet = pending.first()
-            val sent = runCatching { service.send(packet) }.getOrDefault(false)
-            if (!sent) return
-            pending.removeFirst()
-        }
+        if (binder != null) outbox.drain()
     }
 
     private fun randomSession(): String {
@@ -134,6 +126,5 @@ internal class MethodHookBinderClient(
     private companion object {
         const val MODULE_PACKAGE = "com.flowglass.demo"
         const val SERVICE_CLASS = "com.flowglass.demo.xposed.method.MethodHookEventService"
-        const val MAX_PENDING = 256
     }
 }
