@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
@@ -90,6 +91,14 @@ internal class AndroidTriggerEnvironment(
         val filter = manager.currentInterruptionFilter
         if (filter == NotificationManager.INTERRUPTION_FILTER_UNKNOWN) return null
         return filter != NotificationManager.INTERRUPTION_FILTER_ALL
+    }
+
+    @Suppress("DEPRECATION")
+    override fun wifiSsid(): String? {
+        val wifi = context.applicationContext.getSystemService(WifiManager::class.java) ?: return null
+        val raw = runCatching { wifi.connectionInfo?.ssid }.getOrNull() ?: return null
+        val ssid = raw.trim().removeSurrounding("\"")
+        return ssid.takeIf { it.isNotEmpty() && !it.equals("<unknown ssid>", ignoreCase = true) }
     }
 
     override fun networkType(): NetworkType {

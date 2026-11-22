@@ -10,7 +10,10 @@
 - `ANY`（默认）：任一触发器命中即执行。事件型触发器仍按各自的状态边沿、参数和 2 秒防抖判断。
 - `ALL`：规则的所有触发器都满足才执行。
   - **状态型触发器**按命中事件发生时的**当前状态**判断，不要求看到一次状态边沿：
-    - WiFi：`connected` 表示当前网络为 WiFi；`disconnected` 表示当前不是 WiFi。
+    - WiFi：`connected` 表示当前网络为 WiFi 且（配置了 SSID 时）SSID 一致；
+      `disconnected` 表示当前 SSID 不是配置的那个（未配置 SSID 时表示当前不是 WiFi）。
+      系统不给出 SSID（未授权、定位关闭或 `<unknown ssid>`）时，带 SSID 的两个方向都不匹配，
+      避免把「不知道」当成「不是 Home」。
     - 充电状态：`trigger.power_connected` / `trigger.power_disconnected` 按当前是否充电判断；
       旧版 `trigger.charging` 的 `charging` / `stopped` 也按当前充电状态判断。
     - 电量：按当前电量与阈值比较；旧版 `battery_low` 按“低于阈值”处理。

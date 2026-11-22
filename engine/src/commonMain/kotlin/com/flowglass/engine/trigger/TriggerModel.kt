@@ -284,9 +284,16 @@ object TriggerMatcher {
         when (binding.component.typeId) {
             TriggerTypes.WIFI -> {
                 val connected = environment.networkType() == NetworkType.WIFI
+                val wanted = binding.component.params["ssid"]?.stringValue().orEmpty().trim()
+                val current = if (connected) environment.wifiSsid().orEmpty().trim() else ""
+                // Without a readable SSID a connected network cannot be confirmed as the wanted one,
+                // and it cannot be confirmed as disconnected either.
+                val known = wanted.isEmpty() || !connected || current.isNotEmpty()
                 when (binding.component.params["state"]?.stringValue()) {
-                    "connected" -> connected
-                    "disconnected" -> !connected
+                    "connected" -> connected && known &&
+                        (wanted.isEmpty() || current.equals(wanted, ignoreCase = true))
+                    "disconnected" -> known &&
+                        !current.equals(wanted, ignoreCase = true)
                     else -> false
                 }
             }
