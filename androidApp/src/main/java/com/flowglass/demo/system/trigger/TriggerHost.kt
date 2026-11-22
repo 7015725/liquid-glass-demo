@@ -216,7 +216,7 @@ internal class TriggerHost(
                     data + ("method.parameterTypes" to variables[MethodHookVariables.SIGNATURE]
                         ?.substringAfter('(', "")
                         ?.substringBeforeLast(')', "")
-                        .orEmpty())
+                        .orEmpty()) + ("hook.id" to hookId)
                 },
                 methodHookVariables = variables,
             ),

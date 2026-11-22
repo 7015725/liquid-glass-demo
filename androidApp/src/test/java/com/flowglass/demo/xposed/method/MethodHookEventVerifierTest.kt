@@ -132,4 +132,30 @@ class MethodHookEventVerifierTest {
         assertEquals(token, decoded.hooks.single().token)
         assertEquals(spec, decoded.hooks.single().spec)
     }
+    @Test
+    fun aFloodingTargetIsStoppedByTheHostIngressLimit() {
+        assertTrue(verifier.verify(caller, packet(MethodHookWireEnvelope.TYPE_HELLO, 0), guard)
+            is MethodHookVerification.Accepted)
+        var accepted = 0
+        var limited = 0
+        // 默认桶容量 60：同一分钟内第 61 个包之后必须被入口限流挡住，而不是继续进 onEvent。
+        for (seq in 1..80L) {
+            when (val result = verifier.verify(
+                caller,
+                packet(MethodHookWireEnvelope.TYPE_EVENT, seq,
+                    variables = mapOf(MethodHookVariables.APP to spec.packageName)),
+                guard,
+            )) {
+                is MethodHookVerification.Accepted -> accepted++
+                is MethodHookVerification.Rejected -> {
+                    assertTrue("意外的拒绝原因：" + result.reason, result.reason.contains("限流"))
+                    limited++
+                }
+            }
+        }
+        // hello 也消耗一个令牌，所以 60 个额度里事件只拿到 59 个。
+        assertEquals(59, accepted)
+        assertEquals(21, limited)
+        assertEquals(59, events)
+    }
 }

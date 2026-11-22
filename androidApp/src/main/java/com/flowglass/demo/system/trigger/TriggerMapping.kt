@@ -33,6 +33,7 @@ internal fun CommandItem.toTriggerComponent(): TriggerComponent {
     return TriggerComponent(
         typeId = if (meta != null && parsed != null) meta.typeId else "legacy.unknown",
         name = meta?.name ?: name,
+        itemId = id,
         params = parsed.orEmpty(),
         outputs = outputs,
     )

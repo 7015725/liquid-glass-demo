@@ -105,6 +105,7 @@ internal class MethodHookEventVerifier(
     private val onEvent: (String, Map<String, String>) -> Unit,
     private val onStatus: (StatusReport) -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val ingress: MethodHookIngressLimiter = MethodHookIngressLimiter(),
 ) {
     data class StatusReport(
         val hookId: String,
@@ -127,6 +128,11 @@ internal class MethodHookEventVerifier(
         }
         val spec = specFor(packet.hookId)
             ?: return MethodHookVerification.Rejected("未知应用方法调用")
+        // 已授权的目标进程也可能被洪泛：在解析 body、校验 HMAC 之前先按钩子限流，
+        // 让超量包只消耗一次计数更新，而不是把宿主拖进无界的工作量。
+        if (!ingress.tryAcquire(spec.id)) {
+            return MethodHookVerification.Rejected("入口限流：每分钟上限 240 次")
+        }
         if (!MethodHookCallerValidator.matches(caller, spec)) {
             return MethodHookVerification.Rejected("调用方 UID/user/包名不匹配")
         }

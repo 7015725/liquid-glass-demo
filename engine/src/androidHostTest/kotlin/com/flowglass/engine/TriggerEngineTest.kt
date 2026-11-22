@@ -170,6 +170,8 @@ class TriggerEngineTest {
             ),
         )
 
+        // 方法钩子事件必须带上签发它的 hook id；这条规则的 cmdId 由 id 推导，组件 id 为 0。
+        val hookId = com.flowglass.engine.methodhook.AppMethodCall.hookId(r.cmdId, 0)
         val miss = d.dispatch(
             TriggerEvent(TriggerKinds.METHOD_CALL, TriggerSource.METHOD_HOOK, 0,
                 data = mapOf(
@@ -177,6 +179,7 @@ class TriggerEngineTest {
                     "method.class" to "com.example.Target",
                     "method.name" to "submit",
                     "method.parameterTypes" to "int",
+                    "hook.id" to hookId,
                 ), methodHookVariables = mapOf("订单号" to "B")),
             listOf(r),
         )
@@ -190,6 +193,7 @@ class TriggerEngineTest {
                     "method.class" to "com.example.Target",
                     "method.name" to "submit",
                     "method.parameterTypes" to "java.lang.String",
+                    "hook.id" to hookId,
                 ), methodHookVariables = mapOf("订单号" to "A-1")),
             listOf(r),
         )

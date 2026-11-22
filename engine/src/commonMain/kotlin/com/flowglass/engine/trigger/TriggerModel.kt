@@ -73,6 +73,8 @@ data class TriggerComponent(
     val params: Map<String, JsonElement> = emptyMap(),
     /** Instance-level output bindings copied from the command editor. */
     val outputs: List<OutputBinding> = emptyList(),
+    /** 持久化组件 id；方法钩子用它拼出 hook id，保证事件只落到同一个触发器。 */
+    val itemId: Long = 0,
 )
 
 /** A host-side, already-normalised view of one enabled automatic command. */
@@ -437,6 +439,12 @@ object TriggerMatcher {
 
     private fun matchesMethodHook(binding: TriggerBinding, event: TriggerEvent): Boolean {
         if (binding.component.typeId != TriggerTypes.APP_METHOD_CALL) return false
+        // 宿主已经校验过 hookId；这里再要求事件与这个触发器实例的 hook id 完全一致，
+        // 否则同一应用里另一个方法的钩子可以把提取数据喂给这条规则。
+        val expected = com.flowglass.engine.methodhook.AppMethodCall.hookId(
+            binding.rule.cmdId, binding.component.itemId,
+        )
+        if (event.data["hook.id"] != expected) return false
         val target = binding.component.params["package"]?.stringValue()?.trim().orEmpty()
         if (target.isEmpty() || !sameApp(target, event.data["app"].orEmpty())) return false
         val className = binding.component.params["className"]?.stringValue()?.trim().orEmpty()
