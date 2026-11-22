@@ -163,5 +163,16 @@ internal class CommandStore(private val file: File) {
             atomic.failWrite(stream)
             throw failure
         }
+        // AOSP 的 AtomicFile.finishWrite 在 fsync 或 rename 失败时只写日志、不抛异常；
+        // 以读回字节作为「提交成功」的判据，避免把旧文件当成新状态继续用。
+        verifyCommitted({ atomic.openRead().use { it.readBytes() } }, bytes)
+    }
+}
+
+/** AtomicFile 的 finishWrite 可能静默失败，读回不一致必须当成写入失败。 */
+internal fun verifyCommitted(read: () -> ByteArray, expected: ByteArray) {
+    val actual = read()
+    if (!actual.contentEquals(expected)) {
+        throw java.io.IOException("本地数据提交校验失败：磁盘内容与待写入内容不一致")
     }
 }
