@@ -40,7 +40,7 @@ internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Bool
         ) = items.mapIndexed { index, item ->
             item.toRuleComponent(
                 kind,
-                oldById[item.id] ?: old.getOrNull(index),
+                oldById[item.id] ?: if (item.id <= 0L) old.getOrNull(index) else null,
                 sidecar.getOrNull(index),
                 oldById,
             )
@@ -247,7 +247,7 @@ private fun CommandItem.toRuleComponent(
     // 再按位置借用同类型兄弟，把别人的扩展参数当成自己的。位置回退只服务无 ID 的旧版条目。
     fun oldChild(list: List<RuleComponent>?, id: Long?, index: Int): RuleComponent? =
         list?.firstOrNull { it.id != null && it.id == id }
-            ?: oldById[id]
+            ?: (if (id != null && id > 0L) oldById[id] else null)
             ?: if (id == null || id <= 0L) list?.getOrNull(index) else null
     val children = children.mapIndexed { index, child ->
         child.toRuleComponent(ComponentKind.ACTION, oldChild(previous?.children, child.id, index), null, oldById)

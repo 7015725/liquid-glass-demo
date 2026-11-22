@@ -3,6 +3,7 @@ package com.flowglass.demo.ui
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -102,6 +103,39 @@ class RuleDocumentMoveTest {
         val action = result.actions[1].children.single()
         assertEquals(childId, action.id)
         assertNotNull(action.params["keep"])
+    }
+
+    @Test
+    fun aNewlyAddedRootStepDoesNotInheritASiblingSExtensionParams() {
+        val old = CommandItem(901, "开关 WiFi", "开启", Ic.Wifi, "action.wifi_switch")
+        val base = PersistedAppState(
+            autoCmds = emptyList(),
+            oneTaps = listOf(
+                Cmd(
+                    id = 42, auto = false, ic = Ic.Bolt, title = "任务", desc = "",
+                    actions = listOf(old),
+                ),
+            ),
+            logs = emptyList(),
+            running = true,
+            mode = 1,
+        )
+        val document = base.toRuleDocument()
+        val rule = document.rules.single()
+        val canonical = rule.actions.single().copy(
+            params = rule.actions.single().params + ("keep" to JsonPrimitive("旧值")),
+        )
+        val state = document.copy(rules = listOf(rule.copy(actions = listOf(canonical)))).toPersistedAppState()
+        val cmd = state.oneTaps.single()
+        val fresh = CommandItem(1001, "开关 WiFi", "关闭", Ic.Wifi, "action.wifi_switch")
+
+        val result = state.withOneTaps(
+            listOf(cmd.copy(actions = listOf(fresh, cmd.actions.single()))),
+        ).toRuleDocument().rules.single()
+
+        assertEquals(1001L, result.actions[0].id)
+        assertTrue("新加步骤不应继承旧步骤的扩展参数", result.actions[0].params["keep"] == null)
+        assertEquals("旧值", (result.actions[1].params["keep"] as? JsonPrimitive)?.content)
     }
 
     @Test
