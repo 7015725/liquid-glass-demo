@@ -38,7 +38,12 @@ internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Bool
             old: List<RuleComponent>,
             sidecar: List<ComponentPresentation>,
         ) = items.mapIndexed { index, item ->
-            item.toRuleComponent(kind, oldById[item.id] ?: old.getOrNull(index), sidecar.getOrNull(index))
+            item.toRuleComponent(
+                kind,
+                oldById[item.id] ?: old.getOrNull(index),
+                sidecar.getOrNull(index),
+                oldById,
+            )
         }
         Rule(
             id = oldRule?.id ?: uuidFor(command.id),
@@ -234,27 +239,47 @@ private fun CommandItem.toRuleComponent(
     kind: ComponentKind,
     old: RuleComponent?,
     oldPresentation: ComponentPresentation?,
+    oldById: Map<Long?, RuleComponent>,
 ): RuleComponent {
     val typeId = this.typeId ?: componentRegistry.byKind(kind).firstOrNull { it.name == name }?.typeId ?: "legacy.unknown"
     val previous = old?.takeIf { it.type == typeId }
+    // 先在全树按稳定 ID 找：步骤可以跨容器移动，只看目标旧父节点的孩子会找不到原节点，
+    // 再按位置借用同类型兄弟，把别人的扩展参数当成自己的。位置回退只服务无 ID 的旧版条目。
     fun oldChild(list: List<RuleComponent>?, id: Long?, index: Int): RuleComponent? =
-        list?.firstOrNull { it.id != null && it.id == id } ?: list?.getOrNull(index)
+        list?.firstOrNull { it.id != null && it.id == id }
+            ?: oldById[id]
+            ?: if (id == null || id <= 0L) list?.getOrNull(index) else null
     val children = children.mapIndexed { index, child ->
-        child.toRuleComponent(ComponentKind.ACTION, oldChild(previous?.children, child.id, index), null)
+        child.toRuleComponent(ComponentKind.ACTION, oldChild(previous?.children, child.id, index), null, oldById)
     }
     val branches = branches.mapIndexed { index, branch ->
         val oldBranch = previous?.branches?.getOrNull(index)
         RuleBranch(
             conditions = branch.conditions.mapIndexed { cIndex, condition ->
-                condition.toRuleComponent(ComponentKind.CONDITION, oldChild(oldBranch?.conditions, condition.id, cIndex), null)
+                condition.toRuleComponent(
+                    ComponentKind.CONDITION,
+                    oldChild(oldBranch?.conditions, condition.id, cIndex),
+                    null,
+                    oldById,
+                )
             },
             children = branch.children.mapIndexed { cIndex, child ->
-                child.toRuleComponent(ComponentKind.ACTION, oldChild(oldBranch?.children, child.id, cIndex), null)
+                child.toRuleComponent(
+                    ComponentKind.ACTION,
+                    oldChild(oldBranch?.children, child.id, cIndex),
+                    null,
+                    oldById,
+                )
             },
         )
     }
     val conditions = conditions.mapIndexed { index, condition ->
-        condition.toRuleComponent(ComponentKind.CONDITION, oldChild(previous?.conditions, condition.id, index), null)
+        condition.toRuleComponent(
+            ComponentKind.CONDITION,
+            oldChild(previous?.conditions, condition.id, index),
+            null,
+            oldById,
+        )
     }
     // Compare with a projection of authoritative params, never persisted display text.
     if (previous != null && parameter == previous.parameterText() && outputs == previous.outputs &&
