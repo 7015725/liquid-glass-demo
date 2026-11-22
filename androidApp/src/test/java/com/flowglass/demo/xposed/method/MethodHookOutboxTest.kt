@@ -66,8 +66,17 @@ class MethodHookOutboxTest {
 
     @Test
     fun theQueueIsBoundedEvenWhileNothingCanBeSent() {
-        val outbox = MethodHookOutbox(send = { false }, clock = { now }, maxPending = 4)
+        val dropped = mutableListOf<String>()
+        val outbox = MethodHookOutbox(
+            send = { false },
+            onDropHello = { dropped += it },
+            clock = { now },
+            maxPending = 4,
+        )
+        outbox.add("hello", "call-1-1", hello = true)
         repeat(10) { index -> outbox.add("packet-$index", "hook", hello = false) }
         assertEquals(4, outbox.size)
+        // 上限淘汰队首时如果丢的是 hello，必须重新武装，否则这个钩子永远不会再发 hello。
+        assertEquals(listOf("call-1-1"), dropped)
     }
 }

@@ -19,7 +19,12 @@ internal class MethodHookOutbox(
     private val queue = ArrayDeque<Entry>()
 
     fun add(packet: String, hookId: String, hello: Boolean) {
-        if (queue.size >= maxPending) queue.removeFirst()
+        if (queue.size >= maxPending) {
+            // 上限淘汰也要维持「hello 丢了就重新武装」这条不变量，否则 greeted 会一直以为
+            // hello 已经发过，这个钩子再也不补 hello。
+            val evicted = queue.removeFirst()
+            if (evicted.hello) onDropHello(evicted.hookId)
+        }
         queue.addLast(Entry(packet, hookId, hello, clock()))
     }
 
