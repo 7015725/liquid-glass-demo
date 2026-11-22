@@ -59,14 +59,22 @@ class RuleDocumentIdTest {
     }
 
     @Test
-    fun anIdNearTheLongLimitDoesNotMakeTheFileUnloadable() {
-        val (_, document, rule) = base()
-        val extreme = rule.actions[0].copy(id = Long.MAX_VALUE - 1L)
-        val broken = document.copy(rules = listOf(rule.copy(actions = listOf(extreme))))
+    fun aSavedComponentAtTheLongLimitStillLoads() {
+        val cmd = Cmd(
+            id = 42, auto = false, ic = Ic.Bolt, title = "任务", desc = "",
+            actions = listOf(
+                CommandItem(Long.MAX_VALUE - 1L, "开关 WiFi", "开启", Ic.Wifi, "action.wifi_switch"),
+            ),
+        )
+        val state = PersistedAppState(emptyList(), listOf(cmd), emptyList(), true, 1)
+        val document = state.toRuleDocument()
 
-        val command = broken.toPersistedAppState().oneTaps.single()
-        val id = command.actions.single().id
-        assertTrue("极端 ID 必须被重新分配", id in 1L until Long.MAX_VALUE - 1L)
+        val loaded = document.toPersistedAppState()
+        assertEquals(
+            "已声明并写入 sidecar 的 MAX-1 必须保持原 ID",
+            Long.MAX_VALUE - 1L,
+            loaded.oneTaps.single().actions.single().id,
+        )
     }
 
     @Test

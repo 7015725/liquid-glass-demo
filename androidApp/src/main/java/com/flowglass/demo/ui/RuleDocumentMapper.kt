@@ -165,7 +165,7 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
     // 一个键，之后按 ID 查找会同时改到多条。首个出现保留原 ID，后续重号分配新 ID。
     val seenComponentIds = (commandIds + logIds).toMutableSet()
     fun claimId(candidate: Long?): Long? =
-        candidate?.takeIf { it in 1L until Long.MAX_VALUE - 1L && seenComponentIds.add(it) }
+        candidate?.takeIf { it in 1L until Long.MAX_VALUE && seenComponentIds.add(it) }
     val normalizedPresentation = metadata.presentation.toMutableMap()
     val rules = this.rules.map { rule ->
         val sidecar = metadata.presentation[rule.id] ?: RulePresentation()
