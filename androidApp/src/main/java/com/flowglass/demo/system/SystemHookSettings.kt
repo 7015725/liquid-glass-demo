@@ -35,6 +35,10 @@ object SystemHookSettings {
     private const val SEND_MIN_INTERVAL_MS = 2_000L
     private val sendLimiter = BroadcastRateLimiter(SEND_MIN_INTERVAL_MS)
     private val retryHandler by lazy { Handler(Looper.getMainLooper()) }
+    /** Test seam: the limiter keeps real epoch millis in production. */
+    internal var clock: () -> Long = System::currentTimeMillis
+    private val configRetryLock = Any()
+    private var pendingConfigRetry: Runnable? = null
     private val retryLock = Any()
     private var pendingStateRetry: Runnable? = null
 
@@ -171,7 +175,34 @@ object SystemHookSettings {
             putInt(KEY_SUBSCRIBED_FAMILIES, mask)
             putString(KEY_WATCHED, normalized.joinToString(","))
         }
-        send(context, SystemHookProtocol.ACTION_CONFIG, mask, normalized)
+        if (!send(context, SystemHookProtocol.ACTION_CONFIG, mask, normalized)) {
+            scheduleConfigRetry(context)
+        }
+    }
+
+    /**
+     * A→B→A within the two-second window: the trailing A carries the same content key as the
+     * first A and would be dropped, leaving the hook on B while prefs say A. Re-send the persisted
+     * config after the window so the last state always wins.
+     */
+    private fun scheduleConfigRetry(context: Context) {
+        val appContext = context.applicationContext
+        synchronized(configRetryLock) {
+            if (pendingConfigRetry != null) return
+            val task = object : Runnable {
+                override fun run() {
+                    synchronized(configRetryLock) { pendingConfigRetry = null }
+                    val store = prefs(appContext)
+                    val mask = store.getInt(KEY_SUBSCRIBED_FAMILIES, 0) and knownFamilyMask()
+                    val watched = parseWatched(store.getString(KEY_WATCHED, "").orEmpty())
+                    if (!send(appContext, SystemHookProtocol.ACTION_CONFIG, mask, watched)) {
+                        scheduleConfigRetry(appContext)
+                    }
+                }
+            }
+            pendingConfigRetry = task
+            retryHandler.postDelayed(task, SEND_MIN_INTERVAL_MS)
+        }
     }
 
     /** Clear subscriptions when the trigger host stops; the master switch is not changed. */
@@ -180,7 +211,9 @@ object SystemHookSettings {
             putInt(KEY_SUBSCRIBED_FAMILIES, 0)
             putString(KEY_WATCHED, "")
         }
-        send(context, SystemHookProtocol.ACTION_CONFIG, 0, emptySet())
+        if (!send(context, SystemHookProtocol.ACTION_CONFIG, 0, emptySet())) {
+            scheduleConfigRetry(context)
+        }
     }
 
     /**
@@ -231,7 +264,7 @@ object SystemHookSettings {
             .sorted()
             .joinToString(",")
         val key = "$action|$enabled|$loaded|$families|$normalizedWatched"
-        if (!sendLimiter.allow(key, System.currentTimeMillis())) return false
+        if (!sendLimiter.allow(key, clock())) return false
         runCatching {
             context.applicationContext.sendBroadcast(
                 Intent(action)
@@ -251,6 +284,10 @@ object SystemHookSettings {
             pendingStateRetry.also { pendingStateRetry = null }
         }
         if (pending != null) retryHandler.removeCallbacks(pending)
+        val pendingConfig = synchronized(configRetryLock) {
+            pendingConfigRetry.also { pendingConfigRetry = null }
+        }
+        if (pendingConfig != null) retryHandler.removeCallbacks(pendingConfig)
         sendLimiter.clear()
     }
 
