@@ -84,11 +84,15 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
     /** Independent async run (`wait=false`); returns immediately with an accepted/failed outcome. */
     var ruleLauncher: ((String, String, Map<String, Any?>) -> ActionOutcome)? = null
 
+    /** 文档世代提供者；写入回调带回本次 run 启动时的世代，宿主据此丢弃跨代写入。 */
+    var documentEpoch: () -> Int = { 0 }
+
     /** Rule/global variable write-back; `ruleId` owns the rule-scope keys. */
-    var variableWriter: ((String, Map<String, Any?>, Map<String, Any?>) -> Unit)? = null
+    var variableWriter: ((String, Map<String, Any?>, Map<String, Any?>, Int) -> Unit)? = null
 
     /** Metadata for variables created or type-changed by a run. */
-    var variableDefinitionWriter: ((String, List<com.flowglass.engine.VariableDefinition>, List<com.flowglass.engine.VariableDefinition>) -> Unit)? = null
+    var variableDefinitionWriter:
+        ((String, List<com.flowglass.engine.VariableDefinition>, List<com.flowglass.engine.VariableDefinition>, Int) -> Unit)? = null
 
     private val caller = object : RuleCaller {
         override suspend fun call(
@@ -141,6 +145,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
         startDepth: Int?,
         readOnlyNames: Set<String> = emptySet(),
     ): RunResult {
+        val epoch = documentEpoch()
         val stored = globalsProvider?.invoke()
         val state = PersistedAppState(
             autoCmds = if (cmd.auto) listOf(cmd) else emptyList(),
@@ -176,7 +181,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
             handlersFor(cmd),
             CancellationCheckpoint { currentCoroutineContext().ensureActive() },
             caller = caller,
-            sink = sinkFor(rule),
+            sink = sinkFor(rule, epoch),
             environment = environment,
             conditionLayerSelector = { meta -> layerResolver.select(meta, com.flowglass.engine.ComponentKind.CONDITION)?.layer },
             globalVariableMeta = document.globalMeta,
@@ -229,10 +234,10 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
         return head + failures + marker + steps.takeLast(tailCount)
     }
 
-    private fun sinkFor(targetRule: Rule): VariableSink = object : VariableSink {
+    private fun sinkFor(targetRule: Rule, epoch: Int): VariableSink = object : VariableSink {
         override fun persist(ruleWrites: Map<String, Any?>, globalWrites: Map<String, Any?>) {
             if (ruleWrites.isNotEmpty() || globalWrites.isNotEmpty()) {
-                variableWriter?.invoke(targetRule.id, ruleWrites, globalWrites)
+                variableWriter?.invoke(targetRule.id, ruleWrites, globalWrites, epoch)
             }
         }
 
@@ -241,7 +246,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
             global: List<com.flowglass.engine.VariableDefinition>,
         ) {
             if (rule.isNotEmpty() || global.isNotEmpty()) {
-                variableDefinitionWriter?.invoke(targetRule.id, rule, global)
+                variableDefinitionWriter?.invoke(targetRule.id, rule, global, epoch)
             }
         }
     }

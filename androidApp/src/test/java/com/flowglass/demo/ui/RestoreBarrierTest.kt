@@ -4,9 +4,21 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import android.os.Looper
+import com.flowglass.demo.system.exec.ExecutionEngine
+import com.flowglass.demo.system.exec.StepStatus
+import com.flowglass.demo.system.exec.TaskOutcome
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withContext
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 
 /**
@@ -55,5 +67,57 @@ class RestoreBarrierTest {
 
         assertTrue(state.executing.isEmpty())
         assertTrue(state.executionMessages.isEmpty())
+    }
+
+    @Test
+    fun aStaleRunCannotWriteLogsOrRefreshLastRun() {
+        val context = RuntimeEnvironment.getApplication()
+        val gate = CompletableDeferred<Unit>()
+        val engine = ExecutionEngine(context) { _, _ ->
+            withContext(NonCancellable) { gate.await() }
+            TaskOutcome(StepStatus.SUCCESS, "完成")
+        }
+        val state = AppState()
+        state.bindExecutionEngine(engine)
+        val cmd = state.create(auto = false)
+        state.addItem(
+            cmd.id,
+            CommandSection.ACTIONS,
+            CommandCatalog.options(CommandSection.ACTIONS).single { it.typeId == "action.delay" },
+        )
+        val running = state.find(cmd.id)!!
+        val job = state.execute(running, CoroutineScope(Dispatchers.Main + SupervisorJob()))!!
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        state.replaceWith(replacement())
+        gate.complete(Unit)
+        val deadline = System.currentTimeMillis() + 5_000
+        while (!job.isCompleted && System.currentTimeMillis() < deadline) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(10)
+        }
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        assertTrue("旧执行的日志不得进入恢复后的文档", state.logs.isEmpty())
+        assertEquals("从未", state.oneTaps.single().lastRun)
+    }
+
+    @Test
+    fun aStaleVariableWriterIsDropped() {
+        val context = RuntimeEnvironment.getApplication()
+        val engine = ExecutionEngine(context)
+        val state = AppState()
+        state.bindExecutionEngine(engine)
+        val writer = requireNotNull(engine.variableWriter)
+        val stale = state.documentEpoch
+        state.replaceWith(replacement())
+
+        writer("rule-x", emptyMap(), mapOf("late" to 1), stale)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertTrue("旧世代的变量写入必须丢弃", state.engineGlobals["late"] == null)
+
+        writer("rule-x", emptyMap(), mapOf("fresh" to 2), state.documentEpoch)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(2, (state.engineGlobals["fresh"] as kotlinx.serialization.json.JsonPrimitive).content.toInt())
     }
 }

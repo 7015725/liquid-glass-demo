@@ -223,14 +223,15 @@ class AppState internal constructor(saved: PersistedAppState?) {
                 com.flowglass.engine.ActionOutcome(com.flowglass.engine.StepStatus.SUCCESS, "已发起「$target」")
             }
         }
-        engine.variableWriter = { ruleId, ruleWrites, globalWrites ->
+        engine.documentEpoch = { documentEpoch }
+        engine.variableWriter = { ruleId, ruleWrites, globalWrites, epoch ->
             com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) {
-                applyVariableWrites(ruleId, ruleWrites, globalWrites)
+                if (epoch == documentEpoch) applyVariableWrites(ruleId, ruleWrites, globalWrites)
             }
         }
-        engine.variableDefinitionWriter = { ruleId, locals, globals ->
+        engine.variableDefinitionWriter = { ruleId, locals, globals, epoch ->
             com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch(kotlinx.coroutines.Dispatchers.Main.immediate) {
-                applyVariableDefinitions(ruleId, locals, globals)
+                if (epoch == documentEpoch) applyVariableDefinitions(ruleId, locals, globals)
             }
         }
     }
