@@ -907,11 +907,12 @@ private fun BackupRestorePage(
     fun open(uri: android.net.Uri, expected: ImportKind) {
         scope.launch {
             try {
-                val text = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                val parsed = withContext(Dispatchers.IO) {
+                    val text = context.contentResolver.openInputStream(uri)?.use { readImportText(it) }
                         ?: error("无法读取文件")
+                    // 纯文本解析放到 IO 线程：2MB 的合法文件在低端机上也会压住主线程。
+                    parseImport(text, state)
                 }
-                val parsed = parseImport(text, state)
                 require(parsed.kind == expected) {
                     if (expected == ImportKind.BACKUP) "这不是完整备份文件" else "这是完整备份文件，请使用「从备份恢复」"
                 }

@@ -177,6 +177,30 @@ private fun RuleDocument.hasRetiredMethodHookTrigger(): Boolean =
         (rule.triggers + rule.conditions + rule.actions).any { it.isRetiredMethodHook() }
     }
 
+/**
+ * 有界读取导入文件：先按 UTF-8 最多 4 字节/字符截断，再用严格解码器校验。
+ * 不能在 readText() 之后再检查长度——那已经把整个文件放进内存了。
+ */
+internal fun readImportText(input: java.io.InputStream, maxChars: Int = MAX_TRANSFER_CHARS): String {
+    val maxBytes = maxChars.toLong() * 4L + 4L
+    val collected = java.io.ByteArrayOutputStream()
+    val chunk = ByteArray(16 * 1024)
+    var total = 0L
+    while (true) {
+        val read = input.read(chunk)
+        if (read < 0) break
+        total += read
+        require(total <= maxBytes) { "文件过大" }
+        collected.write(chunk, 0, read)
+    }
+    val decoder = Charsets.UTF_8.newDecoder()
+        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+    val text = decoder.decode(java.nio.ByteBuffer.wrap(collected.toByteArray())).toString()
+    require(text.length <= maxChars) { "文件过大" }
+    return text
+}
+
 internal fun parseImport(text: String, state: AppState): ParsedImport {
     validateTransferText(text)
     val root = transferJson.parseToJsonElement(text) as? JsonObject
