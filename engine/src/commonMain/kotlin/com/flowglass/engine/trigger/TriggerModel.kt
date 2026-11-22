@@ -292,8 +292,11 @@ object TriggerMatcher {
                 when (binding.component.params["state"]?.stringValue()) {
                     "connected" -> connected && known &&
                         (wanted.isEmpty() || current.equals(wanted, ignoreCase = true))
-                    "disconnected" -> known &&
-                        !current.equals(wanted, ignoreCase = true)
+                    "disconnected" -> if (wanted.isEmpty()) {
+                        !connected
+                    } else {
+                        known && !current.equals(wanted, ignoreCase = true)
+                    }
                     else -> false
                 }
             }
