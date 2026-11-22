@@ -55,7 +55,18 @@ class RuleDocumentIdTest {
         val command = state.oneTaps.single()
         assertTrue("组件 ID 不得与命令 ID 相同", command.actions.single().id != command.id)
         val items = state.engineUi.presentation.getValue(broken.rules.single().id).items
-        assertEquals(items.keys.size, items.keys.distinct().size)
+        assertEquals("一个组件只应有一个 sidecar 键", 1, items.size)
+    }
+
+    @Test
+    fun anIdNearTheLongLimitDoesNotMakeTheFileUnloadable() {
+        val (_, document, rule) = base()
+        val extreme = rule.actions[0].copy(id = Long.MAX_VALUE - 1L)
+        val broken = document.copy(rules = listOf(rule.copy(actions = listOf(extreme))))
+
+        val command = broken.toPersistedAppState().oneTaps.single()
+        val id = command.actions.single().id
+        assertTrue("极端 ID 必须被重新分配", id in 1L until Long.MAX_VALUE - 1L)
     }
 
     @Test

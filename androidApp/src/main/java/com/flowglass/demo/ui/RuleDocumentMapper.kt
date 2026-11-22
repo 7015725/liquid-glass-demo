@@ -145,12 +145,18 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
     require(steps.all { it.itemId > 0L && it.itemId < Long.MAX_VALUE && it.durationMs >= 0L }) {
         "执行记录步骤标识或耗时无效"
     }
-    val treeIds = rules.flatMap { it.triggers.allComponents() + it.conditions.allComponents() + it.actions.allComponents() }
+    val treeIdSet = rules.flatMap { it.triggers.allComponents() + it.conditions.allComponents() + it.actions.allComponents() }
         .mapNotNull { it.id }
-    val usedIds = (declaredIds + steps.map { it.itemId } + treeIds).toMutableSet()
+        .toSet()
+    // 声明与引用决定分配起点；树上的重号只用于避开，不参与「是否已用尽」的判断。
+    val usedIds = (declaredIds + steps.map { it.itemId }).toMutableSet()
     var nextId = maxOf(1000L, (usedIds.maxOrNull() ?: 999L) + 1L)
     fun allocateId(): Long {
-        // nextId starts above every declaration/reference; no collision scan is needed.
+        // Skip tree IDs so a freshly allocated id cannot land on an unreassigned duplicate.
+        while (nextId in treeIdSet) {
+            check(nextId < Long.MAX_VALUE - 1L) { "兼容标识已用尽" }
+            nextId++
+        }
         // Check BEFORE incrementing so exhaustion cannot wrap into a negative-ID loop.
         check(nextId < Long.MAX_VALUE) { "兼容标识已用尽" }
         return nextId++.also(usedIds::add)
@@ -159,7 +165,7 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
     // 一个键，之后按 ID 查找会同时改到多条。首个出现保留原 ID，后续重号分配新 ID。
     val seenComponentIds = (commandIds + logIds).toMutableSet()
     fun claimId(candidate: Long?): Long? =
-        candidate?.takeIf { it > 0L && seenComponentIds.add(it) }
+        candidate?.takeIf { it in 1L until Long.MAX_VALUE - 1L && seenComponentIds.add(it) }
     val normalizedPresentation = metadata.presentation.toMutableMap()
     val rules = this.rules.map { rule ->
         val sidecar = metadata.presentation[rule.id] ?: RulePresentation()
