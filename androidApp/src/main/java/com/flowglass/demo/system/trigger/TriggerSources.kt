@@ -224,7 +224,7 @@ internal class BluetoothWatcher(
         register(context, receiver, IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
-        })
+        }, exported = true)
     }
 
     fun stop() {
@@ -247,11 +247,51 @@ internal class BluetoothWatcher(
     }
 }
 
+/**
+ * TRG-008：多台蓝牙音频设备时，拔掉任意一台不等于耳机全部拔出。这里按地址维护当前集合，
+ * 只有集合从非空变空才产生 unplugged 边沿。
+ */
+internal class BluetoothAudioPresence {
+    // 同一副耳机会同时暴露 A2DP 与 SCO 两个 AudioDeviceInfo，地址相同；用计数而不是集合，
+    // 否则移除其中一个 profile 就会被当成「全部拔出」。
+    private val counts = mutableMapOf<String, Int>()
+
+    fun key(device: AudioDeviceInfo): String {
+        // getAddress() 是 API 28 才有的；26/27 用设备 id 兜底。
+        val address = if (Build.VERSION.SDK_INT >= 28) device.address else null
+        return address?.takeIf { it.isNotBlank() } ?: "id:${device.id}"
+    }
+
+    /** 返回是否真的发生了「从无到有」的 plugged 边沿。 */
+    @Synchronized
+    fun added(key: String): Boolean {
+        val previous = counts[key] ?: 0
+        counts[key] = previous + 1
+        return previous == 0
+    }
+
+    /** 返回是否真的发生了「从有到无」的 unplugged 边沿（最后一个 profile/设备移除）。 */
+    @Synchronized
+    fun removed(key: String): Boolean {
+        val previous = counts[key] ?: return false
+        if (previous > 1) {
+            counts[key] = previous - 1
+            return false
+        }
+        counts.remove(key)
+        return counts.isEmpty()
+    }
+
+    @Synchronized
+    fun reset() = counts.clear()
+}
+
 internal class HeadsetWatcher(
     private val context: Context,
     private val emit: TriggerEmit,
 ) {
     private val audio = context.getSystemService(AudioManager::class.java)
+    private val bluetoothPresence = BluetoothAudioPresence()
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -271,6 +311,7 @@ internal class HeadsetWatcher(
     private val devices = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
             addedDevices.filter { isBluetoothAudio(it) }.forEach {
+                if (!bluetoothPresence.added(bluetoothPresence.key(it))) return@forEach
                 emit(TriggerKinds.HEADSET, TriggerSource.HEADSET,
                     mapOf("state" to "plugged", "kind" to "bluetooth", "name" to it.productName.toString()))
             }
@@ -278,6 +319,8 @@ internal class HeadsetWatcher(
 
         override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
             removedDevices.filter { isBluetoothAudio(it) }.forEach {
+                if (!bluetoothPresence.removed(bluetoothPresence.key(it))) return@forEach
+                // 只有最后一台蓝牙音频设备移除时才是真正的「拔出」。
                 emit(TriggerKinds.HEADSET, TriggerSource.HEADSET,
                     mapOf("state" to "unplugged", "kind" to "bluetooth", "name" to it.productName.toString()))
             }
@@ -294,16 +337,14 @@ internal class HeadsetWatcher(
         }
         try {
             audio?.registerAudioDeviceCallback(devices, null)
+            // 注册 AudioDeviceCallback 后平台会立刻回放当前设备列表（MSG_DEVICE_LIST_INIT），
+            // plugged 边沿由这次回放统一产生。这里只处理「一台都没有」的基线，否则两条路径
+            // 各加一次计数，拔出时计数永远不归零，unplugged 再也不会上报。
             val bluetooth = audio?.getDevices(AudioManager.GET_DEVICES_OUTPUTS).orEmpty()
                 .filter { isBluetoothAudio(it) }
             if (bluetooth.isEmpty()) {
                 emit(TriggerKinds.HEADSET, TriggerSource.HEADSET,
                     mapOf("state" to "unplugged", "kind" to "bluetooth", "name" to ""))
-            } else {
-                bluetooth.forEach {
-                    emit(TriggerKinds.HEADSET, TriggerSource.HEADSET,
-                        mapOf("state" to "plugged", "kind" to "bluetooth", "name" to it.productName.toString()))
-                }
             }
         } catch (_: Throwable) {
         }
@@ -318,6 +359,7 @@ internal class HeadsetWatcher(
             audio?.unregisterAudioDeviceCallback(devices)
         } catch (_: Throwable) {
         }
+        bluetoothPresence.reset()
     }
 
     private fun isBluetoothAudio(device: AudioDeviceInfo): Boolean = when (device.type) {
@@ -381,9 +423,14 @@ internal class AppForegroundWatcher(
     }
 }
 
-private fun register(context: Context, receiver: BroadcastReceiver, filter: IntentFilter): Intent? = try {
+private fun register(
+    context: Context,
+    receiver: BroadcastReceiver,
+    filter: IntentFilter,
+    exported: Boolean = false,
+): Intent? = try {
     if (Build.VERSION.SDK_INT >= 33) {
-        context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        context.registerReceiver(receiver, filter, receiverFlags(exported))
     } else {
         @Suppress("UnspecifiedRegisterReceiverFlag")
         context.registerReceiver(receiver, filter)
@@ -391,3 +438,11 @@ private fun register(context: Context, receiver: BroadcastReceiver, filter: Inte
 } catch (_: Throwable) {
     null
 }
+
+/**
+ * 系统/特权进程发出的广播（例如蓝牙进程的 ACL_CONNECTED）在 Android 13+ 用
+ * RECEIVER_NOT_EXPORTED 注册会收不到；这些 action 在平台里是 protected broadcast，
+ * 普通应用无法伪造，所以按来源拆分注册比给所有接收器放开导出安全。
+ */
+internal fun receiverFlags(exported: Boolean): Int =
+    if (exported) Context.RECEIVER_EXPORTED else Context.RECEIVER_NOT_EXPORTED
