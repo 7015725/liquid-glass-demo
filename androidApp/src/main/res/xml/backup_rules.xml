@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 及以下的自动备份规则。方法钩子凭证、根状态、运行时钩子配置与闹钟快照都属于设备绑定状态，
+  恢复到另一台设备后不可用甚至可被复用，因此整体排除；用户的外观、指令与日志仍照常备份。
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="method_hook_secrets.xml" />
+    <exclude domain="sharedpref" path="flowglass_method_hooks.xml" />
+    <exclude domain="sharedpref" path="root_state.xml" />
+    <exclude domain="sharedpref" path="system_hook.xml" />
+    <exclude domain="sharedpref" path="trigger_alarms.xml" />
+</full-backup-content>

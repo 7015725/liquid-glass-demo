@@ -28,6 +28,8 @@ class ComponentPermissionsTest {
         assertEquals(setOf("a11y"), metas.getValue("action.global_action").permissions.toSet())
         assertEquals(com.flowglass.engine.Tier.NORMAL, metas.getValue("action.airplane_mode").minTier)
         assertEquals(com.flowglass.engine.Tier.NORMAL, metas.getValue("action.mobile_data").minTier)
+        // Android 17 的本地网络保护：LAN HTTP 任务在启用时就要提示授权。
+        assertEquals(setOf("local_network"), metas.getValue("action.http_request").permissions.toSet())
     }
 
     @Test fun manifestDeclaresServicesAndNetworkStatePermission() {
@@ -42,5 +44,6 @@ class ComponentPermissionsTest {
         val permissions = info.requestedPermissions.orEmpty().toSet()
         assertTrue(permissions.contains(android.Manifest.permission.ACCESS_NETWORK_STATE))
         assertTrue(permissions.contains(android.Manifest.permission.VIBRATE))
+        assertTrue(permissions.contains("android.permission.ACCESS_LOCAL_NETWORK"))
     }
 }
