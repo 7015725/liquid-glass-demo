@@ -252,7 +252,9 @@ internal class BluetoothWatcher(
  * 只有集合从非空变空才产生 unplugged 边沿。
  */
 internal class BluetoothAudioPresence {
-    private val addresses = linkedSetOf<String>()
+    // 同一副耳机会同时暴露 A2DP 与 SCO 两个 AudioDeviceInfo，地址相同；用计数而不是集合，
+    // 否则移除其中一个 profile 就会被当成「全部拔出」。
+    private val counts = mutableMapOf<String, Int>()
 
     fun key(device: AudioDeviceInfo): String {
         // getAddress() 是 API 28 才有的；26/27 用设备 id 兜底。
@@ -261,16 +263,27 @@ internal class BluetoothAudioPresence {
     }
 
     /** 返回是否真的发生了「从无到有」的 plugged 边沿。 */
-    fun added(key: String): Boolean = addresses.add(key)
-
-    /** 返回是否真的发生了「从有到无」的 unplugged 边沿。 */
-    fun removed(key: String): Boolean {
-        // 只有真的移除了一个已知设备，且集合随后为空，才是拔出边沿。
-        if (!addresses.remove(key)) return false
-        return addresses.isEmpty()
+    @Synchronized
+    fun added(key: String): Boolean {
+        val previous = counts[key] ?: 0
+        counts[key] = previous + 1
+        return previous == 0
     }
 
-    fun reset() = addresses.clear()
+    /** 返回是否真的发生了「从有到无」的 unplugged 边沿（最后一个 profile/设备移除）。 */
+    @Synchronized
+    fun removed(key: String): Boolean {
+        val previous = counts[key] ?: return false
+        if (previous > 1) {
+            counts[key] = previous - 1
+            return false
+        }
+        counts.remove(key)
+        return counts.isEmpty()
+    }
+
+    @Synchronized
+    fun reset() = counts.clear()
 }
 
 internal class HeadsetWatcher(
