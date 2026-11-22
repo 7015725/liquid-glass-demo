@@ -145,14 +145,27 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
     require(steps.all { it.itemId > 0L && it.itemId < Long.MAX_VALUE && it.durationMs >= 0L }) {
         "执行记录步骤标识或耗时无效"
     }
+    val treeIdSet = rules.flatMap { it.triggers.allComponents() + it.conditions.allComponents() + it.actions.allComponents() }
+        .mapNotNull { it.id }
+        .toSet()
+    // 声明与引用决定分配起点；树上的重号只用于避开，不参与「是否已用尽」的判断。
     val usedIds = (declaredIds + steps.map { it.itemId }).toMutableSet()
     var nextId = maxOf(1000L, (usedIds.maxOrNull() ?: 999L) + 1L)
     fun allocateId(): Long {
-        // nextId starts above every declaration/reference; no collision scan is needed.
+        // Skip tree IDs so a freshly allocated id cannot land on an unreassigned duplicate.
+        while (nextId in treeIdSet) {
+            check(nextId < Long.MAX_VALUE - 1L) { "兼容标识已用尽" }
+            nextId++
+        }
         // Check BEFORE incrementing so exhaustion cannot wrap into a negative-ID loop.
         check(nextId < Long.MAX_VALUE) { "兼容标识已用尽" }
         return nextId++.also(usedIds::add)
     }
+    // 组件树才是 ID 权威：历史/导入文档里同一 ID 可能出现在多个容器，sidecar 会被折叠成
+    // 一个键，之后按 ID 查找会同时改到多条。首个出现保留原 ID，后续重号分配新 ID。
+    val seenComponentIds = (commandIds + logIds).toMutableSet()
+    fun claimId(candidate: Long?): Long? =
+        candidate?.takeIf { it in 1L until Long.MAX_VALUE && seenComponentIds.add(it) }
     val normalizedPresentation = metadata.presentation.toMutableMap()
     val rules = this.rules.map { rule ->
         val sidecar = metadata.presentation[rule.id] ?: RulePresentation()
@@ -162,7 +175,7 @@ internal fun RuleDocument.toPersistedAppState(): PersistedAppState {
             components: List<RuleComponent>,
             old: List<ComponentPresentation>,
         ) = components.mapIndexed { index, component ->
-            component.toCommandItem(old.getOrNull(index), sidecar, ::allocateId)
+            component.toCommandItem(old.getOrNull(index), sidecar, ::allocateId, ::claimId)
         }
         val triggers = items(rule.triggers, sidecar.triggers)
         val conditions = items(rule.conditions, sidecar.conditions)
@@ -364,8 +377,9 @@ private fun RuleComponent.toCommandItem(
     old: ComponentPresentation?,
     sidecar: RulePresentation,
     allocateId: () -> Long,
+    claimId: (Long?) -> Long?,
 ): CommandItem {
-    val id = this.id ?: old?.id ?: allocateId()
+    val id = claimId(this.id) ?: claimId(old?.id) ?: allocateId()
     val icon = sidecar.items[id]?.icon ?: old?.icon ?: params["icon"]?.displayText() ?: "Bolt"
     return CommandItem(
         id = id,
@@ -374,14 +388,14 @@ private fun RuleComponent.toCommandItem(
         ic = iconOrDefault(icon),
         typeId = type,
         onError = onError,
-        children = children.map { it.toCommandItem(null, sidecar, allocateId) },
+        children = children.map { it.toCommandItem(null, sidecar, allocateId, claimId) },
         branches = branches.map { branch ->
             CommandBranch(
-                children = branch.children.map { it.toCommandItem(null, sidecar, allocateId) },
-                conditions = branch.conditions.map { it.toCommandItem(null, sidecar, allocateId) },
+                children = branch.children.map { it.toCommandItem(null, sidecar, allocateId, claimId) },
+                conditions = branch.conditions.map { it.toCommandItem(null, sidecar, allocateId, claimId) },
             )
         },
-        conditions = conditions.map { it.toCommandItem(null, sidecar, allocateId) },
+        conditions = conditions.map { it.toCommandItem(null, sidecar, allocateId, claimId) },
         collapsed = id in sidecar.collapsed,
         outputs = outputs,
     )
