@@ -337,17 +337,14 @@ internal class HeadsetWatcher(
         }
         try {
             audio?.registerAudioDeviceCallback(devices, null)
+            // 注册 AudioDeviceCallback 后平台会立刻回放当前设备列表（MSG_DEVICE_LIST_INIT），
+            // plugged 边沿由这次回放统一产生。这里只处理「一台都没有」的基线，否则两条路径
+            // 各加一次计数，拔出时计数永远不归零，unplugged 再也不会上报。
             val bluetooth = audio?.getDevices(AudioManager.GET_DEVICES_OUTPUTS).orEmpty()
                 .filter { isBluetoothAudio(it) }
-            bluetooth.forEach { bluetoothPresence.added(bluetoothPresence.key(it)) }
             if (bluetooth.isEmpty()) {
                 emit(TriggerKinds.HEADSET, TriggerSource.HEADSET,
                     mapOf("state" to "unplugged", "kind" to "bluetooth", "name" to ""))
-            } else {
-                bluetooth.forEach {
-                    emit(TriggerKinds.HEADSET, TriggerSource.HEADSET,
-                        mapOf("state" to "plugged", "kind" to "bluetooth", "name" to it.productName.toString()))
-                }
             }
         } catch (_: Throwable) {
         }
