@@ -224,7 +224,7 @@ internal class BluetoothWatcher(
         register(context, receiver, IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
-        })
+        }, exported = true)
     }
 
     fun stop() {
@@ -247,11 +247,38 @@ internal class BluetoothWatcher(
     }
 }
 
+/**
+ * TRG-008：多台蓝牙音频设备时，拔掉任意一台不等于耳机全部拔出。这里按地址维护当前集合，
+ * 只有集合从非空变空才产生 unplugged 边沿。
+ */
+internal class BluetoothAudioPresence {
+    private val addresses = linkedSetOf<String>()
+
+    fun key(device: AudioDeviceInfo): String {
+        // getAddress() 是 API 28 才有的；26/27 用设备 id 兜底。
+        val address = if (Build.VERSION.SDK_INT >= 28) device.address else null
+        return address?.takeIf { it.isNotBlank() } ?: "id:${device.id}"
+    }
+
+    /** 返回是否真的发生了「从无到有」的 plugged 边沿。 */
+    fun added(key: String): Boolean = addresses.add(key)
+
+    /** 返回是否真的发生了「从有到无」的 unplugged 边沿。 */
+    fun removed(key: String): Boolean {
+        // 只有真的移除了一个已知设备，且集合随后为空，才是拔出边沿。
+        if (!addresses.remove(key)) return false
+        return addresses.isEmpty()
+    }
+
+    fun reset() = addresses.clear()
+}
+
 internal class HeadsetWatcher(
     private val context: Context,
     private val emit: TriggerEmit,
 ) {
     private val audio = context.getSystemService(AudioManager::class.java)
+    private val bluetoothPresence = BluetoothAudioPresence()
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -271,6 +298,7 @@ internal class HeadsetWatcher(
     private val devices = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
             addedDevices.filter { isBluetoothAudio(it) }.forEach {
+                if (!bluetoothPresence.added(bluetoothPresence.key(it))) return@forEach
                 emit(TriggerKinds.HEADSET, TriggerSource.HEADSET,
                     mapOf("state" to "plugged", "kind" to "bluetooth", "name" to it.productName.toString()))
             }
@@ -278,6 +306,8 @@ internal class HeadsetWatcher(
 
         override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
             removedDevices.filter { isBluetoothAudio(it) }.forEach {
+                if (!bluetoothPresence.removed(bluetoothPresence.key(it))) return@forEach
+                // 只有最后一台蓝牙音频设备移除时才是真正的「拔出」。
                 emit(TriggerKinds.HEADSET, TriggerSource.HEADSET,
                     mapOf("state" to "unplugged", "kind" to "bluetooth", "name" to it.productName.toString()))
             }
@@ -296,6 +326,7 @@ internal class HeadsetWatcher(
             audio?.registerAudioDeviceCallback(devices, null)
             val bluetooth = audio?.getDevices(AudioManager.GET_DEVICES_OUTPUTS).orEmpty()
                 .filter { isBluetoothAudio(it) }
+            bluetooth.forEach { bluetoothPresence.added(bluetoothPresence.key(it)) }
             if (bluetooth.isEmpty()) {
                 emit(TriggerKinds.HEADSET, TriggerSource.HEADSET,
                     mapOf("state" to "unplugged", "kind" to "bluetooth", "name" to ""))
@@ -318,6 +349,7 @@ internal class HeadsetWatcher(
             audio?.unregisterAudioDeviceCallback(devices)
         } catch (_: Throwable) {
         }
+        bluetoothPresence.reset()
     }
 
     private fun isBluetoothAudio(device: AudioDeviceInfo): Boolean = when (device.type) {
@@ -381,9 +413,14 @@ internal class AppForegroundWatcher(
     }
 }
 
-private fun register(context: Context, receiver: BroadcastReceiver, filter: IntentFilter): Intent? = try {
+private fun register(
+    context: Context,
+    receiver: BroadcastReceiver,
+    filter: IntentFilter,
+    exported: Boolean = false,
+): Intent? = try {
     if (Build.VERSION.SDK_INT >= 33) {
-        context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        context.registerReceiver(receiver, filter, receiverFlags(exported))
     } else {
         @Suppress("UnspecifiedRegisterReceiverFlag")
         context.registerReceiver(receiver, filter)
@@ -391,3 +428,11 @@ private fun register(context: Context, receiver: BroadcastReceiver, filter: Inte
 } catch (_: Throwable) {
     null
 }
+
+/**
+ * 系统/特权进程发出的广播（例如蓝牙进程的 ACL_CONNECTED）在 Android 13+ 用
+ * RECEIVER_NOT_EXPORTED 注册会收不到；这些 action 在平台里是 protected broadcast，
+ * 普通应用无法伪造，所以按来源拆分注册比给所有接收器放开导出安全。
+ */
+internal fun receiverFlags(exported: Boolean): Int =
+    if (exported) Context.RECEIVER_EXPORTED else Context.RECEIVER_NOT_EXPORTED
