@@ -10,7 +10,9 @@ import com.flowglass.engine.methodhook.MethodHookWireEnvelope
 import com.flowglass.engine.methodhook.MethodHookWireJson
 import com.flowglass.engine.methodhook.MethodHookWirePacket
 import java.security.SecureRandom
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -27,9 +29,7 @@ internal class MethodHookBinderClient(
     private val tokenFor: (String) -> String?,
 ) : MethodHookEmitter {
     private val appContext = context.applicationContext ?: context
-    private val executor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "FlowGlassMethodHookSender").apply { isDaemon = true }
-    }
+    private val executor = methodHookSenderExecutor()
     private val session = randomSession()
     private val seq = AtomicLong(0L)
     private val greeted = linkedSetOf<String>()
@@ -128,3 +128,20 @@ internal class MethodHookBinderClient(
         const val SERVICE_CLASS = "com.flowglass.demo.xposed.method.MethodHookEventService"
     }
 }
+
+/**
+ * 单线程发送器，但队列必须有界：hook 回调在目标应用的主线程/工作线程上，不能阻塞，
+ * 所以队列满时丢最旧的待发送任务（下一次 emit 会重新入队 hello）。此前用的是无界的
+ * newSingleThreadExecutor，宿主不可用时可以把目标进程内存吃光。
+ */
+internal fun methodHookSenderExecutor(): ThreadPoolExecutor = ThreadPoolExecutor(
+    1,
+    1,
+    0L,
+    TimeUnit.MILLISECONDS,
+    ArrayBlockingQueue(METHOD_HOOK_QUEUE_CAPACITY),
+    { runnable -> Thread(runnable, "FlowGlassMethodHookSender").apply { isDaemon = true } },
+    ThreadPoolExecutor.DiscardOldestPolicy(),
+)
+
+internal const val METHOD_HOOK_QUEUE_CAPACITY = 256
