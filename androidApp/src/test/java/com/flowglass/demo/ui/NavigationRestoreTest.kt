@@ -233,6 +233,24 @@ class NavigationRestoreTest {
         assertEquals(true, restored.draft)
     }
 
+    @Test fun aLostDraftOpenedFromABlockPageReturnsToTheCommandRoot() {
+        val state = AppState()
+        val command = state.create(auto = true)
+        state.addItem(command.id, CommandSection.ACTIONS,
+            CommandCatalog.options(CommandSection.ACTIONS).single { it.typeId == "block.if" })
+        val block = state.find(command.id)!!.actions.single()
+        val restored = AppState(state.snapshot())
+
+        restoreNavigation(
+            restored,
+            NavSnapshot(tab = 1, editing = command.id, actionCmd = command.id,
+                blockPath = listOf(block.id), draft = true),
+        )
+
+        assertEquals("未保存的组件草稿已丢失，已恢复上次保存的版本", restored.editorNotice)
+        assertTrue(restored.blockPath.isEmpty())
+    }
+
     @Test fun aCleanRestoreDoesNotReportALostDraft() {
         val state = AppState()
         val command = state.create(auto = true)

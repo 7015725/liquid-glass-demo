@@ -71,7 +71,11 @@ internal fun restoreNavigation(state: AppState, saved: NavSnapshot): NavSnapshot
     // On Activity recreation AppState is already alive: a path the user opened after the last
     // saved snapshot must win over that stale snapshot. A process restore has no in-memory path,
     // so it falls back to the saved one.
-    state.blockPath = state.validBlockPath(if (processRestore) saved.blockPath else liveBlockPath)
+    // A lost draft opened from a block page must not land on that block page: the notice
+    // is rendered by the command editor root, so drop the block path and stay at the root.
+    state.blockPath = state.validBlockPath(
+        if (lostDraft) emptyList() else if (processRestore) saved.blockPath else liveBlockPath,
+    )
     if (lostDraft) {
         // A new component draft has no stable id, and an edited saved component silently reopens
         // from disk. Tell the user the draft is gone instead of presenting the saved version as theirs.
