@@ -76,7 +76,7 @@ internal fun ActionParameterEditor(
             SetVariableEditor(meta, item, onParameter, targets, variables, onValidity)
         } else {
             MultiParameterEditor(meta, item, onParameter, onAuthorization, targets, variables,
-                canConfigureOutputs, onConfigureOutputs)
+                canConfigureOutputs, onConfigureOutputs, onValidity)
         }
     } else {
         val spec = meta.params.single()
@@ -129,12 +129,11 @@ private fun SetVariableEditor(
         val candidate = next["name"].orEmpty().trim().removeSurrounding("{", "}")
         if (candidate.isEmpty()) return "变量名不能为空"
         com.flowglass.engine.VariableName.error(candidate)?.let { return it }
-        val scope = when (next["scope"].orEmpty()) {
-            "所有指令", "global" -> "global"
-            else -> "local"
+        // Same-name local shadowing a global is legal; only a name that is neither editable nor
+        // already a user variable is occupied.
+        val exists = variables.any {
+            it.scope != com.flowglass.engine.VariableScope.BUILTIN && it.name == candidate
         }
-        val sameScope = variables.filter { it.scope.name.lowercase() == scope }
-        val exists = sameScope.any { it.name == candidate }
         return if (!exists && variables.any { it.name == candidate }) "名字已被占用：$candidate" else null
     }
 
@@ -235,18 +234,8 @@ private fun MultiParameterEditor(
 ) {
     var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
-
-    fun nameProblem(next: Map<String, String>): String? {
-        val candidate = next["name"].orEmpty().trim().removeSurrounding("{", "}")
-        if (candidate.isEmpty()) return "变量名不能为空"
-        com.flowglass.engine.VariableName.error(candidate)?.let { return it }
-        val scope = when (next["scope"].orEmpty()) {
-            "所有指令", "global" -> "global"
-            else -> "local"
-        }
-        val sameScope = variables.filter { it.scope.name.lowercase() == scope }
-        val exists = sameScope.any { it.name == candidate }
-        return if (!exists && variables.any { it.name == candidate }) "名字已被占用：$candidate" else null
+    LaunchedEffect(item.id) {
+        onValidity(ParameterForm.compose(meta, fields).isFailure)
     }
 
     fun update(key: String, value: String) {
