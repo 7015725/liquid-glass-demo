@@ -4,6 +4,7 @@ import com.flowglass.engine.VariableScope
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -29,6 +30,8 @@ class NewCommandVariableTest {
         val state = AppState()
         val cmd = state.create(auto = true)
         state.createVariable(VariableScope.LOCAL, cmd.id, "次数", "int", "计数", "3")
+        state.addItem(cmd.id, CommandSection.ACTIONS,
+            CommandCatalog.options(CommandSection.ACTIONS).single { it.typeId == "action.toast" })
 
         val copyId = requireNotNull(state.duplicate(cmd.id))
 
@@ -37,5 +40,23 @@ class NewCommandVariableTest {
         assertNotNull(copied)
         assertNotEquals(original, copied)
         assertEquals(state.localsOf(cmd.id), state.localsOf(copyId))
+        val copyRule = state.engineRules.single { it.id == state.ruleIdFor(copyId) }
+        val copyActions = state.find(copyId)!!.actions
+        assertEquals(copyActions.map { it.id }, copyRule.actions.map { it.id })
+    }
+
+    @Test
+    fun deletingACommandRemovesItsRuleAndUndoRestoresIt() {
+        val state = AppState()
+        val cmd = state.create(auto = true)
+        state.createVariable(VariableScope.LOCAL, cmd.id, "次数", "int", "", "3")
+        val ruleId = requireNotNull(state.ruleIdFor(cmd.id))
+
+        state.delete(cmd.id)
+        assertTrue(state.engineRules.none { it.id == ruleId })
+
+        state.undoDelete()
+        assertNotNull(state.ruleIdFor(cmd.id))
+        assertEquals(listOf("次数"), state.localsOf(cmd.id).map { it.name })
     }
 }
