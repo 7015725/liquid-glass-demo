@@ -128,9 +128,9 @@ fun FlowGlassApp() {
             navRestored = true
         }
     }
-    // componentDraft is only read inside a child page, so derive it here to make this scope
-    // recompose when a draft opens or closes; otherwise nav.draft would keep a stale value.
-    val draftOpen by remember { derivedStateOf { state.componentDraft != null } }
+    // Read the draft state in composition (not only inside SideEffect) so opening or closing
+    // a draft recomposes this scope and the snapshot below is rewritten.
+    val draftOpen = state.componentDraft != null
     // Keep the saveable snapshot in step with navigation performed directly on AppState.
     SideEffect {
         if (navRestored) {
