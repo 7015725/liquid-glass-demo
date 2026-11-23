@@ -67,6 +67,10 @@ internal fun restoreNavigation(state: AppState, saved: NavSnapshot): NavSnapshot
     // saved snapshot must win over that stale snapshot. A process restore has no in-memory path,
     // so it falls back to the saved one.
     state.blockPath = state.validBlockPath(if (processRestore) saved.blockPath else liveBlockPath)
+    if (processRestore && saved.action > 0L && state.itemById(saved.actionCmd, saved.action) == null) {
+        // The editor can reopen the last saved component, but an unsaved draft has no id to restore.
+        state.editorNotice = "未保存的组件草稿已丢失，已恢复上次保存的版本"
+    }
 
     val savedPage = saved.settingsPage.takeIf { it in SettingsPage.KeepAlive..SettingsPage.Variables }
     if (state.settingsPage == SettingsPage.Main && savedPage != null) state.settingsPage = savedPage
