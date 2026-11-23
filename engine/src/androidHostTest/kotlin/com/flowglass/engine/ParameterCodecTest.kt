@@ -109,6 +109,16 @@ class ParameterCodecTest {
         assertEquals(long, ParameterCodec.parseComponent(meta, text))
     }
 
+    @Test fun shortToastWithJsonLookingTextRoundTripsUnchanged() {
+        val meta = BuiltInComponents.registry().find("action.toast")!!
+        val params = mapOf(
+            "text" to JsonPrimitive("""{"text":"替代内容","duration":"long"}"""),
+            "duration" to JsonPrimitive("short"),
+        )
+        val formatted = ParameterCodec.formatComponent(meta, params)
+        assertEquals(params, ParameterCodec.parseComponent(meta, formatted))
+    }
+
     @Test fun weekdaysRoundTripNormalisesLabelsAndRejectsEmptySelection() {
         val spec = ParamSpec("days", "重复", ParamType.WEEKDAYS)
         verify(spec, "工作日", JsonPrimitive("1,2,3,4,5"), "工作日", "周八", JsonPrimitive("1,8"))

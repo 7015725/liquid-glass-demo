@@ -69,6 +69,7 @@ class TriggerService : Service() {
         }
         intent?.toTriggerEvent()?.let(::deliver)
         ensureHost()
+        if (intent?.action == ACTION_REPLAY_PENDING) drainPendingEvents()
         if (allowLocationUpgrade) requestLocationUpgradeIfEligible()
         return START_STICKY
     }
@@ -93,6 +94,13 @@ class TriggerService : Service() {
         }
         if (!existing.isRunning) existing.start()
         if (existing.isRunning) existing.emit(event) else pending += event
+    }
+
+    private fun drainPendingEvents() {
+        for (queued in PendingSystemEvents.drain(this)) {
+            val event = queued.toTriggerEvent() ?: continue
+            deliver(event)
+        }
     }
 
     private fun ensureHost() {
@@ -165,6 +173,7 @@ class TriggerService : Service() {
         const val ACTION_SYSTEM_HOOK_READY = "com.flowglass.demo.trigger.SYSTEM_HOOK_READY"
         const val ACTION_BOOT = "com.flowglass.demo.trigger.BOOT"
         const val ACTION_STOP = "com.flowglass.demo.trigger.STOP"
+        internal const val ACTION_REPLAY_PENDING = "com.flowglass.demo.action.REPLAY_PENDING"
         private const val EXTRA_ALLOW_LOCATION_UPGRADE = "allow_location_upgrade"
         private const val EXTRA_RULE_ID = "rule_id"
         private const val EXTRA_CMD_ID = "cmd_id"
@@ -186,23 +195,32 @@ class TriggerService : Service() {
             return true
         }
 
-        /** Returns false when the background service start was rejected by the system. */
+        fun intent(
+            context: Context,
+            action: String = ACTION_START,
+            allowLocationUpgrade: Boolean = false,
+            configure: Intent.() -> Unit = { },
+        ): Intent {
+            val intent = Intent(context, TriggerService::class.java).setAction(action)
+            intent.putExtra(EXTRA_ALLOW_LOCATION_UPGRADE, allowLocationUpgrade)
+            intent.configure()
+            return intent
+        }
+
         fun start(
             context: Context,
             action: String = ACTION_START,
             allowLocationUpgrade: Boolean = false,
             configure: Intent.() -> Unit = { },
-        ): Boolean {
-            val intent = Intent(context, TriggerService::class.java).setAction(action)
-            intent.putExtra(EXTRA_ALLOW_LOCATION_UPGRADE, allowLocationUpgrade)
-            intent.configure()
-            return try {
-                if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
-                else context.startService(intent)
-                true
-            } catch (_: Throwable) {
-                false
-            }
+        ): Boolean = startIntent(context, intent(context, action, allowLocationUpgrade, configure))
+
+        /** Returns false when the background service start was rejected by the system. */
+        fun startIntent(context: Context, intent: Intent): Boolean = try {
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
+            else context.startService(intent)
+            true
+        } catch (_: Throwable) {
+            false
         }
 
         /** Used by screens / jobs after the engine is switched back on. */
@@ -210,7 +228,10 @@ class TriggerService : Service() {
             ExecutionRuntime.scope.launch {
                 val state = withContext(Dispatchers.IO) { AppRuntime.of(context).load() }
                 if (state.running && state.autoCmds.any { it.enabled }) {
-                    start(context, allowLocationUpgrade = allowLocationUpgrade)
+                    // A rejected background start can leave hook events on disk; this start is in
+                    // the foreground and is the allowed moment to drain them.
+                    val action = if (PendingSystemEvents.isNotEmpty(context)) ACTION_REPLAY_PENDING else ACTION_START
+                    start(context, action, allowLocationUpgrade = allowLocationUpgrade)
                 }
             }
         }

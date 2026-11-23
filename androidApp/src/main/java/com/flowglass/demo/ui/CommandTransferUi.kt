@@ -139,7 +139,7 @@ internal fun ImportPreviewDialog(
         ) {
             T(if (isBackup) "恢复备份" else "导入预览", 20.sp, FontWeight.Bold)
             T(
-                if (isBackup) "恢复会替换当前全部指令、变量和设置；恢复前会自动备份当前数据。"
+                if (isBackup) "恢复会替换当前全部指令、变量和设置；恢复前会自动备份当前数据。恢复后自动指令与引擎默认关闭，后台能力需手动开启。"
                 else "以下内容来自不可信文件，确认前不会写入。",
                 13.sp, color = C.Muted, lineHeight = 19.sp,
             )

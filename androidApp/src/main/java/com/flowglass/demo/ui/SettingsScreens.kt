@@ -1092,8 +1092,9 @@ private fun BackupRestorePage(
                                     // The durable write happens with saving still blocked; the state
                                     // becomes live inside the transaction, and only then does saving
                                     // resume. A flush in between cannot queue the old document.
-                                    val preserved = runtime.commitRestore(parsed.converted) {
-                                        state.replaceWith(parsed.converted)
+                                    val restored = parsed.converted.disarmedAfterRestore()
+                                    val preserved = runtime.commitRestore(restored) {
+                                        state.replaceWith(restored)
                                         // The old failure banner no longer describes the store.
                                         state.storageError = null
                                     }
@@ -1104,13 +1105,14 @@ private fun BackupRestorePage(
                                             AppearanceSettings.write(context, theme)
                                             onThemeModeChange(theme)
                                         }
-                                        parsed.settings?.let { applyBackupAppSettings(context, it.appSettings) }
+                                        // Background capabilities are not implied by restoring data.
+                                        parsed.settings?.let { applyBackupAppSettings(context, it.appSettings, includeBackground = false) }
                                     }.exceptionOrNull()
                                     val kept = preserved?.let { "；修复前存档保留为 ${it.name}" }.orEmpty()
                                     notice = if (settingsError == null) {
-                                        "已恢复备份并写入本地存档；原数据已保存到 ${safety.name}$kept"
+                                        "已恢复备份并写入本地存档；自动指令与引擎已保持关闭，请检查后手动开启。原数据已保存到 ${safety.name}$kept"
                                     } else {
-                                        "已恢复备份并写入本地存档；原数据已保存到 ${safety.name}$kept（外观或设置未能应用：${settingsError.message.orEmpty()}）"
+                                        "已恢复备份并写入本地存档；自动指令与引擎已保持关闭，请检查后手动开启。原数据已保存到 ${safety.name}$kept（外观未能应用：${settingsError.message.orEmpty()}）"
                                     }
                                 } catch (cancel: CancellationException) {
                                     throw cancel

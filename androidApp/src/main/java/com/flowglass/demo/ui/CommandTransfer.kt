@@ -391,6 +391,22 @@ internal fun AppState.applyCommandImport(parsed: ParsedImport) {
 }
 
 /**
+ * A restore is data import, not consent to run it. Automatic rules, the engine and background
+ * capabilities from the file start disabled; the user re-enables them explicitly afterwards.
+ */
+internal fun PersistedAppState.disarmedAfterRestore(): PersistedAppState = PersistedAppState(
+    autoCmds = autoCmds.map { it.copy(enabled = false) },
+    oneTaps = oneTaps,
+    logs = logs,
+    running = false,
+    mode = mode,
+    engineRules = engineRules,
+    engineUi = engineUi.copy(running = false),
+    engineGlobals = engineGlobals,
+    engineGlobalMeta = engineGlobalMeta,
+)
+
+/**
  * Restores a full backup after writing the current in-memory snapshot to a safety file. The
  * document has already been validated and converted by [parseImport].
  */
@@ -569,7 +585,12 @@ internal fun readBackupAppSettings(context: Context): Map<String, String> {
     return out
 }
 
-internal fun applyBackupAppSettings(context: Context, settings: Map<String, String>) {
+internal fun applyBackupAppSettings(
+    context: Context,
+    settings: Map<String, String>,
+    includeBackground: Boolean = false,
+) {
+    if (!includeBackground) return
     for (key in listOf("fgs", "boot", "job")) {
         settings["keepalive.$key"]?.toBooleanStrictOrNull()?.let {
             com.flowglass.demo.system.KeepAlive.set(context, key, it)
