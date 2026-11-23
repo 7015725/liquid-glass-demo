@@ -60,7 +60,7 @@ internal fun HistoryPanel(state: AppState, onClose: () -> Unit) {
                 Spacer(Modifier.weight(1f))
                 T("成功 $okCount · 失败 $failed · 跳过 $skipped", 12.sp, color = C.Muted)
             }
-            val runningNow = state.executing.filterValues { it == 1 }.keys.toList()
+            val runningNow = state.executing.keys.filter { state.activeExecutionCount(it) > 0 }
             if (runningNow.isNotEmpty()) {
                 T("正在运行", 13.sp, FontWeight.SemiBold, C.OnSurfaceVar)
                 runningNow.forEach { id ->

@@ -223,15 +223,21 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
      */
     internal fun capSteps(cmd: Cmd, steps: List<StepResult>): List<StepResult> {
         if (steps.size <= MAX_STORED_STEPS) return steps
-        val headCount = 250
+        val headLimit = 250
         val tailCount = 50
-        val middle = steps.subList(headCount, steps.size - tailCount)
-        val failures = middle.filter { it.status == StepStatus.FAILURE }
-        val budget = MAX_STORED_STEPS - 1 - tailCount - failures.size
-        val head = steps.take(headCount.coerceAtMost(budget.coerceAtLeast(0)))
-        val omitted = middle.size - failures.size
+        val tailStart = steps.size - tailCount
+        val tail = steps.subList(tailStart, steps.size)
+        val failureBudget = MAX_STORED_STEPS - 1 - tailCount
+        // Keep the last failures from the middle, then fill the rest with non-failing head steps.
+        val failureIndexes = (0 until tailStart).filter { steps[it].status == StepStatus.FAILURE }
+            .takeLast(failureBudget)
+        val failureSet = failureIndexes.toHashSet()
+        val headBudget = (MAX_STORED_STEPS - 1 - tailCount - failureIndexes.size).coerceAtLeast(0)
+        val head = (0 until headLimit).filter { it !in failureSet }.take(headBudget).map { steps[it] }
+        val failures = failureIndexes.map { steps[it] }
+        val omitted = steps.size - head.size - failures.size - tail.size
         val marker = StepResult(cmd.id, "已省略 $omitted 个步骤", StepStatus.SKIPPED, "中间步骤仅保留失败项", 0)
-        return head + failures + marker + steps.takeLast(tailCount)
+        return head + failures + marker + tail
     }
 
     private fun sinkFor(targetRule: Rule, epoch: Int): VariableSink = object : VariableSink {

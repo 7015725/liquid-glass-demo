@@ -21,6 +21,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +61,15 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.StrokeCap
@@ -118,8 +128,26 @@ fun PressCard(
     val click by rememberUpdatedState(onClick)
     val longPress by rememberUpdatedState(onLongPress)
     var coords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    val action = click
     Box(
         modifier
+            .then(
+                if (action != null) {
+                    Modifier
+                        .semantics {
+                            role = Role.Button
+                            onClick { action(); true }
+                        }
+                        .focusable()
+                        .onKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyUp &&
+                                (event.key == Key.Enter || event.key == Key.Spacebar)
+                            ) {
+                                action(); true
+                            } else false
+                        }
+                } else Modifier
+            )
             .onGloballyPositioned { coords = it }
             .graphicsLayer {
                 val s = 1f - 0.03f * p
@@ -170,7 +198,18 @@ fun Modifier.pressable(scaleTo: Float = 0.92f, onClick: () -> Unit): Modifier = 
     var pressed by remember { mutableStateOf(false) }
     val p by animateFloatAsState(if (pressed) 1f else 0f, spatial(), label = "pressable")
     val click by rememberUpdatedState(onClick)
+    val action = click
     this
+        .semantics {
+            role = Role.Button
+            onClick { action(); true }
+        }
+        .focusable()
+        .onKeyEvent { event ->
+            if (event.type == KeyEventType.KeyUp && (event.key == Key.Enter || event.key == Key.Spacebar)) {
+                action(); true
+            } else false
+        }
         .graphicsLayer {
             val s = 1f - (1f - scaleTo) * p
             scaleX = s; scaleY = s

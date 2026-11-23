@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -818,7 +819,7 @@ private fun StepRow(n: Int, title: String, sub: String, done: Boolean, divider: 
 private fun PermissionsPage() {
     val ctx = LocalContext.current
     val t = tick()
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { SysTick.tick++ }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { SysTick.tick++ }
     val status = remember(t) { Perms.all.associate { it.key to it.check(ctx) } }
     val granted = status.values.count { it }
     val total = Perms.all.size
@@ -833,7 +834,7 @@ private fun PermissionsPage() {
             return
         }
         when (val g = p.grant) {
-            is Grant.Runtime -> launcher.launch(g.permission)
+            is Grant.Runtime -> launcher.launch(g.permissions.toTypedArray())
             is Grant.Page -> Perms.open(ctx, g.intent(ctx))
         }
     }
@@ -879,7 +880,8 @@ private fun BackupRestorePage(
     val scope = rememberCoroutineScope()
     var pending by remember { mutableStateOf<ParsedImport?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
-    var exportText by remember { mutableStateOf<String?>(null) }
+    // The system file picker can outlive the Activity; a plain remember would lose the payload.
+    var exportText by rememberSaveable { mutableStateOf<String?>(null) }
     var safetyFiles by remember { mutableStateOf<List<File>?>(null) }
     var restoring by remember { mutableStateOf(false) }
     var restoreJob by remember { mutableStateOf<Job?>(null) }

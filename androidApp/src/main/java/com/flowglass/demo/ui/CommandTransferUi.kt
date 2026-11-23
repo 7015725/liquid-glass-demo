@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,7 +41,7 @@ import kotlinx.coroutines.withContext
 internal fun ShareCommandDialog(state: AppState, cmd: Cmd, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var pendingJson by remember(cmd.id) { mutableStateOf<String?>(null) }
+    var pendingJson by rememberSaveable(cmd.id) { mutableStateOf<String?>(null) }
     var notice by remember(cmd.id) { mutableStateOf<String?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),

@@ -165,6 +165,26 @@ class NavigationRestoreTest {
             listOf(node) + node.children.flatMap(::descendants)
         return roots(view).flatMap { descendants(it.semanticsOwner.unmergedRootSemanticsNode) }
     }
+
+    @Test fun restoringAnOpenActionPageKeepsTheBlockPath() {
+        val state = AppState()
+        val command = state.create(auto = true)
+        val ifOption = CommandCatalog.options(CommandSection.ACTIONS).single { it.typeId == "block.if" }
+        state.addItem(command.id, CommandSection.ACTIONS, ifOption)
+        val parent = requireNotNull(state.find(command.id)).actions.single()
+        state.addChildItem(command.id, parent.id, null,
+            CommandCatalog.options(CommandSection.ACTIONS).single { it.typeId == "action.toast" })
+        val child = requireNotNull(state.find(command.id)).actions.single().children.single()
+        state.openEditor(command.id)
+        state.openBlock(parent.id)
+        state.actionEditingCmd = command.id
+        state.actionEditing = child.id
+
+        restoreNavigation(state, NavSnapshot(tab = 1, editing = command.id, actionCmd = command.id,
+            action = child.id, blockPath = listOf(parent.id)))
+
+        assertEquals(listOf(parent.id), state.blockPath)
+    }
 }
 
 private class NavProbeActivity : ComponentActivity() {

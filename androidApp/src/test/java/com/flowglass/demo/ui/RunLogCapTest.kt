@@ -76,4 +76,13 @@ class RunLogCapTest {
         assertTrue(loadedLog!!.steps.any { it.status == StepStatus.FAILURE })
         assertFalse(loadedLog.steps.any { it.name == "步骤 6000" })
     }
+
+    @Test
+    fun manyFailuresCannotBreakTheHardCap() {
+        val steps = (0 until 2_000).map { index ->
+            StepResult(itemId = 10, name = "步骤 $index", status = StepStatus.FAILURE, detail = "x", durationMs = 0)
+        }
+        val capped = engine().capSteps(cmd(), steps)
+        assertTrue("capped=${capped.size}", capped.size <= 301)
+    }
 }

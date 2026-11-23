@@ -47,6 +47,7 @@ internal val NavSnapshotSaver: Saver<NavSnapshot, Any> = mapSaver(
  */
 internal fun restoreNavigation(state: AppState, saved: NavSnapshot): NavSnapshot {
     val processRestore = state.editing == null
+    val liveBlockPath = state.blockPath
     val savedEditing = saved.editing.takeIf { it > 0L && state.find(it) != null }
     if (state.editing == null) savedEditing?.let(state::openEditor)
 
@@ -65,7 +66,7 @@ internal fun restoreNavigation(state: AppState, saved: NavSnapshot): NavSnapshot
     // On Activity recreation AppState is already alive: a path the user opened after the last
     // saved snapshot must win over that stale snapshot. A process restore has no in-memory path,
     // so it falls back to the saved one.
-    state.blockPath = state.validBlockPath(if (processRestore) saved.blockPath else state.blockPath)
+    state.blockPath = state.validBlockPath(if (processRestore) saved.blockPath else liveBlockPath)
 
     val savedPage = saved.settingsPage.takeIf { it in SettingsPage.KeepAlive..SettingsPage.Variables }
     if (state.settingsPage == SettingsPage.Main && savedPage != null) state.settingsPage = savedPage
