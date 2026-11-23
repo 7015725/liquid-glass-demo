@@ -46,7 +46,7 @@ internal fun ShareCommandDialog(state: AppState, cmd: Cmd, onDismiss: () -> Unit
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
-        val text = pendingJson
+        val text = state.pendingShareJson
         state.pendingShareJson = null
         if (uri != null && text == null) {
             notice = "导出内容已失效，请重新导出"

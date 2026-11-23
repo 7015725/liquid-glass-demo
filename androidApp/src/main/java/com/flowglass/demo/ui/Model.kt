@@ -1188,6 +1188,10 @@ class AppState internal constructor(saved: PersistedAppState?) {
      * ids far above this process's counter, and the next allocation must not collide with them.
      */
     internal fun replaceWith(converted: PersistedAppState) {
+        pendingExportText = null
+        pendingImportJson = null
+        pendingShareJson = null
+        sharingCmdId = null
         // 恢复屏障：先让旧世代失效并取消在途任务，再发布新文档。
         documentEpoch++
         executionJobs.values.flatten().forEach { it.cancel() }

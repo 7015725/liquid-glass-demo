@@ -893,7 +893,7 @@ private fun BackupRestorePage(
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
-        val text = exportText
+        val text = state.pendingExportText
         state.pendingExportText = null
         if (uri != null && text == null) {
             notice = "导出内容已失效，请重新导出"

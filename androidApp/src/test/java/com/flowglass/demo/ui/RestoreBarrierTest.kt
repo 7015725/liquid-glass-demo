@@ -120,4 +120,19 @@ class RestoreBarrierTest {
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         assertEquals(2, (state.engineGlobals["fresh"] as kotlinx.serialization.json.JsonPrimitive).content.toInt())
     }
+
+    @Test
+    fun restoringADocumentDropsPendingFilePayloads() {
+        val state = AppState()
+        state.create(auto = true)
+        state.pendingExportText = "old export"
+        state.pendingShareJson = "old share"
+        state.sharingCmdId = 7L
+
+        state.replaceWith(state.snapshot())
+
+        assertNull(state.pendingExportText)
+        assertNull(state.pendingShareJson)
+        assertNull(state.sharingCmdId)
+    }
 }

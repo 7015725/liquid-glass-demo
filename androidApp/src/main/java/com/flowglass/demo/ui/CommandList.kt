@@ -435,7 +435,7 @@ fun CommandMenuOverlay(state: AppState) {
     }
     val ctx = LocalContext.current
     val density = LocalDensity.current
-    var shareCmdId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val shareCmdId = state.sharingCmdId
     val actions = listOf(
         MenuAction(Ic.Pin, if (cmd.pinned) "取消置顶" else "置顶"),
         MenuAction(Ic.Edit, "重命名"),
@@ -449,7 +449,7 @@ fun CommandMenuOverlay(state: AppState) {
         if (a.label == "分享") {
             // Keep the overlay composed until the share dialog closes; otherwise
             // `shown` becomes null and this dialog's state is discarded with it.
-            shareCmdId = cmd.id
+            state.sharingCmdId = cmd.id
         } else {
             state.menu = null
             when (a.label) {
@@ -504,7 +504,8 @@ fun CommandMenuOverlay(state: AppState) {
     }
     shareCmdId?.let(state::find)?.let { command ->
         ShareCommandDialog(state, command) {
-            shareCmdId = null
+            state.sharingCmdId = null
+            state.pendingShareJson = null
             state.menu = null
         }
     }
