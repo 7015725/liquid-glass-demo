@@ -36,6 +36,7 @@ class TriggerEngineTest {
         var dnd: Boolean? = false,
         var network: NetworkType = NetworkType.NONE,
         var processRunning: Boolean? = null,
+        var ssid: String? = null,
     ) : TriggerEnvironment {
         override fun zoneOffsetMinutes(atEpochMs: Long): Int = offsetMinutes
         override fun batteryPercent(): Int? = battery
@@ -43,6 +44,7 @@ class TriggerEngineTest {
         override fun isScreenOn(): Boolean = screenOn
         override fun isDndOn(): Boolean? = dnd
         override fun networkType(): NetworkType = network
+        override fun wifiSsid(): String? = ssid
         override fun appProcessRunning(packageName: String, userId: Int): Boolean? = processRunning
     }
 
@@ -92,8 +94,10 @@ class TriggerEngineTest {
         triggers: List<TriggerComponent>,
         conditions: List<TriggerComponent> = emptyList(),
         enabled: Boolean = true,
+        mode: com.flowglass.engine.MatchMode = com.flowglass.engine.MatchMode.ANY,
     ) = TriggerRule(id = id, cmdId = id.hashCode().toLong(), name = id, enabled = enabled,
-        triggers = triggers, conditions = conditions)
+        triggers = triggers, conditions = conditions,
+        triggerMatch = com.flowglass.engine.MatchSpec(mode = mode))
 
     private fun screenEvent(kind: String = TriggerKinds.SCREEN_ON, at: Long = 0) =
         TriggerEvent(kind, TriggerSource.SCREEN, at)
@@ -782,5 +786,89 @@ class TriggerEngineTest {
         val skipped = d.dispatch(screenEvent(at = 3_000), listOf(r))
         assertEquals(0, skipped.executions.size)
         assertEquals("条件不满足：勿扰状态、网络类型", skipped.skips.single().detail)
+    }
+
+    @Test
+    fun allModeWifiUsesTheConfiguredSsid() {
+        val clock = FakeClock(0)
+        val env = FakeEnvironment(network = NetworkType.WIFI, ssid = "Cafe")
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, env, executor)
+        val home = rule(
+            "home",
+            listOf(
+                trigger(TriggerTypes.WIFI, "state" to "connected", "ssid" to "Home"),
+                trigger(TriggerTypes.SCREEN_ON),
+            ),
+            mode = com.flowglass.engine.MatchMode.ALL,
+        )
+
+        assertEquals(0, d.dispatch(screenEvent(), listOf(home)).executions.size)
+        env.ssid = "Home"
+        assertEquals(1, d.dispatch(screenEvent(at = 3_000), listOf(home)).executions.size)
+    }
+
+    @Test
+    fun allModeWifiDisconnectedMeansThatSsidIsNotTheCurrentOne() {
+        val clock = FakeClock(0)
+        val env = FakeEnvironment(network = NetworkType.WIFI, ssid = "Cafe")
+        val d = dispatcher(clock, env, RecordingExecutor())
+        val leftHome = rule(
+            "left-home",
+            listOf(
+                trigger(TriggerTypes.WIFI, "state" to "disconnected", "ssid" to "Home"),
+                trigger(TriggerTypes.SCREEN_ON),
+            ),
+            mode = com.flowglass.engine.MatchMode.ALL,
+        )
+
+        assertEquals(1, d.dispatch(screenEvent(), listOf(leftHome)).executions.size)
+        env.ssid = "Home"
+        assertEquals(0, d.dispatch(screenEvent(at = 3_000), listOf(leftHome)).executions.size)
+    }
+
+    @Test
+    fun allModeWifiWithoutAReadableSsidMatchesNeitherDirection() {
+        val clock = FakeClock(0)
+        val env = FakeEnvironment(network = NetworkType.WIFI, ssid = null)
+        val d = dispatcher(clock, env, RecordingExecutor())
+        val connected = rule(
+            "connected",
+            listOf(
+                trigger(TriggerTypes.WIFI, "state" to "connected", "ssid" to "Home"),
+                trigger(TriggerTypes.SCREEN_ON),
+            ),
+            mode = com.flowglass.engine.MatchMode.ALL,
+        )
+        val disconnected = rule(
+            "disconnected",
+            listOf(
+                trigger(TriggerTypes.WIFI, "state" to "disconnected", "ssid" to "Home"),
+                trigger(TriggerTypes.SCREEN_ON),
+            ),
+            mode = com.flowglass.engine.MatchMode.ALL,
+        )
+
+        assertEquals(0, d.dispatch(screenEvent(), listOf(connected, disconnected)).executions.size)
+    }
+
+    @Test
+    fun allModeWifiDisconnectedWithoutSsidFallsBackToNetworkType() {
+        val clock = FakeClock(0)
+        val env = FakeEnvironment(network = NetworkType.NONE)
+        val d = dispatcher(clock, env, RecordingExecutor())
+        val offWifi = rule(
+            "off-wifi",
+            listOf(
+                trigger(TriggerTypes.WIFI, "state" to "disconnected", "ssid" to ""),
+                trigger(TriggerTypes.SCREEN_ON),
+            ),
+            mode = com.flowglass.engine.MatchMode.ALL,
+        )
+
+        assertEquals(1, d.dispatch(screenEvent(), listOf(offWifi)).executions.size)
+        env.network = NetworkType.WIFI
+        env.ssid = "Cafe"
+        assertEquals(0, d.dispatch(screenEvent(at = 3_000), listOf(offWifi)).executions.size)
     }
 }

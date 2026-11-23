@@ -22,6 +22,9 @@ interface TriggerEnvironment {
     fun isScreenOn(): Boolean
     fun isDndOn(): Boolean? = null
     fun networkType(): NetworkType = NetworkType.NONE
+
+    /** SSID of the current Wi-Fi connection, or null when unknown/not connected. */
+    fun wifiSsid(): String? = null
     fun appProcessRunning(packageName: String, userId: Int): Boolean? = null
     fun fileExists(path: String): Boolean? = null
 
