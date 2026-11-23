@@ -56,6 +56,11 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -244,28 +249,40 @@ fun FlowGlassApp() {
         // ---------------- top-right glass capsule with two actions
         if (state.query == null) {
             LiquidButton(
-                onClick = {},
+                onClick = null,
                 backdrop = backdrop,
                 modifier = Modifier.align(Alignment.TopEnd).padding(top = statusTop + 8.dp, end = 16.dp),
                 surfaceColor = C.Glass
             ) {
                 Box(
-                    Modifier.size(40.dp).clip(Capsule()).pressable {
-                        if (tab != 1 && tab != 2) setTab(1)
-                        state.query = ""
-                    },
+                    Modifier.size(40.dp).clip(Capsule())
+                        .semantics { role = Role.Button; contentDescription = "搜索"; onClick { setTab(1); state.query = ""; true } }
+                        .pressable {
+                            if (tab != 1 && tab != 2) setTab(1)
+                            state.query = ""
+                        },
                     contentAlignment = Alignment.Center
                 ) { LineIcon(Ic.Search, C.OnSurface, 22.dp) }
                 Box(Modifier.width(1.dp).height(18.dp).background(C.Divider))
                 Box(
-                    Modifier.size(40.dp).clip(Capsule()).pressable {
-                        if (tab == 2) {
-                            state.openEditor(state.create(auto = false).id)
-                        } else {
-                            setTab(1)
-                            state.openEditor(state.create(auto = true).id)
+                    Modifier.size(40.dp).clip(Capsule())
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "新建"
+                            onClick {
+                                if (tab == 2) state.openEditor(state.create(auto = false).id)
+                                else { setTab(1); state.openEditor(state.create(auto = true).id) }
+                                true
+                            }
                         }
-                    },
+                        .pressable {
+                            if (tab == 2) {
+                                state.openEditor(state.create(auto = false).id)
+                            } else {
+                                setTab(1)
+                                state.openEditor(state.create(auto = true).id)
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) { LineIcon(Ic.Plus, C.OnSurface, 22.dp) }
             }

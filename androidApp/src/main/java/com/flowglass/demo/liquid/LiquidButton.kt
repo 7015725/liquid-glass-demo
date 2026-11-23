@@ -38,7 +38,7 @@ import kotlin.math.tanh
 
 @Composable
 fun LiquidButton(
-    onClick: () -> Unit,
+    onClick: (() -> Unit)? = null,
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
     isInteractive: Boolean = true,
@@ -102,11 +102,15 @@ fun LiquidButton(
                     }
                 }
             )
-            .clickable(
-                interactionSource = null,
-                indication = if (isInteractive) null else LocalIndication.current,
-                role = Role.Button,
-                onClick = onClick
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(
+                        interactionSource = null,
+                        indication = if (isInteractive) null else LocalIndication.current,
+                        role = Role.Button,
+                        onClick = onClick,
+                    )
+                } else Modifier
             )
             .then(
                 if (isInteractive) {

@@ -895,6 +895,9 @@ private fun BackupRestorePage(
     ) { uri ->
         val text = exportText
         state.pendingExportText = null
+        if (uri != null && text == null) {
+            notice = "导出内容已失效，请重新导出"
+        }
         if (uri != null && text != null) {
             scope.launch {
                 val error = runCatching {

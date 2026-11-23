@@ -48,6 +48,9 @@ internal fun ShareCommandDialog(state: AppState, cmd: Cmd, onDismiss: () -> Unit
     ) { uri ->
         val text = pendingJson
         state.pendingShareJson = null
+        if (uri != null && text == null) {
+            notice = "导出内容已失效，请重新导出"
+        }
         if (uri != null && text != null) {
             scope.launch {
                 val error = runCatching {
