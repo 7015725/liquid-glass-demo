@@ -25,6 +25,7 @@ class HookEventDispatcherTest {
 
         assertEquals(listOf("b", "c"), queue.drain().map { it.packageName })
         assertEquals(0, queue.size())
+        assertEquals("满队列丢最旧项必须可计数", 1, queue.droppedCount())
     }
 
     @Test

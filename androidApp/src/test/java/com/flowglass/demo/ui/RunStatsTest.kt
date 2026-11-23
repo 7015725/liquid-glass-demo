@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.ZoneId
 
 /** Overview metrics must come from real run stamps, including day boundaries and failures. */
 class RunStatsTest {
@@ -81,5 +82,30 @@ class RunStatsTest {
         )
         val stats = computeRunStats(listOf(log(now, steps = steps)), now, offset)
         assertEquals(1_000L, stats.averageMs)
+    }
+
+    @Test
+    fun last24UsesASlidingWindowInsteadOfTheTopOfTheHour() {
+        // 10:05 local; a run at 10:35 yesterday is 23.5 hours ago and must count.
+        val tenPast = now - 25 * 60_000L
+        val logs = listOf(log(tenPast - 23 * 3_600_000L - 30 * 60_000L))
+
+        val stats = computeRunStats(logs, tenPast, offset)
+
+        assertEquals(0, stats.todayCount)
+        assertEquals(1, stats.last24Count)
+    }
+
+    @Test
+    fun dstFallBackKeepsLocalMidnightRunsInToday() {
+        val zone = ZoneId.of("America/New_York")
+        // 2026-11-01 12:00 EST after the fall-back; 00:30 EDT is the same local date.
+        val noon = java.time.ZonedDateTime.of(2026, 11, 1, 12, 0, 0, 0, zone).toInstant().toEpochMilli()
+        val midnight = java.time.ZonedDateTime.of(2026, 11, 1, 0, 30, 0, 0, zone).toInstant().toEpochMilli()
+
+        val stats = computeRunStats(listOf(log(midnight)), noon, zoneId = zone)
+
+        assertEquals(1, stats.todayCount)
+        assertEquals(1, stats.last24Count)
     }
 }

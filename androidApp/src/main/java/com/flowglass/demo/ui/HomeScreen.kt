@@ -86,7 +86,7 @@ private fun HeroCard(state: AppState, modifier: Modifier) {
             }
         }
     }
-    val stats = computeRunStats(state.logs, now)
+    val stats = computeRunStats(state.logs, now, zoneId = java.time.ZoneId.systemDefault())
     val enabled = state.autoCmds.count { it.enabled }
     val listening = if (state.running && com.flowglass.demo.system.trigger.TriggerStatus.serviceActive)
         com.flowglass.demo.system.trigger.TriggerStatus.listeningRules else 0
@@ -131,6 +131,10 @@ private fun HeroCard(state: AppState, modifier: Modifier) {
                                 T("已注册 $sources 个监听源", 11.sp, color = C.Muted)
                                 if (com.flowglass.demo.system.trigger.TriggerStatus.locationNeedsForeground) {
                                     T("地点触发需要打开 App 一次", 11.sp, color = C.WarnText)
+                                }
+                                val dropped = com.flowglass.demo.system.trigger.TriggerStatus.droppedEvents
+                                if (dropped > 0) {
+                                    T("已丢弃 $dropped 个触发事件（队列过载）", 11.sp, color = C.WarnText)
                                 }
                             }
                         }
@@ -304,7 +308,7 @@ private fun MetricsCard(state: AppState, modifier: Modifier) {
             delay(60_000)
         }
     }
-    val stats = computeRunStats(state.logs, now)
+    val stats = computeRunStats(state.logs, now, zoneId = java.time.ZoneId.systemDefault())
     PressCard(modifier.fillMaxWidth()) {
         Column {
             SectionTitle("执行统计") { T("来自运行记录", 13.sp, color = C.Muted) }

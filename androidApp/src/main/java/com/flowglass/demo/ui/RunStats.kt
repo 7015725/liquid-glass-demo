@@ -1,5 +1,8 @@
 package com.flowglass.demo.ui
 
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.TimeZone
 
 /**
@@ -21,30 +24,34 @@ data class RunStats(
 }
 
 private const val HOUR_MS = 3_600_000L
-private const val DAY_MS = 86_400_000L
 
 fun computeRunStats(
     logs: List<RunLog>,
     nowMs: Long,
     offsetMinutes: Int = TimeZone.getDefault().getOffset(nowMs) / 60_000,
+    zoneId: ZoneId? = null,
 ): RunStats {
-    val offsetMs = offsetMinutes * 60_000L
-    val localNow = nowMs + offsetMs
-    val todayStart = localNow - Math.floorMod(localNow, DAY_MS) - offsetMs
+    // A fixed offset cannot represent DST: production passes ZoneId.systemDefault(). Tests that
+    // build synthetic UTC stamps can keep using the offset-only overload.
+    val zone = zoneId ?: ZoneOffset.ofTotalSeconds(offsetMinutes * 60)
     val currentHourStart = nowMs - Math.floorMod(nowMs, HOUR_MS)
-    val windowStart = currentHourStart - 23 * HOUR_MS
 
     val real = logs.filter { it.at > 0 && !it.skipped }
-    val today = real.filter { it.at in todayStart until todayStart + DAY_MS }
-    val todaySuccess = today.count { it.ok }
+    val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+    val todayLogs = real.filter { Instant.ofEpochMilli(it.at).atZone(zone).toLocalDate() == today }
+    val todaySuccess = todayLogs.count { it.ok }
 
     var windowCount = 0
     val buckets = IntArray(24)
+    // The headline uses a true sliding 24 h window. The chart keeps 24 clock-hour buckets ending
+    // with the current hour; at an hour boundary the two can differ by the partial hour.
+    val slidingStart = nowMs - 24 * HOUR_MS
+    val chartStart = currentHourStart - 23 * HOUR_MS
     for (log in real) {
-        if (log.at < windowStart || log.at > nowMs) continue
-        val index = ((log.at - windowStart) / HOUR_MS).toInt().coerceIn(0, 23)
+        if (log.at in slidingStart..nowMs) windowCount += 1
+        if (log.at < chartStart || log.at > nowMs) continue
+        val index = ((log.at - chartStart) / HOUR_MS).toInt().coerceIn(0, 23)
         buckets[index] += 1
-        windowCount += 1
     }
 
     val timed = real.mapNotNull { log ->
@@ -53,9 +60,9 @@ fun computeRunStats(
     }
 
     return RunStats(
-        todayCount = today.size,
+        todayCount = todayLogs.size,
         todaySuccess = todaySuccess,
-        successPercent = if (today.isEmpty()) null else (todaySuccess * 100.0 / today.size).toInt(),
+        successPercent = if (todayLogs.isEmpty()) null else (todaySuccess * 100.0 / todayLogs.size).toInt(),
         averageMs = if (timed.isEmpty()) null else timed.sum() / timed.size,
         hourly = buckets.toList(),
         last24Count = windowCount,

@@ -133,32 +133,60 @@ private fun envelope(format: String, document: RuleDocument, settings: BackupSet
     }
 
 private fun commandDocument(state: AppState, cmd: Cmd): RuleDocument {
-    val ruleId = state.engineUi.presentation.entries
-        .firstOrNull { it.value.legacyId == cmd.id }?.key
-    val rule = state.engineRules.firstOrNull { it.id == ruleId }
-    val sidecar = ruleId?.let { state.engineUi.presentation[it] }
-    val ui = state.engineUi.copy(
-        logs = emptyList(),
-        presentation = if (ruleId != null && sidecar != null) mapOf(ruleId to sidecar) else emptyMap(),
-    )
+    // A command that calls another command is not usable on its own. Export the transitive call
+    // closure so importing the file cannot produce a dangling reference.
+    val included = LinkedHashMap<String, Cmd>()
+    fun add(command: Cmd) {
+        val key = command.title.trim()
+        if (included.putIfAbsent(key, command) != null) return
+        callTargets(command).forEach { target ->
+            (state.autoCmds + state.oneTaps).firstOrNull { it.title.trim() == target }?.let(::add)
+        }
+    }
+    add(cmd)
+    val commands = included.values.toList()
+    val ruleIds = commands.mapNotNull { command ->
+        state.engineUi.presentation.entries.firstOrNull { it.value.legacyId == command.id }?.key
+    }
+    val presentation = ruleIds.mapNotNull { ruleId ->
+        state.engineUi.presentation[ruleId]?.let { ruleId to it }
+    }.toMap()
     val knownGlobals = state.engineGlobals.keys + state.engineGlobalMeta.keys
-    val usedGlobals = usedGlobalNames(cmd, knownGlobals)
+    val usedGlobals = usedGlobalNames(commands, knownGlobals)
     return PersistedAppState(
-        autoCmds = if (cmd.auto) listOf(cmd) else emptyList(),
-        oneTaps = if (cmd.auto) emptyList() else listOf(cmd),
+        autoCmds = commands.filter { it.auto },
+        oneTaps = commands.filterNot { it.auto },
         logs = emptyList(),
         running = state.running,
         mode = state.mode,
-        engineRules = listOfNotNull(rule),
-        engineUi = ui,
+        engineRules = ruleIds.mapNotNull { id -> state.engineRules.firstOrNull { it.id == id } },
+        engineUi = state.engineUi.copy(logs = emptyList(), presentation = presentation),
         engineGlobals = emptyMap(),
         engineGlobalMeta = state.engineGlobalMeta.filterKeys { it in usedGlobals },
     ).toRuleDocument()
 }
 
+/** Names referenced by `action.run_rule`, including nested blocks and branches. */
+private fun callTargets(command: Cmd): List<String> {
+    val targets = linkedSetOf<String>()
+    fun walk(item: CommandItem) {
+        if (item.typeId == "action.run_rule") {
+            item.parameter.substringBefore('|').trim().takeIf { it.isNotEmpty() }?.let(targets::add)
+        }
+        item.children.forEach(::walk)
+        item.conditions.forEach(::walk)
+        item.branches.forEach { branch ->
+            branch.children.forEach(::walk)
+            branch.conditions.forEach(::walk)
+        }
+    }
+    command.actions.forEach(::walk)
+    return targets.toList()
+}
+
 /** A single-command export only declares globals that the command actually references. */
-private fun usedGlobalNames(cmd: Cmd, candidates: Set<String>): Set<String> {
-    val parameters = (cmd.triggers + cmd.conditions + cmd.actions).allItems().map { it.parameter }
+private fun usedGlobalNames(commands: List<Cmd>, candidates: Set<String>): Set<String> {
+    val parameters = commands.flatMap { cmd -> (cmd.triggers + cmd.conditions + cmd.actions).allItems().map { it.parameter } }
     return candidates.filterTo(linkedSetOf()) { name ->
         parameters.any { text ->
             text.contains("{$name}") || text.contains("%{global.$name}") || text.contains("%{$name}")
@@ -324,15 +352,24 @@ internal fun AppState.applyCommandImport(parsed: ParsedImport) {
     val current = snapshot().toRuleDocument()
     val importedState = parsed.converted
     val used = (autoCmds + oneTaps).mapTo(mutableSetOf()) { it.title.trim().lowercase(Locale.ROOT) }
+    val sources = importedState.autoCmds + importedState.oneTaps
+    // Allocate every title before cloning so callers can be rewritten to the imported names.
+    val planned = sources.associate { source ->
+        val title = uniqueCommandTitle(source.title, source.auto, used)
+        used += title.trim().lowercase(Locale.ROOT)
+        source.id to title
+    }
+    val titleMap = sources.mapNotNull { source ->
+        source.title.trim().takeIf { it.isNotEmpty() }?.let { it to planned.getValue(source.id) }
+    }.toMap()
     val pieces = mutableListOf<RuleDocument>()
-    for (source in importedState.autoCmds + importedState.oneTaps) {
+    for (source in sources) {
         val sourceRuleId = importedState.engineUi.presentation.entries
             .firstOrNull { it.value.legacyId == source.id }?.key
         val sourceRule = importedState.engineRules.firstOrNull { it.id == sourceRuleId }
         val sourceSidecar = sourceRuleId?.let { importedState.engineUi.presentation[it] }
         val newCommandId = newId()
-        val plannedTitle = uniqueCommandTitle(source.title, source.auto, used)
-        used += plannedTitle.trim().lowercase(Locale.ROOT)
+        val plannedTitle = planned.getValue(source.id)
         val idMap = mutableMapOf<Long, Long>()
         registerItemIds(source.actions, idMap)
         registerItemIds(source.triggers, idMap)
@@ -341,7 +378,7 @@ internal fun AppState.applyCommandImport(parsed: ParsedImport) {
             source, newCommandId, plannedTitle,
             enabled = if (source.auto) false else source.enabled,
             idMap = idMap,
-        )
+        ).let { command -> command.copy(actions = rewriteImportedCalls(command.actions, titleMap)) }
         val newRuleId = LegacyCommandMigration.uuidForLegacyId(newCommandId)
         val clonedRule = sourceRule?.let {
             cloneRule(it, newRuleId, plannedTitle, clonedCommand.enabled, idMap)
@@ -388,6 +425,27 @@ internal fun AppState.applyCommandImport(parsed: ParsedImport) {
         ),
     )
     replaceWith(merged.toPersistedAppState())
+}
+
+/** Re-points imported `run_rule` steps after every imported command received a unique title. */
+private fun rewriteImportedCalls(items: List<CommandItem>, titles: Map<String, String>): List<CommandItem> = items.map { item ->
+    val parameter = if (item.typeId == "action.run_rule") {
+        val split = item.parameter.indexOf('|')
+        val target = (if (split < 0) item.parameter else item.parameter.substring(0, split)).trim()
+        val renamed = titles[target]
+        if (renamed != null) renamed + if (split < 0) "" else item.parameter.substring(split) else item.parameter
+    } else item.parameter
+    item.copy(
+        parameter = parameter,
+        children = rewriteImportedCalls(item.children, titles),
+        conditions = rewriteImportedCalls(item.conditions, titles),
+        branches = item.branches.map { branch ->
+            branch.copy(
+                children = rewriteImportedCalls(branch.children, titles),
+                conditions = rewriteImportedCalls(branch.conditions, titles),
+            )
+        },
+    )
 }
 
 /**

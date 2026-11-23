@@ -2,6 +2,8 @@ package com.flowglass.demo.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -121,13 +124,17 @@ internal fun MenuSurface(
     modifier: Modifier = Modifier,
     width: Dp = 208.dp,
     itemHeight: Dp = 44.dp,
+    maxHeight: Dp = Dp.Unspecified,
 ) {
+    val heightCap = if (maxHeight == Dp.Unspecified) Modifier else Modifier.heightIn(max = maxHeight)
     Column(
         modifier
             .width(width)
+            .then(heightCap)
             .shadow(14.dp, RoundedCornerShape(20.dp))
             .clip(RoundedCornerShape(20.dp))
             .background(C.Card)
+            .verticalScroll(rememberScrollState())
             .padding(vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(1.dp),
     ) {
@@ -170,3 +177,7 @@ private fun MenuItemRow(item: MenuItemSpec, height: Dp, onClick: () -> Unit) {
         T(item.label, 14.sp, if (item.danger) FontWeight.SemiBold else FontWeight.Medium, color, maxLines = 1)
     }
 }
+
+/** Caps a popup to the space actually available; the menu then scrolls instead of clipping. */
+internal fun boundedMenuPx(desired: Float, available: Float): Float =
+    desired.coerceAtMost(available).coerceAtLeast(0f)

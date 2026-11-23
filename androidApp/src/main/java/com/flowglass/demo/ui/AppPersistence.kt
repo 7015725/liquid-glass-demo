@@ -387,6 +387,8 @@ internal object AppStateJson {
                     backupName = when (decoded.migratedFrom) {
                         2 -> "commands.v2.bak.json"
                         3 -> "commands.v3.bak.json"
+                        4 -> "commands.v4.bak.json"
+                        5 -> "commands.v5.bak.json"
                         else -> null
                     },
                 )

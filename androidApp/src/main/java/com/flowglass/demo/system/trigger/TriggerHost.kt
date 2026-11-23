@@ -203,6 +203,7 @@ internal class TriggerHost(
     private val pendingEvents = ArrayDeque<TriggerEvent>()
     private var alarmSignature: String? = null
     @Volatile private var lastRules: List<TriggerRule> = emptyList()
+    private val eventSeq = java.util.concurrent.atomic.AtomicLong(0)
 
     /** Routes a verified target-process event into the normal trigger dispatcher. */
     private val methodHookSink: (String, Map<String, String>) -> Unit = { hookId, variables ->
@@ -253,7 +254,16 @@ internal class TriggerHost(
             reconcile(initial)
             if (!started) return@launch
             while (pendingEvents.isNotEmpty()) handle(pendingEvents.removeFirst())
-            events.collect(::handle)
+            var lastSeq = 0L
+            events.collect { event ->
+                if (event.seq > 0L) {
+                    if (lastSeq > 0L && event.seq > lastSeq + 1) {
+                        TriggerStatus.droppedEvents += (event.seq - lastSeq - 1).toInt()
+                    }
+                    lastSeq = event.seq
+                }
+                handle(event)
+            }
         }
         TriggerWorker.scope.launch {
             snapshotFlow { state.triggerInput() }.collect { input ->
@@ -299,13 +309,15 @@ internal class TriggerHost(
             // Keep an event that arrives between stopSelf and the queued restart; the start
             // path drains this queue. Bound it so an engine-off period cannot grow forever.
             if (pendingEvents.size < 16) pendingEvents.addLast(event)
+            else TriggerStatus.droppedEvents += 1
             return
         }
         // Both windows share one bound: a start-up burst must not grow the queue without limit.
         if (!collectorReady) {
             if (pendingEvents.size < 16) pendingEvents.addLast(event)
+            else TriggerStatus.droppedEvents += 1
         } else {
-            events.tryEmit(event)
+            events.tryEmit(event.copy(seq = eventSeq.incrementAndGet()))
         }
     }
 

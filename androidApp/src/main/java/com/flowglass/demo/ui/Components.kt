@@ -554,8 +554,14 @@ fun Modifier.staggerIn(index: Int): Modifier = composed {
 
 /** Shimmer sweep while [active]. */
 fun Modifier.shimmer(active: Boolean): Modifier = composed {
+    // Only a running card owns an infinite animation. Previously every card, including off-screen
+    // rows, subscribed to the frame clock while idle.
     val tr = rememberInfiniteTransition(label = "shimmer")
-    val x by tr.animateFloat(-1f, 2f, infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "shimmerX")
+    val x by if (active) {
+        tr.animateFloat(-1f, 2f, infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "shimmerX")
+    } else {
+        remember { mutableFloatStateOf(0f) }
+    }
     val a by animateFloatAsState(if (active) 1f else 0f, effect(), label = "shimmerA")
     drawWithContent {
         drawContent()

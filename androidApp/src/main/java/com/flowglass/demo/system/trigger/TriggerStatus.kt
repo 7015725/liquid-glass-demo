@@ -33,6 +33,9 @@ object TriggerStatus {
     var locationRulesActive by mutableStateOf(false)
     var locationNeedsForeground by mutableStateOf(false)
 
+    /** Events dropped by a full queue; Compose state so the home banner refreshes at once. */
+    var droppedEvents by mutableIntStateOf(0)
+
     fun reset() {
         serviceActive = false
         listeningRules = 0
@@ -40,6 +43,7 @@ object TriggerStatus {
         listeningRuleIds = emptySet()
         locationRulesActive = false
         locationNeedsForeground = false
+        droppedEvents = 0
     }
 }
 
