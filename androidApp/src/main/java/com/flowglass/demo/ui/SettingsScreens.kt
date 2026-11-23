@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -818,7 +819,7 @@ private fun StepRow(n: Int, title: String, sub: String, done: Boolean, divider: 
 private fun PermissionsPage() {
     val ctx = LocalContext.current
     val t = tick()
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { SysTick.tick++ }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { SysTick.tick++ }
     val status = remember(t) { Perms.all.associate { it.key to it.check(ctx) } }
     val granted = status.values.count { it }
     val total = Perms.all.size
@@ -833,7 +834,7 @@ private fun PermissionsPage() {
             return
         }
         when (val g = p.grant) {
-            is Grant.Runtime -> launcher.launch(g.permission)
+            is Grant.Runtime -> launcher.launch(g.permissions.toTypedArray())
             is Grant.Page -> Perms.open(ctx, g.intent(ctx))
         }
     }
@@ -879,7 +880,9 @@ private fun BackupRestorePage(
     val scope = rememberCoroutineScope()
     var pending by remember { mutableStateOf<ParsedImport?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
-    var exportText by remember { mutableStateOf<String?>(null) }
+    // The system file picker can outlive the Activity. Keep the payload in AppState: it survives
+    // recreation without putting a multi-megabyte backup into the saved-state Bundle.
+    val exportText = state.pendingExportText
     var safetyFiles by remember { mutableStateOf<List<File>?>(null) }
     var restoring by remember { mutableStateOf(false) }
     var restoreJob by remember { mutableStateOf<Job?>(null) }
@@ -890,8 +893,11 @@ private fun BackupRestorePage(
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
-        val text = exportText
-        exportText = null
+        val text = state.pendingExportText
+        state.pendingExportText = null
+        if (uri != null && text == null) {
+            notice = "导出内容已失效，请重新导出"
+        }
         if (uri != null && text != null) {
             scope.launch {
                 val error = runCatching {
@@ -939,7 +945,7 @@ private fun BackupRestorePage(
             Row1(Ic.Share, "导出完整备份", sub = "全部指令、全局变量和设置") {
                 runCatching { exportBackupJson(state, themeMode, readBackupAppSettings(context)) }
                     .onSuccess { text ->
-                        exportText = text
+                        state.pendingExportText = text
                         val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
                         exportLauncher.launch("flowglass-backup-$stamp.json")
                     }

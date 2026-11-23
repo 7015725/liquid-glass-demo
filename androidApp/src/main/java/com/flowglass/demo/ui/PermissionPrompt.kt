@@ -99,7 +99,7 @@ internal fun PermissionPromptHost(state: AppState) {
         missing = cmd.missingPermissionItems(context)
     }
 
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         refresh()
     }
     val view = LocalView.current
@@ -161,7 +161,7 @@ internal fun PermissionPromptHost(state: AppState) {
 @Composable
 private fun PermissionRow(
     permission: PermItem,
-    launcher: androidx.activity.result.ActivityResultLauncher<String>,
+    launcher: androidx.activity.result.ActivityResultLauncher<Array<String>>,
 ) {
     val context = LocalContext.current
     Row(
@@ -181,7 +181,7 @@ private fun PermissionRow(
             Modifier.clip(CapsuleShape).background(C.PrimarySoft)
                 .pressable {
                     when (val grant = permission.grant) {
-                        is Grant.Runtime -> launcher.launch(grant.permission)
+                        is Grant.Runtime -> launcher.launch(grant.permissions.toTypedArray())
                         is Grant.Page -> Perms.open(context, grant.intent(context))
                     }
                 }

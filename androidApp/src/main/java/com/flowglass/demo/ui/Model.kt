@@ -321,6 +321,11 @@ class AppState internal constructor(saved: PersistedAppState?) {
     var storageError by mutableStateOf<String?>(null)
     /** 编辑页内的即时提示（例如未通过校验时拒绝启用）。 */
     var editorNotice by mutableStateOf<String?>(null)
+    /** File-picker payloads outlive the Activity but must not enter the saved-state Bundle. */
+    var pendingExportText by mutableStateOf<String?>(null)
+    var pendingImportJson by mutableStateOf<String?>(null)
+    var pendingShareJson by mutableStateOf<String?>(null)
+    var sharingCmdId by mutableStateOf<Long?>(null)
     internal var engineRules by mutableStateOf(saved?.engineRules.orEmpty())
     internal var engineGlobals by mutableStateOf(saved?.engineGlobals.orEmpty())
     internal var engineGlobalMeta by mutableStateOf(saved?.engineGlobalMeta.orEmpty())
@@ -1183,6 +1188,10 @@ class AppState internal constructor(saved: PersistedAppState?) {
      * ids far above this process's counter, and the next allocation must not collide with them.
      */
     internal fun replaceWith(converted: PersistedAppState) {
+        pendingExportText = null
+        pendingImportJson = null
+        pendingShareJson = null
+        sharingCmdId = null
         // 恢复屏障：先让旧世代失效并取消在途任务，再发布新文档。
         documentEpoch++
         executionJobs.values.flatten().forEach { it.cancel() }

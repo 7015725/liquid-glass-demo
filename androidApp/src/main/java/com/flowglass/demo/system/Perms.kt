@@ -15,7 +15,10 @@ import com.flowglass.demo.ui.Ic
 
 /** How a permission is granted: a runtime dialog, or a system settings page. */
 sealed interface Grant {
-    data class Runtime(val permission: String) : Grant
+    /** Some Android 12 builds ignore a fine-only request; ask for both levels together. */
+    data class Runtime(val permissions: List<String>) : Grant {
+        constructor(permission: String) : this(listOf(permission))
+    }
     data class Page(val intent: (Context) -> Intent) : Grant
 }
 
@@ -119,7 +122,9 @@ object Perms {
             "到达 / 离开某地时触发指令；前台服务内使用，不需要后台定位权限", false,
             { c -> c.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
                 c.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED },
-            Grant.Runtime(Manifest.permission.ACCESS_FINE_LOCATION)
+            Grant.Runtime(
+                listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+            )
         ))
     }
 

@@ -50,6 +50,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -302,7 +303,11 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
                         role = Role.Switch
                         contentDescription = "启用${cmd.title}"
                         toggleableState = if (cmd.enabled) ToggleableState.On else ToggleableState.Off
-                        onClick { PermissionGate.request(state, cmd, context); true }
+                        onClick {
+                            if (!cmd.enabled && blocked.isNotEmpty()) state.editorNotice = blocked.first()
+                            else PermissionGate.request(state, cmd, context)
+                            true
+                        }
                     })
                 }
             } else {
@@ -430,7 +435,7 @@ fun CommandMenuOverlay(state: AppState) {
     }
     val ctx = LocalContext.current
     val density = LocalDensity.current
-    var shareCmd by remember { mutableStateOf<Cmd?>(null) }
+    val shareCmdId = state.sharingCmdId
     val actions = listOf(
         MenuAction(Ic.Pin, if (cmd.pinned) "取消置顶" else "置顶"),
         MenuAction(Ic.Edit, "重命名"),
@@ -444,7 +449,7 @@ fun CommandMenuOverlay(state: AppState) {
         if (a.label == "分享") {
             // Keep the overlay composed until the share dialog closes; otherwise
             // `shown` becomes null and this dialog's state is discarded with it.
-            shareCmd = cmd
+            state.sharingCmdId = cmd.id
         } else {
             state.menu = null
             when (a.label) {
@@ -497,9 +502,10 @@ fun CommandMenuOverlay(state: AppState) {
             itemHeight = itemH,
         )
     }
-    shareCmd?.let { command ->
+    shareCmdId?.let(state::find)?.let { command ->
         ShareCommandDialog(state, command) {
-            shareCmd = null
+            state.sharingCmdId = null
+            state.pendingShareJson = null
             state.menu = null
         }
     }
