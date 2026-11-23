@@ -24,6 +24,8 @@ internal class RootForegroundWatcher(
     private val context: Context,
     private val scope: CoroutineScope,
     private val emit: (String, TriggerSource, Map<String, String>) -> Unit,
+    private val screenOn: (() -> Boolean)? = null,
+    private val dump: (suspend () -> String?)? = null,
 ) {
     private var job: Job? = null
     private var lastIdentity: String? = null
@@ -31,27 +33,31 @@ internal class RootForegroundWatcher(
     fun start(hasCloneTarget: () -> Boolean) {
         if (job?.isActive == true) return
         job = scope.launch {
-            val root = runCatching { Root.check(request = false) }.getOrNull()
-            if (root?.granted != true) return@launch
             while (isActive) {
-                if (hasCloneTarget() && isScreenOn()) {
-                    val result = runCatching {
-                        RootSessions.run(root, "dumpsys activity activities", timeoutMs = 8_000, outputLimit = 128 * 1024)
-                    }.getOrNull()
-                    val foreground = result?.takeUnless { it.timedOut || it.truncated }?.output?.let(::parseForeground)
-                    if (foreground != null && foreground.userId != 0) {
-                        val identity = "${foreground.packageName}@${foreground.userId}"
-                        if (identity != lastIdentity) {
-                            lastIdentity = identity
-                            emit(
-                                TriggerKinds.APP,
-                                TriggerSource.APP,
-                                mapOf(
-                                    "app" to identity,
-                                    "app.user" to foreground.userId.toString(),
-                                ),
-                            )
-                        }
+                if (!hasCloneTarget() || !isScreenOn()) {
+                    delay(POLL_MS)
+                    continue
+                }
+                // Root may be granted, revoked or restored after this watcher started. A missing
+                // grant is a retryable state, not the end of the watcher.
+                val output = if (dump != null) dump.invoke() else defaultDump()
+                if (output == null) {
+                    delay(ROOT_RETRY_MS)
+                    continue
+                }
+                val foreground = parseForeground(output)
+                if (foreground != null && foreground.userId != 0) {
+                    val identity = "${foreground.packageName}@${foreground.userId}"
+                    if (identity != lastIdentity) {
+                        lastIdentity = identity
+                        emit(
+                            TriggerKinds.APP,
+                            TriggerSource.APP,
+                            mapOf(
+                                "app" to identity,
+                                "app.user" to foreground.userId.toString(),
+                            ),
+                        )
                     }
                 }
                 delay(POLL_MS)
@@ -66,10 +72,20 @@ internal class RootForegroundWatcher(
     }
 
     private fun isScreenOn(): Boolean =
-        context.getSystemService(PowerManager::class.java)?.isInteractive == true
+        screenOn?.invoke() ?: (context.getSystemService(PowerManager::class.java)?.isInteractive == true)
+
+    private suspend fun defaultDump(): String? {
+        val root = runCatching { Root.check(request = false) }.getOrNull() ?: return null
+        if (!root.granted) return null
+        val result = runCatching {
+            RootSessions.run(root, "dumpsys activity activities", timeoutMs = 8_000, outputLimit = 128 * 1024)
+        }.getOrNull() ?: return null
+        return result.takeUnless { it.timedOut || it.truncated }?.output
+    }
 
     companion object {
         private const val POLL_MS = 2_000L
+        private const val ROOT_RETRY_MS = 30_000L
         private val TOP_RESUMED = Regex(
             """topResumedActivity=ActivityRecord\{[^\n]*?\bu(\d+)\s+([A-Za-z0-9_.]+)/""",
         )
