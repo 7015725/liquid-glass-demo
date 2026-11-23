@@ -41,13 +41,13 @@ import kotlinx.coroutines.withContext
 internal fun ShareCommandDialog(state: AppState, cmd: Cmd, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var pendingJson by rememberSaveable(cmd.id) { mutableStateOf<String?>(null) }
+    val pendingJson = state.pendingShareJson
     var notice by remember(cmd.id) { mutableStateOf<String?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
         val text = pendingJson
-        pendingJson = null
+        state.pendingShareJson = null
         if (uri != null && text != null) {
             scope.launch {
                 val error = runCatching {
@@ -84,10 +84,10 @@ internal fun ShareCommandDialog(state: AppState, cmd: Cmd, onDismiss: () -> Unit
                 onDismiss()
             }
             DialogAction("导出 JSON 文件", "使用系统文件选择器保存") {
-                pendingJson = runCatching { exportCommandJson(state, cmd) }
+                state.pendingShareJson = runCatching { exportCommandJson(state, cmd) }
                     .onFailure { notice = "导出失败：${it.message.orEmpty()}" }
                     .getOrNull()
-                pendingJson?.let {
+                state.pendingShareJson?.let {
                     runCatching { exportLauncher.launch(safeFileName(cmd.title) + ".json") }
                         .onFailure { error -> notice = "无法打开文件选择器：${error.message.orEmpty()}" }
                 }

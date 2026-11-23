@@ -13,6 +13,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -30,6 +31,11 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -735,6 +741,12 @@ private val Ic.editorLabel: String
 /** Original press spring, with equivalent keyboard/accessibility activation. */
 internal fun Modifier.editorAction(label: String, action: () -> Unit): Modifier =
     semantics { role = Role.Button; contentDescription = label; onClick { action(); true } }
+        .focusable()
+        .onKeyEvent { event ->
+            if (event.type == KeyEventType.KeyUp && (event.key == Key.Enter || event.key == Key.Spacebar)) {
+                action(); true
+            } else false
+        }
         .pressable(onClick = action)
 
 @Composable
@@ -1131,7 +1143,11 @@ private fun AutoEnableToggle(state: AppState, cmd: Cmd, context: android.content
                 Modifier.testTag("editor-toggle").semantics {
                     contentDescription = "启用指令"
                     toggleableState = if (cmd.enabled) ToggleableState.On else ToggleableState.Off
-                    onClick { PermissionGate.request(state, cmd, context); true }
+                    onClick {
+                        if (!cmd.enabled && issues.isNotEmpty()) state.editorNotice = issues.first()
+                        else PermissionGate.request(state, cmd, context)
+                        true
+                    }
                 })
         }
     }

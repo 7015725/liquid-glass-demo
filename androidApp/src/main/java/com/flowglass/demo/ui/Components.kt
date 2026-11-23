@@ -68,6 +68,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Path
@@ -137,6 +138,9 @@ fun PressCard(
                         .semantics {
                             role = Role.Button
                             onClick { action(); true }
+                            longPress?.let { press ->
+                                onLongClick(label = "长按菜单") { press(Offset.Zero); true }
+                            }
                         }
                         .focusable()
                         .onKeyEvent { event ->

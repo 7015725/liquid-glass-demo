@@ -880,8 +880,9 @@ private fun BackupRestorePage(
     val scope = rememberCoroutineScope()
     var pending by remember { mutableStateOf<ParsedImport?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
-    // The system file picker can outlive the Activity; a plain remember would lose the payload.
-    var exportText by rememberSaveable { mutableStateOf<String?>(null) }
+    // The system file picker can outlive the Activity. Keep the payload in AppState: it survives
+    // recreation without putting a multi-megabyte backup into the saved-state Bundle.
+    val exportText = state.pendingExportText
     var safetyFiles by remember { mutableStateOf<List<File>?>(null) }
     var restoring by remember { mutableStateOf(false) }
     var restoreJob by remember { mutableStateOf<Job?>(null) }
@@ -893,7 +894,7 @@ private fun BackupRestorePage(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
         val text = exportText
-        exportText = null
+        state.pendingExportText = null
         if (uri != null && text != null) {
             scope.launch {
                 val error = runCatching {
@@ -941,7 +942,7 @@ private fun BackupRestorePage(
             Row1(Ic.Share, "导出完整备份", sub = "全部指令、全局变量和设置") {
                 runCatching { exportBackupJson(state, themeMode, readBackupAppSettings(context)) }
                     .onSuccess { text ->
-                        exportText = text
+                        state.pendingExportText = text
                         val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
                         exportLauncher.launch("flowglass-backup-$stamp.json")
                     }
