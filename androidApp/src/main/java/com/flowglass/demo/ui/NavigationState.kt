@@ -16,6 +16,8 @@ internal data class NavSnapshot(
     val action: Long = 0L,
     val settingsPage: Int = 0,
     val blockPath: List<Long> = emptyList(),
+    /** True while an unsaved component draft was open; the draft itself has no stable id. */
+    val draft: Boolean = false,
 )
 
 internal val NavSnapshotSaver: Saver<NavSnapshot, Any> = mapSaver(
@@ -27,6 +29,7 @@ internal val NavSnapshotSaver: Saver<NavSnapshot, Any> = mapSaver(
             "action" to nav.action,
             "settingsPage" to nav.settingsPage,
             "blockPath" to nav.blockPath.joinToString(","),
+            "draft" to nav.draft,
         )
     },
     restore = { values ->
@@ -37,6 +40,7 @@ internal val NavSnapshotSaver: Saver<NavSnapshot, Any> = mapSaver(
             action = (values["action"] as? Number)?.toLong() ?: 0L,
             settingsPage = (values["settingsPage"] as? Number)?.toInt() ?: 0,
             blockPath = (values["blockPath"] as? String)?.split(',')?.mapNotNull { it.toLongOrNull() } ?: emptyList(),
+            draft = values["draft"] as? Boolean ?: false,
         )
     },
 )
@@ -67,8 +71,9 @@ internal fun restoreNavigation(state: AppState, saved: NavSnapshot): NavSnapshot
     // saved snapshot must win over that stale snapshot. A process restore has no in-memory path,
     // so it falls back to the saved one.
     state.blockPath = state.validBlockPath(if (processRestore) saved.blockPath else liveBlockPath)
-    if (processRestore && saved.action > 0L && state.itemById(saved.actionCmd, saved.action) == null) {
-        // The editor can reopen the last saved component, but an unsaved draft has no id to restore.
+    if (processRestore && saved.draft) {
+        // A new component draft has no stable id, and an edited saved component silently reopens
+        // from disk. Tell the user the draft is gone instead of presenting the saved version as theirs.
         state.editorNotice = "未保存的组件草稿已丢失，已恢复上次保存的版本"
     }
 

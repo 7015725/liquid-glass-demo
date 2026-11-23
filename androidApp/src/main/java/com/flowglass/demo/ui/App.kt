@@ -137,6 +137,7 @@ fun FlowGlassApp() {
                 action = state.actionEditing ?: 0L,
                 settingsPage = state.settingsPage,
                 blockPath = state.blockPath,
+                draft = state.componentDraft != null,
             )
             if (next != nav) nav = next
         }
