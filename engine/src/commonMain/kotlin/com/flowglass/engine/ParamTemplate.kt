@@ -42,7 +42,7 @@ object ParamTemplate {
         specs: List<ParamSpec>,
         variables: Map<String, Any?>,
     ): Map<String, JsonElement> {
-        if (variables.isEmpty() || params.isEmpty()) return params
+        if (params.isEmpty()) return params
         val expansions = specs.associate { it.key to it.expansion }
         return params.mapValues { (key, value) ->
             expandElement(value, variables, expansions[key] ?: ParamExpansion.PLAIN)

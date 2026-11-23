@@ -22,6 +22,7 @@ import com.flowglass.engine.RulePresentation
 import com.flowglass.engine.RuleUiMetadata
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 internal fun PersistedAppState.toRuleDocument(includeTriggersAndConditions: Boolean = true): RuleDocument = RuleDocument(
     rules = (autoCmds + oneTaps).map { command ->
@@ -313,8 +314,8 @@ private fun CommandItem.toRuleComponent(
         )
         return unknownComponent().copy(id = id, children = children, branches = branches, conditions = conditions)
     }
-    // A live edit is not a legacy migration: reject invalid text before touching disk.
-    // The editor retains the draft while the last valid component and its extensions remain recoverable.
+    // Strict here: this converter is both the save gate and the pre-execution gate. A live edit
+    // with invalid text must keep failing instead of running a step with default values.
     val parsed = ParameterCodec.parseComponent(meta, parameter)
     val changed = if (previous != null && typeId == "action.post_notification") {
         val oldFields = notificationFields(previous.parameterText())
@@ -324,7 +325,8 @@ private fun CommandItem.toRuleComponent(
     return RuleComponent(
         id = id,
         type = typeId,
-        params = previous?.params.orEmpty() + changed,
+        // The value parsed cleanly, so any raw fallback from an earlier build is now stale.
+        params = (previous?.params.orEmpty() - "raw") + changed,
         onError = onError,
         children = children,
         branches = branches,
@@ -368,7 +370,11 @@ private fun kotlinx.serialization.json.JsonElement.displayText(): String =
     if (this is JsonPrimitive) content else toString()
 
 private fun RuleComponent.parameterText(): String {
+    // A document loaded from disk may carry a value this build cannot parse. Preserve its original
+    // text so the save path can see "unchanged" and return the component untouched.
     val meta = componentRegistry.find(type)
+    // Unknown aliases also carry a raw label, but there it is display text, not a parse failure.
+    if (meta != null) (params["raw"] as? JsonPrimitive)?.contentOrNull?.let { return it }
     return if (meta != null) ParameterCodec.formatComponent(meta, params)
     else params["parameter"]?.displayText() ?: params["raw"]?.displayText().orEmpty()
 }

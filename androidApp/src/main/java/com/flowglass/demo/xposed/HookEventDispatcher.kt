@@ -28,13 +28,19 @@ internal class BoundedHookEventQueue<T>(private val capacity: Int) {
 
     private val lock = Any()
     private val events = ArrayDeque<T>(capacity)
+    private var dropped = 0
 
     fun offer(event: T) {
         synchronized(lock) {
-            if (events.size >= capacity) events.removeFirst()
+            if (events.size >= capacity) {
+                events.removeFirst()
+                dropped += 1
+            }
             events.addLast(event)
         }
     }
+
+    fun droppedCount(): Int = synchronized(lock) { dropped }
 
     fun drain(): List<T> = synchronized(lock) {
         if (events.isEmpty()) return@synchronized emptyList()
@@ -90,9 +96,18 @@ internal class SystemHookDispatcher(
     @Volatile private var handler: Handler? = null
 
     fun enqueue(event: HookEvent) {
-        queues.getValue(event.family).offer(event)
+        val queue = queues.getValue(event.family)
+        val before = queue.droppedCount()
+        queue.offer(event)
+        val dropped = queue.droppedCount()
+        if (dropped > before && dropped % 32 == 0) {
+            runCatching { log("hook queue overloaded; family=${event.family} dropped=$dropped") }
+        }
         schedule()
     }
+
+    /** Total events evicted by the per-family bounded queues since process start. */
+    fun droppedEvents(): Int = queues.values.sumOf { it.droppedCount() }
 
     /** Start the worker before the first hook callback, not while a WMS/AMS lock may be held. */
     fun warmUp() {

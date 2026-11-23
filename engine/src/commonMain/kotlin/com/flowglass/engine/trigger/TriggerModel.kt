@@ -134,6 +134,8 @@ data class TriggerEvent(
      * what makes `{订单号}` work while the legacy event keys stay available as `event.*`.
      */
     val methodHookVariables: Map<String, String> = emptyMap(),
+    /** Monotonic dispatch sequence; the receiver uses gaps to count bounded-buffer drops. */
+    val seq: Long = 0,
 )
 
 object TriggerKinds {

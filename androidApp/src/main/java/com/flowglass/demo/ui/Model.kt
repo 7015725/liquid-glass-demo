@@ -408,9 +408,10 @@ class AppState internal constructor(saved: PersistedAppState?) {
     }
 
     fun closeEditor() {
-        editing?.let { id ->
+        val id = editing
+        if (id != null) {
             update(id) { cmd ->
-                if (cmd.title.isBlank()) cmd.copy(title = if (cmd.auto) "未命名指令" else "未命名一键指令") else cmd
+                if (cmd.title.isBlank()) cmd.copy(title = availableTitle("", cmd.auto)) else cmd
             }
         }
         editing = null
@@ -420,7 +421,26 @@ class AppState internal constructor(saved: PersistedAppState?) {
         componentDraft = null
         outputItemId = null
     }
-    fun setTitle(id: Long, text: String) = update(id) { it.copy(title = text) }
+    /**
+     * Title and call edge are committed together on every keystroke: autosave may persist the
+     * title within 500 ms or on ON_STOP, so deferring `rewriteCallTargets` to closeEditor can
+     * leave a dangling `run_rule` after a process death or a jump to another command.
+     */
+    fun setTitle(id: Long, text: String) {
+        val current = find(id) ?: return
+        val title = text.trim()
+        if (title.isEmpty()) {
+            editorNotice = "指令名称不能为空"
+            return
+        }
+        if (title == current.title) return
+        if ((autoCmds + oneTaps).any { it.id != id && it.title.trim().equals(title, ignoreCase = true) }) {
+            editorNotice = "已有同名指令「$title」，请换一个名称"
+            return
+        }
+        update(id) { it.copy(title = title) }
+        rewriteCallTargets(current.title.trim(), title)
+    }
     fun setDescription(id: Long, text: String) = update(id) { it.copy(desc = text, descriptionEdited = true) }
     fun setIcon(id: Long, ic: Ic) = update(id) { it.copy(ic = ic) }
     /** Appends a step inside a container (if then / loop body / branch body). */
@@ -1232,7 +1252,64 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun setRunMode(id: Long, mode: com.flowglass.engine.RunMode) =
         update(id) { it.copy(runMode = mode) }
     fun togglePin(id: Long) = update(id) { it.copy(pinned = !it.pinned) }
-    fun rename(id: Long, title: String) = update(id) { it.copy(title = title.ifBlank { it.title }) }
+    fun rename(id: Long, title: String): Boolean {
+        val current = find(id) ?: return false
+        val oldTitle = current.title.trim()
+        val newTitle = title.trim().ifBlank { current.title }
+        if (newTitle == oldTitle) return true
+        if ((autoCmds + oneTaps).any { it.id != id && it.title.trim().equals(newTitle, ignoreCase = true) }) {
+            // Call targets are names; a duplicate would make the edit bind to the first match.
+            editorNotice = "已有同名指令「$newTitle」，请换一个名称"
+            return false
+        }
+        update(id) { it.copy(title = newTitle) }
+        if (oldTitle.isNotEmpty()) rewriteCallTargets(oldTitle, newTitle)
+        return true
+    }
+
+    private fun availableTitle(base: String, auto: Boolean): String {
+        val used = (autoCmds + oneTaps).mapTo(mutableSetOf()) { it.title.trim().lowercase() }
+        val clean = base.trim().ifBlank { if (auto) "未命名指令" else "未命名一键指令" }
+        if (clean.lowercase() !in used) return clean
+        var index = 2
+        while (true) {
+            val candidate = "$clean $index"
+            if (candidate.lowercase() !in used) return candidate
+            index++
+        }
+    }
+
+    private fun callsTitle(command: Cmd, title: String): Boolean {
+        fun walk(item: CommandItem): Boolean {
+            val hit = item.typeId == "action.run_rule" && item.parameter.substringBefore('|').trim() == title
+            return hit || item.children.any(::walk) || item.conditions.any(::walk) ||
+                item.branches.any { branch -> branch.children.any(::walk) || branch.conditions.any(::walk) }
+        }
+        return command.actions.any(::walk)
+    }
+
+    /** Rename follows the title-based call edge so existing `action.run_rule` steps keep working. */
+    private fun rewriteCallTargets(oldTitle: String, newTitle: String) {
+        fun rewrite(item: CommandItem): CommandItem {
+            val parameter = if (item.typeId == "action.run_rule") {
+                val split = item.parameter.indexOf('|')
+                val target = if (split < 0) item.parameter else item.parameter.substring(0, split)
+                if (target.trim() == oldTitle) {
+                    newTitle + if (split < 0) "" else item.parameter.substring(split)
+                } else item.parameter
+            } else item.parameter
+            return item.copy(
+                parameter = parameter,
+                children = item.children.map(::rewrite),
+                conditions = item.conditions.map(::rewrite),
+                branches = item.branches.map { branch ->
+                    branch.copy(children = branch.children.map(::rewrite), conditions = branch.conditions.map(::rewrite))
+                },
+            )
+        }
+        for (index in autoCmds.indices) autoCmds[index] = autoCmds[index].copy(actions = autoCmds[index].actions.map(::rewrite))
+        for (index in oneTaps.indices) oneTaps[index] = oneTaps[index].copy(actions = oneTaps[index].actions.map(::rewrite))
+    }
 
     fun duplicate(id: Long): Long? {
         val src = find(id) ?: return null
@@ -1249,7 +1326,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
             )
         }
         val copy = src.copy(
-            id = newId(), title = "${src.title} 副本", pinned = false, lastRun = "从未",
+            id = newId(), title = availableTitle("${src.title} 副本", src.auto), pinned = false, lastRun = "从未",
             triggers = copied(src.triggers), conditions = copied(src.conditions), actions = copied(src.actions),
         )
         l.add(i + 1, copy)
@@ -1278,9 +1355,16 @@ class AppState internal constructor(saved: PersistedAppState?) {
     }
 
     fun delete(id: Long) {
+        val src = find(id) ?: return
+        val callers = (autoCmds + oneTaps).count { it.id != id && callsTitle(it, src.title.trim()) }
+        if (callers > 0) {
+            // Deleting a call target would leave dangling names that could later bind to a new
+            // command with the same title. Make the dependency visible instead of guessing.
+            editorNotice = "有 $callers 条指令正在调用「${src.title}」，请先修改这些调用"
+            return
+        }
         // Normalize the edited title before capturing the undo snapshot.
         if (editing == id) closeEditor()
-        val src = find(id) ?: return
         val l = listFor(src.auto)
         val i = l.indexOf(src)
         l.removeAt(i)
@@ -1316,7 +1400,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     fun create(auto: Boolean): Cmd {
         val c = Cmd(newId(), auto, if (auto) Ic.Bolt else Ic.Tap,
-            if (auto) "未命名指令" else "未命名一键指令",
+            availableTitle("", auto),
             if (auto) "请添加触发器和任务" else "请添加任务",
             actions = emptyList(), enabled = !auto, descriptionEdited = false)
         listFor(auto).add(0, c)

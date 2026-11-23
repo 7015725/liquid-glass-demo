@@ -5,6 +5,7 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -178,4 +179,17 @@ class CommandStoreMigrationTest {
         .put("name", name)
         .put("parameter", parameter)
         .put("ic", "Bolt")
+
+    @Test
+    fun v4AndV5MigrationsNameTheBackupAfterTheirSourceVersion() {
+        val current = JSONObject(AppStateJson.encode(AppState().snapshot()))
+        for (version in listOf(4, 5)) {
+            val old = JSONObject(current.toString())
+            old.put("formatVersion", version)
+
+            val decoded = AppStateJson.decodeDocument(old.toString())
+
+            assertEquals("commands.v$version.bak.json", decoded.backupName)
+        }
+    }
 }

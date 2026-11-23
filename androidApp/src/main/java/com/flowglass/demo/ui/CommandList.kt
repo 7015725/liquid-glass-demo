@@ -109,6 +109,7 @@ fun AutoCommandsScreen(state: AppState) {
     }
     val enabled = state.autoCmds.count { it.enabled }
 
+    ListNotice(state)
     FilterChips(filters, f, { state.autoFilter = it }, Modifier.staggerIn(0))
     ListHeader(
         "已开启 $enabled / ${state.autoCmds.size} 条", "新建",
@@ -140,6 +141,7 @@ fun AutoCommandsScreen(state: AppState) {
 @Composable
 fun OneTapCommandsScreen(state: AppState) {
     val list = state.sorted(auto = false).filter(state::matches)
+    ListNotice(state)
     ListHeader(
         "共 ${list.size} 条 · 置顶 ${list.count { it.pinned }}", "新建",
         Modifier.staggerIn(0)
@@ -474,8 +476,9 @@ fun CommandMenuOverlay(state: AppState) {
         val x = (r.anchor.x - mw * 0.3f).coerceIn(margin, maxX)
         val below = r.anchor.y + with(density) { 12.dp.toPx() }
         val openUp = below + mh > h - with(density) { 110.dp.toPx() }
-        val maxY = (h - mh - margin).coerceAtLeast(margin)
-        val y = if (openUp) (r.anchor.y - mh - with(density) { 12.dp.toPx() }).coerceIn(margin, maxY) else below
+        val actualMh = boundedMenuPx(mh, h - 2 * margin)
+        val maxY = (h - actualMh - margin).coerceAtLeast(margin)
+        val y = if (openUp) (r.anchor.y - actualMh - with(density) { 12.dp.toPx() }).coerceIn(margin, maxY) else below
         val originX = ((r.anchor.x - x) / mw).coerceIn(0f, 1f)
         val originY = if (openUp) 1f else 0f
 
@@ -500,6 +503,7 @@ fun CommandMenuOverlay(state: AppState) {
                 },
             width = menuW,
             itemHeight = itemH,
+            maxHeight = with(density) { actualMh.toDp() },
         )
     }
     shareCmdId?.let(state::find)?.let { command ->
@@ -531,8 +535,10 @@ fun RenameOverlay(state: AppState, backdrop: Backdrop) {
         }
     }
     fun confirm() {
-        state.rename(cmd.id, text.text.trim())
-        state.renaming = null
+        if (state.rename(cmd.id, text.text.trim())) {
+            state.editorNotice = null
+            state.renaming = null
+        }
     }
 
     Box(Modifier.fillMaxSize().imePadding()) {
@@ -583,6 +589,10 @@ fun RenameOverlay(state: AppState, backdrop: Backdrop) {
                     modifier = Modifier.fillMaxWidth().imeAutoScroll().focusRequester(focus)
                 )
             }
+            state.editorNotice?.let { notice ->
+                Spacer(Modifier.height(10.dp))
+                T(notice, 12.sp, color = C.Mid)
+            }
             Spacer(Modifier.height(18.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
@@ -596,6 +606,24 @@ fun RenameOverlay(state: AppState, backdrop: Backdrop) {
                     contentAlignment = Alignment.Center
                 ) { T("确定", 15.sp, FontWeight.SemiBold, C.OnPrimary, maxLines = 1) }
             }
+        }
+    }
+}
+
+@Composable
+private fun ListNotice(state: AppState) {
+    val notice = state.editorNotice ?: return
+    LaunchedEffect(notice) {
+        delay(5_000)
+        if (state.editorNotice == notice) state.editorNotice = null
+    }
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedRectangle(18.dp)).background(C.MidSoft).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        T(notice, 12.sp, color = C.Mid, lineHeight = 17.sp, modifier = Modifier.weight(1f))
+        Box(Modifier.testTag("list-notice-dismiss").pressable { state.editorNotice = null }) {
+            T("知道了", 12.sp, color = C.Mid)
         }
     }
 }

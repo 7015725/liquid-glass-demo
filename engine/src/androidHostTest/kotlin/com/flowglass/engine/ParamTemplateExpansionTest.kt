@@ -144,4 +144,15 @@ class ParamTemplateExpansionTest {
         )
         assertEquals("a; b", (expanded["body"] as JsonPrimitive).content)
     }
+
+    @Test
+    fun anEmptyVariableMapStillCollapsesDoubledBracesInTheParameterMapEntry() {
+        val expanded = ParamTemplate.expand(
+            params = mapOf("text" to JsonPrimitive("复制 {{名字}} 到剪贴板")),
+            specs = listOf(ParamSpec("text", "文本")),
+            variables = emptyMap(),
+        )
+
+        assertEquals("复制 {名字} 到剪贴板", (expanded["text"] as JsonPrimitive).content)
+    }
 }

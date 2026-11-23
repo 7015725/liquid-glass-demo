@@ -57,4 +57,10 @@ class AnchoredMenuTest {
         )
         assertEquals(IntOffset(8, 8), offset)
     }
+
+    @Test
+    fun aMenuTallerThanTheWindowIsCappedSoItCanScroll() {
+        assertEquals(240f, boundedMenuPx(desired = 266f, available = 240f))
+        assertEquals(266f, boundedMenuPx(desired = 266f, available = 800f))
+    }
 }

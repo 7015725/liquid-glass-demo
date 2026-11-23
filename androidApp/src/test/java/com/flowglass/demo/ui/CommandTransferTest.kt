@@ -64,6 +64,50 @@ class CommandTransferTest {
     }
 
     @Test
+    fun singleCommandExportCarriesItsCallDependencies() {
+        val source = AppState()
+        val target = command().copy(
+            id = 8L, title = "被调用方",
+            triggers = emptyList(), conditions = emptyList(), actions = emptyList(),
+        )
+        val caller = command().copy(
+            id = 9L,
+            title = "调用方",
+            actions = listOf(CommandItem(104L, "执行另一条指令", "被调用方|等它执行完再继续", Ic.Bolt, "action.run_rule")),
+        )
+        source.autoCmds.addAll(listOf(caller, target))
+
+        val parsed = parseImport(exportCommandJson(source, caller), source)
+
+        assertEquals(setOf("调用方", "被调用方"),
+            parsed.preview.commands.map { it.title.removeSuffix("（导入）") }.toSet())
+    }
+
+    @Test
+    fun importingThatClosureIntoAnEmptyStateRebindsTheRenamedCall() {
+        val source = AppState()
+        val target = command().copy(
+            id = 8L, title = "被调用方",
+            triggers = emptyList(), conditions = emptyList(), actions = emptyList(),
+        )
+        val caller = command().copy(
+            id = 9L,
+            title = "调用方",
+            actions = listOf(CommandItem(104L, "执行另一条指令", "被调用方|等它执行完再继续", Ic.Bolt, "action.run_rule")),
+        )
+        source.autoCmds.addAll(listOf(caller, target))
+        val empty = AppState()
+
+        empty.applyCommandImport(parseImport(exportCommandJson(source, caller), empty))
+
+        val importedCaller = (empty.autoCmds + empty.oneTaps).first { it.title.startsWith("调用方") }
+        assertEquals("被调用方|等它执行完再继续", importedCaller.actions.single().parameter)
+        assertTrue("导入后调用边必须仍然有效",
+            empty.validationIssues(importedCaller).none { it.contains("找不到目标指令") })
+    }
+
+
+    @Test
     fun commandImportReallocatesIdsSuffixesNameAndDisablesAuto() {
         val state = AppState()
         val source = command()
@@ -449,4 +493,30 @@ class CommandTransferTest {
         assertEquals("文件不包含任何指令", failure?.message)
     }
 
+
+    @Test
+    fun importingIntoACollidingLibraryRebindsToTheSuffixedImportTitle() {
+        val source = AppState()
+        val target = command().copy(
+            id = 8L, title = "被调用方",
+            triggers = emptyList(), conditions = emptyList(), actions = emptyList(),
+        )
+        val caller = command().copy(
+            id = 9L,
+            title = "调用方",
+            actions = listOf(CommandItem(104L, "执行另一条指令", "被调用方|等它执行完再继续", Ic.Bolt, "action.run_rule")),
+        )
+        source.autoCmds.addAll(listOf(caller, target))
+        val local = AppState()
+        local.autoCmds += command().copy(
+            id = 50L, title = "被调用方",
+            triggers = emptyList(), conditions = emptyList(), actions = emptyList(),
+        )
+
+        local.applyCommandImport(parseImport(exportCommandJson(source, caller), local))
+
+        val importedCaller = (local.autoCmds + local.oneTaps).first { it.title.startsWith("调用方") }
+        assertEquals("被调用方（导入）|等它执行完再继续", importedCaller.actions.single().parameter)
+        assertTrue(local.validationIssues(importedCaller).none { it.contains("找不到目标指令") })
+    }
 }
