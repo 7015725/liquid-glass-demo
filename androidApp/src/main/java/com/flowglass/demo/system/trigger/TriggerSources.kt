@@ -49,10 +49,15 @@ internal class LocationWatcher(
     private val manager = context.getSystemService(LocationManager::class.java)
     private var listener: LocationListener? = null
     private var started = false
+    private var providerReceiver: BroadcastReceiver? = null
+
+    /** Test seam: true while location updates are actually requested. */
+    internal val listening: Boolean get() = listener != null
 
     fun start() {
-        if (started) return
         val lm = manager ?: return
+        armProviderReceiver()
+        if (started) return
         if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
             context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
         val provider = when {
@@ -65,7 +70,7 @@ internal class LocationWatcher(
             @Deprecated("Deprecated in API 29")
             override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
             override fun onProviderEnabled(provider: String) {}
-            override fun onProviderDisabled(provider: String) { stop() }
+            override fun onProviderDisabled(provider: String) { stopUpdates() }
         }
         listener = callback
         try {
@@ -78,6 +83,39 @@ internal class LocationWatcher(
     }
 
     fun stop() {
+        stopUpdates()
+        providerReceiver?.let { runCatching { context.unregisterReceiver(it) } }
+        providerReceiver = null
+    }
+
+    /**
+     * Location can be switched off while the trigger host is alive. Registering once for provider
+     * changes lets the watcher resume when the user turns location back on, instead of staying
+     * "listening" without a provider until the host is rebuilt.
+     */
+    private fun armProviderReceiver() {
+        if (providerReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(receiverContext: Context?, intent: Intent?) {
+                if (intent?.action == LocationManager.PROVIDERS_CHANGED_ACTION && !started) start()
+            }
+        }
+        val filter = IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION)
+        val registered = try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(receiver, filter, receiverFlags(exported = false))
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                context.registerReceiver(receiver, filter)
+            }
+            true
+        } catch (_: Throwable) {
+            false
+        }
+        if (registered) providerReceiver = receiver
+    }
+
+    private fun stopUpdates() {
         val callback = listener
         listener = null
         started = false
