@@ -274,7 +274,16 @@ object ParameterCodec {
         if (meta.typeId == "action.toast") {
             val body = format(meta.params.single { it.key == "text" }, params["text"])
             val duration = params["duration"]?.jsonPrimitive?.content ?: "short"
-            if (duration == "short") return body
+            if (duration == "short") {
+                // A TEXT body is free-form: if it happens to look like a structured toast, parseToast
+                // would reinterpret it. Wrap only that ambiguous shape so format -> parse is lossless.
+                val ambiguous = jsonObjectOrNull(body)?.containsKey("text") == true
+                if (!ambiguous) return body
+                return buildJsonObject {
+                    put("text", JsonPrimitive(body))
+                    put("duration", JsonPrimitive("short"))
+                }.toString()
+            }
             return buildJsonObject {
                 put("text", JsonPrimitive(body))
                 put("duration", JsonPrimitive(duration))

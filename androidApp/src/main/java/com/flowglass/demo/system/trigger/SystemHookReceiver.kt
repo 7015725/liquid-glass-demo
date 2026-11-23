@@ -57,7 +57,7 @@ class SystemHookReceiver : BroadcastReceiver() {
         if (event == SystemHookProtocol.EVENT_KEYGUARD_LOCKED ||
             event == SystemHookProtocol.EVENT_KEYGUARD_UNLOCKED
         ) {
-            TriggerService.start(context, TriggerService.ACTION_SYSTEM_EVENT) {
+            startOrQueue(context, TriggerService.ACTION_SYSTEM_EVENT) {
                 putExtra(SystemHookProtocol.EXTRA_EVENT, event)
                 putExtra(SystemHookProtocol.EXTRA_TIME, System.currentTimeMillis())
             }
@@ -70,7 +70,7 @@ class SystemHookReceiver : BroadcastReceiver() {
         if (userId !in 0..999_999) return
         val now = System.currentTimeMillis()
         SystemEventCache.record(event, packageName, userId, now)
-        TriggerService.start(context, TriggerService.ACTION_SYSTEM_EVENT) {
+        startOrQueue(context, TriggerService.ACTION_SYSTEM_EVENT) {
             putExtra(SystemHookProtocol.EXTRA_EVENT, event)
             putExtra(SystemHookProtocol.EXTRA_PACKAGE, packageName)
             putExtra(SystemHookProtocol.EXTRA_USER, userId)
@@ -83,7 +83,7 @@ class SystemHookReceiver : BroadcastReceiver() {
         if (!PACKAGE_PATTERN.matches(packageName)) return
         val userId = intent.getIntExtra(SystemHookProtocol.EXTRA_USER, 0)
         if (userId !in 0..999_999) return
-        TriggerService.start(context, TriggerService.ACTION_SYSTEM_FOREGROUND) {
+        startOrQueue(context, TriggerService.ACTION_SYSTEM_FOREGROUND) {
             putExtra(SystemHookProtocol.EXTRA_PACKAGE, packageName)
             putExtra(SystemHookProtocol.EXTRA_USER, userId)
             putExtra(SystemHookProtocol.EXTRA_TIME, System.currentTimeMillis())
@@ -104,4 +104,18 @@ class SystemHookReceiver : BroadcastReceiver() {
             SystemHookProtocol.EVENT_FOREGROUND_SERVICE_STOPPED,
         )
     }
+    /**
+     * Android 12+ can reject a background FGS start. Persist the event instead of dropping it;
+     * [TriggerService.ensureStarted] replays the bounded queue on the next allowed start.
+     */
+    internal fun startOrQueue(
+        context: Context,
+        action: String,
+        start: (android.content.Intent) -> Boolean = { TriggerService.startIntent(context, it) },
+        configure: android.content.Intent.() -> Unit,
+    ) {
+        val intent = TriggerService.intent(context, action, configure = configure)
+        if (!start(intent)) PendingSystemEvents.enqueue(context, intent)
+    }
+
 }

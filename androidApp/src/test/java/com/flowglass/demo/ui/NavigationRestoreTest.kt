@@ -185,6 +185,81 @@ class NavigationRestoreTest {
 
         assertEquals(listOf(parent.id), state.blockPath)
     }
+
+    @Test fun aNewDraftLostInProcessDeathIsReported() {
+        val state = AppState()
+        val command = state.create(auto = true)
+        state.startComponentDraft(
+            command.id,
+            CommandSection.ACTIONS,
+            CommandCatalog.options(CommandSection.ACTIONS).first { it.typeId == "action.toast" },
+        )
+        val restored = AppState(state.snapshot())
+
+        restoreNavigation(restored, NavSnapshot(tab = 1, editing = command.id, draft = true))
+
+        assertEquals("未保存的组件草稿已丢失，已恢复上次保存的版本", restored.editorNotice)
+    }
+
+    @Test fun anEditedSavedComponentDraftLostInProcessDeathIsReported() {
+        val state = AppState()
+        val command = state.create(auto = true)
+        state.addItem(command.id, CommandSection.ACTIONS,
+            CommandCatalog.options(CommandSection.ACTIONS).first { it.typeId == "action.toast" })
+        val item = state.find(command.id)!!.actions.single()
+        state.openComponentEditor(command.id, CommandSection.ACTIONS, item)
+        state.updateComponentDraft(item.copy(parameter = """{"text":"未保存"}"""))
+        val restored = AppState(state.snapshot())
+
+        restoreNavigation(
+            restored,
+            NavSnapshot(tab = 1, editing = command.id, actionCmd = command.id,
+                action = item.id, draft = true),
+        )
+
+        assertEquals("未保存的组件草稿已丢失，已恢复上次保存的版本", restored.editorNotice)
+        assertNull(restored.actionEditing)
+        assertNull(restored.actionEditingCmd)
+    }
+
+    @Test fun theDraftFlagSurvivesTheSaveableRoundTrip() {
+        val scope = object : androidx.compose.runtime.saveable.SaverScope {
+            override fun canBeSaved(value: Any) = true
+        }
+        val saved = with(NavSnapshotSaver) {
+            with(scope) { save(NavSnapshot(tab = 1, editing = 2, draft = true)) }
+        }!!
+        val restored = NavSnapshotSaver.restore(saved)!!
+        assertEquals(true, restored.draft)
+    }
+
+    @Test fun aLostDraftOpenedFromABlockPageReturnsToTheCommandRoot() {
+        val state = AppState()
+        val command = state.create(auto = true)
+        state.addItem(command.id, CommandSection.ACTIONS,
+            CommandCatalog.options(CommandSection.ACTIONS).single { it.typeId == "block.if" })
+        val block = state.find(command.id)!!.actions.single()
+        val restored = AppState(state.snapshot())
+
+        restoreNavigation(
+            restored,
+            NavSnapshot(tab = 1, editing = command.id, actionCmd = command.id,
+                blockPath = listOf(block.id), draft = true),
+        )
+
+        assertEquals("未保存的组件草稿已丢失，已恢复上次保存的版本", restored.editorNotice)
+        assertTrue(restored.blockPath.isEmpty())
+    }
+
+    @Test fun aCleanRestoreDoesNotReportALostDraft() {
+        val state = AppState()
+        val command = state.create(auto = true)
+        val restored = AppState(state.snapshot())
+
+        restoreNavigation(restored, NavSnapshot(tab = 1, editing = command.id, draft = false))
+
+        assertNull(restored.editorNotice)
+    }
 }
 
 private class NavProbeActivity : ComponentActivity() {

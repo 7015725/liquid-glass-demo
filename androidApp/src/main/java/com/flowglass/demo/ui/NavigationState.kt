@@ -16,6 +16,8 @@ internal data class NavSnapshot(
     val action: Long = 0L,
     val settingsPage: Int = 0,
     val blockPath: List<Long> = emptyList(),
+    /** True while an unsaved component draft was open; the draft itself has no stable id. */
+    val draft: Boolean = false,
 )
 
 internal val NavSnapshotSaver: Saver<NavSnapshot, Any> = mapSaver(
@@ -27,6 +29,7 @@ internal val NavSnapshotSaver: Saver<NavSnapshot, Any> = mapSaver(
             "action" to nav.action,
             "settingsPage" to nav.settingsPage,
             "blockPath" to nav.blockPath.joinToString(","),
+            "draft" to nav.draft,
         )
     },
     restore = { values ->
@@ -37,6 +40,7 @@ internal val NavSnapshotSaver: Saver<NavSnapshot, Any> = mapSaver(
             action = (values["action"] as? Number)?.toLong() ?: 0L,
             settingsPage = (values["settingsPage"] as? Number)?.toInt() ?: 0,
             blockPath = (values["blockPath"] as? String)?.split(',')?.mapNotNull { it.toLongOrNull() } ?: emptyList(),
+            draft = values["draft"] as? Boolean ?: false,
         )
     },
 )
@@ -51,11 +55,12 @@ internal fun restoreNavigation(state: AppState, saved: NavSnapshot): NavSnapshot
     val savedEditing = saved.editing.takeIf { it > 0L && state.find(it) != null }
     if (state.editing == null) savedEditing?.let(state::openEditor)
 
-    val actionCmd = state.actionEditingCmd
+    val lostDraft = processRestore && saved.draft
+    val actionCmd = if (lostDraft) null else state.actionEditingCmd
         ?.takeIf { state.find(it) != null }
         ?: if (processRestore) saved.actionCmd.takeIf { it > 0L && state.find(it) != null } else null
         ?: state.editing
-    val action = state.actionEditing
+    val action = if (lostDraft) null else state.actionEditing
         ?.takeIf { id -> actionCmd != null && state.itemById(actionCmd, id) != null }
         ?: if (processRestore) saved.action.takeIf { id -> actionCmd != null && id > 0L && state.itemById(actionCmd, id) != null } else null
     if (actionCmd != null && action != null) {
@@ -66,7 +71,16 @@ internal fun restoreNavigation(state: AppState, saved: NavSnapshot): NavSnapshot
     // On Activity recreation AppState is already alive: a path the user opened after the last
     // saved snapshot must win over that stale snapshot. A process restore has no in-memory path,
     // so it falls back to the saved one.
-    state.blockPath = state.validBlockPath(if (processRestore) saved.blockPath else liveBlockPath)
+    // A lost draft opened from a block page must not land on that block page: the notice
+    // is rendered by the command editor root, so drop the block path and stay at the root.
+    state.blockPath = state.validBlockPath(
+        if (lostDraft) emptyList() else if (processRestore) saved.blockPath else liveBlockPath,
+    )
+    if (lostDraft) {
+        // A new component draft has no stable id, and an edited saved component silently reopens
+        // from disk. Tell the user the draft is gone instead of presenting the saved version as theirs.
+        state.editorNotice = "未保存的组件草稿已丢失，已恢复上次保存的版本"
+    }
 
     val savedPage = saved.settingsPage.takeIf { it in SettingsPage.KeepAlive..SettingsPage.Variables }
     if (state.settingsPage == SettingsPage.Main && savedPage != null) state.settingsPage = savedPage
