@@ -81,7 +81,7 @@ internal fun ActionParameterEditor(
     } else {
         val spec = meta.params.single()
         LaunchedEffect(item.id) {
-            onValidity(runCatching { ParameterForm.compose(meta, mapOf(spec.key to item.parameter)) }.isFailure)
+            onValidity(ParameterForm.compose(meta, mapOf(spec.key to item.parameter)).isFailure)
         }
         ParamField(
             spec = spec,
@@ -89,7 +89,7 @@ internal fun ActionParameterEditor(
             tag = "item-parameter",
             onValue = { raw ->
                 onParameter(raw)
-                onValidity(runCatching { ParameterForm.compose(meta, mapOf(spec.key to raw)) }.isFailure)
+                onValidity(ParameterForm.compose(meta, mapOf(spec.key to raw)).isFailure)
             },
             targets = targets,
             variables = variables,
