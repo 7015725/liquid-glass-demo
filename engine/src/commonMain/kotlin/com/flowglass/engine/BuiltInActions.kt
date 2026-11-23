@@ -97,7 +97,7 @@ object BuiltInActions {
                 out("shell.stderr", "标准错误", VariableType.TEXT, "标准错误", "当前 Root 会话与标准输出合并，通常为空"),
                 out("shell.code", "退出码", VariableType.INT, "退出码", "Shell 的退出码"),
             )),
-        ComponentMeta("action.script", "执行脚本", "脚本", ComponentKind.ACTION,
+        ComponentMeta("action.script", "执行 JavaScript", "脚本", ComponentKind.ACTION,
             listOf(
                 ParamSpec("script", "脚本", ParamType.MULTILINE_TEXT, true,
                     JsonPrimitive("log(\"hello\");\n\"done\";"),
