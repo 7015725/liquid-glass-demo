@@ -80,11 +80,17 @@ internal fun ActionParameterEditor(
         }
     } else {
         val spec = meta.params.single()
+        LaunchedEffect(item.id) {
+            onValidity(runCatching { ParameterForm.compose(meta, mapOf(spec.key to item.parameter)) }.isFailure)
+        }
         ParamField(
             spec = spec,
             current = item.parameter,
             tag = "item-parameter",
-            onValue = onParameter,
+            onValue = { raw ->
+                onParameter(raw)
+                onValidity(runCatching { ParameterForm.compose(meta, mapOf(spec.key to raw)) }.isFailure)
+            },
             targets = targets,
             variables = variables,
             canConfigureOutputs = canConfigureOutputs,
@@ -132,7 +138,8 @@ private fun SetVariableEditor(
         // Same-name local shadowing a global is legal; only a name that is neither editable nor
         // already a user variable is occupied.
         val exists = variables.any {
-            it.scope != com.flowglass.engine.VariableScope.BUILTIN && it.name == candidate
+            it.scope != com.flowglass.engine.VariableScope.BUILTIN &&
+                it.scope != com.flowglass.engine.VariableScope.OUTPUT && it.name == candidate
         }
         return if (!exists && variables.any { it.name == candidate }) "名字已被占用：$candidate" else null
     }
@@ -158,7 +165,8 @@ private fun SetVariableEditor(
     }
     val name = fields["name"].orEmpty().trim().removeSurrounding("{", "}")
     val exists = name.isNotEmpty() && variables.any {
-        it.scope != com.flowglass.engine.VariableScope.BUILTIN && it.name == name
+        it.scope != com.flowglass.engine.VariableScope.BUILTIN &&
+            it.scope != com.flowglass.engine.VariableScope.OUTPUT && it.name == name
     }
     val scope = when (fields["scope"].orEmpty()) {
         "所有指令", "global" -> "global"
