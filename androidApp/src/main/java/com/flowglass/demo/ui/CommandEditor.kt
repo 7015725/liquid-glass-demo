@@ -353,6 +353,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 validateName = { name ->
                     VariableCatalog.validateName(
                         state, name, cmd.id, com.flowglass.engine.VariableScope.OUTPUT,
+                        ignoreOwner = cmd.id,
                         ignoreItem = outputItem.id,
                     )
                 },

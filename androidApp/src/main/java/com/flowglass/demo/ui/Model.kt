@@ -83,6 +83,9 @@ data class UndoInfo(
      * snapshot taken before the action, or edits made while the bar is visible are lost.
      */
     val patch: ((Cmd) -> Cmd)? = null,
+    /** Canonical rule removed together with a deleted command, so undo can restore it. */
+    val engineRule: com.flowglass.engine.Rule? = null,
+    val presentation: com.flowglass.engine.RulePresentation? = null,
 )
 
 /** Where one node lived, so a delete or move can be reversed in the current tree. */
@@ -679,6 +682,47 @@ class AppState internal constructor(saved: PersistedAppState?) {
     internal fun ruleIdFor(cmdId: Long): String? =
         engineUi.presentation.entries.firstOrNull { it.value.legacyId == cmdId }?.key
 
+    /**
+     * A command created in this process has no canonical rule until the first save, so local
+     * variables cannot be attached to it. Materialize the same rule/presentation the mapper would
+     * create, keyed by the stable legacy id, before editing its locals.
+     */
+    private fun ensureEngineRule(cmd: Cmd): String {
+        ruleIdFor(cmd.id)?.let { return it }
+        val ruleId = com.flowglass.engine.LegacyCommandMigration.uuidForLegacyId(cmd.id)
+        if (engineRules.none { it.id == ruleId }) {
+            engineRules = engineRules + com.flowglass.engine.Rule(
+                id = ruleId,
+                name = cmd.title,
+                description = cmd.desc,
+                type = if (cmd.auto) com.flowglass.engine.RuleType.AUTO else com.flowglass.engine.RuleType.MANUAL,
+                enabled = cmd.enabled,
+                runMode = cmd.runMode,
+                triggerMatch = cmd.triggerMatch,
+            )
+        }
+        if (engineUi.presentation[ruleId] == null) {
+            engineUi = engineUi.copy(
+                presentation = engineUi.presentation + (ruleId to presentationFor(cmd)),
+            )
+        }
+        return ruleId
+    }
+
+    private fun presentationFor(cmd: Cmd): com.flowglass.engine.RulePresentation {
+        val items = (cmd.triggers + cmd.conditions + cmd.actions).allItems()
+        return com.flowglass.engine.RulePresentation(
+            category = cmd.category,
+            icon = cmd.ic.name,
+            pinned = cmd.pinned,
+            lastRun = cmd.lastRun,
+            descriptionEdited = cmd.descriptionEdited,
+            legacyId = cmd.id,
+            items = items.associate { it.id to com.flowglass.engine.ComponentPresentation(it.id, it.ic.name) },
+            collapsed = items.filter { it.collapsed }.map { it.id },
+        )
+    }
+
     fun localsOf(cmdId: Long): List<com.flowglass.engine.LocalVariable> =
         engineRules.firstOrNull { it.id == ruleIdFor(cmdId) }?.locals.orEmpty()
 
@@ -866,7 +910,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
                 )
             }
             com.flowglass.engine.VariableScope.LOCAL -> {
-                val ruleId = commandId?.let(::ruleIdFor) ?: return
+                val command = commandId?.let(::find) ?: return
+                val ruleId = ensureEngineRule(command)
                 engineRules = engineRules.map { rule ->
                     if (rule.id != ruleId) rule else rule.copy(
                         locals = rule.locals.filterNot { it.name == name } + com.flowglass.engine.LocalVariable(
@@ -1199,6 +1244,27 @@ class AppState internal constructor(saved: PersistedAppState?) {
             triggers = copied(src.triggers), conditions = copied(src.conditions), actions = copied(src.actions),
         )
         l.add(i + 1, copy)
+        val sourceRule = ruleIdFor(src.id)?.let { rid -> engineRules.firstOrNull { it.id == rid } }
+        val copyRuleId = com.flowglass.engine.LegacyCommandMigration.uuidForLegacyId(copy.id)
+        // Build the canonical rule from the copied command, so component ids match the new tree
+        // instead of pointing at the source command's nodes.
+        val built = snapshot().toRuleDocument().rules.firstOrNull { it.id == copyRuleId }
+            ?: com.flowglass.engine.Rule(
+                id = copyRuleId,
+                name = copy.title,
+                description = copy.desc,
+                type = if (copy.auto) com.flowglass.engine.RuleType.AUTO else com.flowglass.engine.RuleType.MANUAL,
+                enabled = copy.enabled,
+                runMode = copy.runMode,
+                triggerMatch = copy.triggerMatch,
+            )
+        engineRules = engineRules.filterNot { it.id == copyRuleId } +
+            built.copy(locals = sourceRule?.locals.orEmpty())
+        if (engineUi.presentation[copyRuleId] == null) {
+            engineUi = engineUi.copy(
+                presentation = engineUi.presentation + (copyRuleId to presentationFor(copy)),
+            )
+        }
         return copy.id
     }
 
@@ -1209,7 +1275,14 @@ class AppState internal constructor(saved: PersistedAppState?) {
         val l = listFor(src.auto)
         val i = l.indexOf(src)
         l.removeAt(i)
-        undo = UndoInfo(src, i)
+        val ruleId = ruleIdFor(id)
+        val removedRule = ruleId?.let { rid -> engineRules.firstOrNull { it.id == rid } }
+        val removedPresentation = ruleId?.let { engineUi.presentation[it] }
+        if (ruleId != null) {
+            engineRules = engineRules.filterNot { it.id == ruleId }
+            engineUi = engineUi.copy(presentation = engineUi.presentation - ruleId)
+        }
+        undo = UndoInfo(src, i, engineRule = removedRule, presentation = removedPresentation)
     }
 
     fun undoDelete() {
@@ -1222,6 +1295,12 @@ class AppState internal constructor(saved: PersistedAppState?) {
         } else {
             val l = listFor(u.cmd.auto)
             l.add(u.index.coerceIn(0, l.size), u.cmd)
+        }
+        u.engineRule?.let { rule ->
+            if (engineRules.none { it.id == rule.id }) engineRules = engineRules + rule
+            u.presentation?.let { presentation ->
+                engineUi = engineUi.copy(presentation = engineUi.presentation + (rule.id to presentation))
+            }
         }
         undo = null
     }

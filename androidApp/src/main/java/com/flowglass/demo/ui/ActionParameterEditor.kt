@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,6 +61,7 @@ internal fun ActionParameterEditor(
     showDone: Boolean = true,
     canConfigureOutputs: Boolean = false,
     onConfigureOutputs: (() -> Unit)? = null,
+    onValidity: (Boolean) -> Unit = {},
 ) {
     val meta = item.typeId?.let { id -> com.flowglass.engine.BuiltInComponents.registry().find(id) }
     if (meta == null || meta.params.isEmpty()) {
@@ -69,20 +71,26 @@ internal fun ActionParameterEditor(
 
     if (meta.params.size > 1) {
         if (item.typeId == "condition.variable") {
-            VariableConditionEditor(meta, item, onParameter, variables)
+            VariableConditionEditor(meta, item, onParameter, variables, onValidity)
         } else if (item.typeId == "action.set_var") {
-            SetVariableEditor(meta, item, onParameter, targets, variables)
+            SetVariableEditor(meta, item, onParameter, targets, variables, onValidity)
         } else {
             MultiParameterEditor(meta, item, onParameter, onAuthorization, targets, variables,
-                canConfigureOutputs, onConfigureOutputs)
+                canConfigureOutputs, onConfigureOutputs, onValidity)
         }
     } else {
         val spec = meta.params.single()
+        LaunchedEffect(item.id) {
+            onValidity(ParameterForm.compose(meta, mapOf(spec.key to item.parameter)).isFailure)
+        }
         ParamField(
             spec = spec,
             current = item.parameter,
             tag = "item-parameter",
-            onValue = onParameter,
+            onValue = { raw ->
+                onParameter(raw)
+                onValidity(ParameterForm.compose(meta, mapOf(spec.key to raw)).isFailure)
+            },
             targets = targets,
             variables = variables,
             canConfigureOutputs = canConfigureOutputs,
@@ -110,6 +118,7 @@ private fun SetVariableEditor(
     onParameter: (String) -> Unit,
     targets: List<String>,
     variables: List<VariableOption>,
+    onValidity: (Boolean) -> Unit = {},
 ) {
     var fields by remember(item.id) {
         mutableStateOf(
@@ -122,31 +131,51 @@ private fun SetVariableEditor(
     }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
 
+    fun nameProblem(next: Map<String, String>): String? {
+        val candidate = next["name"].orEmpty().trim().removeSurrounding("{", "}")
+        if (candidate.isEmpty()) return "变量名不能为空"
+        com.flowglass.engine.VariableName.error(candidate)?.let { return it }
+        // Same-name local shadowing a global is legal; only a name that is neither editable nor
+        // already a user variable is occupied.
+        val exists = variables.any {
+            it.scope != com.flowglass.engine.VariableScope.BUILTIN &&
+                it.scope != com.flowglass.engine.VariableScope.OUTPUT && it.name == candidate
+        }
+        return if (!exists && variables.any { it.name == candidate }) "名字已被占用：$candidate" else null
+    }
+
     fun update(key: String, value: String) {
         val next = fields + (key to value)
         fields = next
-        ParameterForm.compose(meta, next)
+        val composed = ParameterForm.compose(meta, next)
             .onSuccess { onParameter(it); error = null }
             .onFailure { error = it.message?.replace('\n', ' ')?.take(120) }
+        onValidity(composed.isFailure || nameProblem(next) != null)
     }
 
     fun selectType(next: com.flowglass.engine.VariableType) {
         val nextFields = fields + ("type" to next.storageKey) +
             if (next == com.flowglass.engine.VariableType.INT) emptyMap() else mapOf("op" to "set")
         fields = nextFields
-        ParameterForm.compose(meta, nextFields)
+        val result = ParameterForm.compose(meta, nextFields)
+        result
             .onSuccess { onParameter(it); error = null }
             .onFailure { error = it.message?.replace('\n', ' ')?.take(120) }
+        onValidity(result.isFailure || nameProblem(nextFields) != null)
     }
     val name = fields["name"].orEmpty().trim().removeSurrounding("{", "}")
     val exists = name.isNotEmpty() && variables.any {
-        it.scope != com.flowglass.engine.VariableScope.BUILTIN && it.name == name
+        it.scope != com.flowglass.engine.VariableScope.BUILTIN &&
+            it.scope != com.flowglass.engine.VariableScope.OUTPUT && it.name == name
     }
     val scope = when (fields["scope"].orEmpty()) {
         "所有指令", "global" -> "global"
         else -> "local"
     }
     val type = variableTypeOfField(fields["type"].orEmpty())
+    LaunchedEffect(item.id) {
+        onValidity(ParameterForm.compose(meta, fields).isFailure || nameProblem(fields) != null)
+    }
     val nameError = com.flowglass.engine.VariableName.error(name)
         ?: if (!exists && variables.any { it.name == name }) "名字已被占用：$name" else null
 
@@ -209,16 +238,20 @@ private fun MultiParameterEditor(
     variables: List<VariableOption> = emptyList(),
     canConfigureOutputs: Boolean = false,
     onConfigureOutputs: (() -> Unit)? = null,
+    onValidity: (Boolean) -> Unit = {},
 ) {
     var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(item.id) {
+        onValidity(ParameterForm.compose(meta, fields).isFailure)
+    }
 
     fun update(key: String, value: String) {
         val next = fields + (key to value)
         fields = next
-        ParameterForm.compose(meta, next)
-            .onSuccess { onParameter(it); error = null }
-            .onFailure { error = it.message?.replace('\n', ' ')?.take(120) }
+        val composed = ParameterForm.compose(meta, next)
+            .onSuccess { onParameter(it); error = null; onValidity(false) }
+            .onFailure { error = it.message?.replace('\n', ' ')?.take(120); onValidity(true) }
     }
 
     if (item.typeId == "trigger.time" && !canScheduleExactAlarms(androidx.compose.ui.platform.LocalContext.current)) {

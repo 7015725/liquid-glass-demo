@@ -57,6 +57,7 @@ internal fun VariableConditionEditor(
     item: CommandItem,
     onParameter: (String) -> Unit,
     variables: List<VariableOption>,
+    onValidity: (Boolean) -> Unit = {},
 ) {
     var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
@@ -64,9 +65,11 @@ internal fun VariableConditionEditor(
     fun update(key: String, value: String) {
         val next = fields + (key to value)
         fields = next
-        ParameterForm.compose(meta, next)
+        val result = ParameterForm.compose(meta, next)
+        result
             .onSuccess { onParameter(it); error = null }
             .onFailure { error = it.message?.replace('\n', ' ')?.take(160) }
+        onValidity(result.isFailure)
     }
 
     val op = operatorId(fields["op"].orEmpty().ifEmpty { "eq" })

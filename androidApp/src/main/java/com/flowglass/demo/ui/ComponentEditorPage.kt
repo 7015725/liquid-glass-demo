@@ -99,7 +99,10 @@ private fun ComponentEditorPage(
         com.flowglass.engine.OutputCatalog.allOutputs(meta).isNotEmpty()
     var outputPage by remember(item.id) { mutableStateOf(false) }
 
+    var parameterInvalid by remember(draft.item.id) { mutableStateOf(false) }
+
     fun save() {
+        if (parameterInvalid) return
         if (state.saveComponentDraft()) discardOpen = false
     }
 
@@ -146,6 +149,7 @@ private fun ComponentEditorPage(
             validateName = { name ->
                 VariableCatalog.validateName(
                     state, name, draft.cmdId, com.flowglass.engine.VariableScope.OUTPUT,
+                    ignoreOwner = draft.cmdId,
                     ignoreItem = item.id,
                 )
             },
@@ -167,6 +171,17 @@ private fun ComponentEditorPage(
             onOutputs = { outputPage = true },
             onMove = { moveOpen = true },
         )
+        if (discardOpen) {
+            DiscardDraftDialog(
+                title = if (draft.isNew) "放弃添加？" else "放弃修改？",
+                message = if (draft.isNew) "还没有保存，返回后不会添加该组件。" else "返回后本次修改不会保留。",
+                onKeep = { discardOpen = false },
+                onDiscard = {
+                    discardOpen = false
+                    state.cancelComponentDraft()
+                },
+            )
+        }
         return
     }
 
@@ -199,6 +214,7 @@ private fun ComponentEditorPage(
             showDone = false,
             canConfigureOutputs = hasOutputs,
             onConfigureOutputs = { outputPage = true },
+            onValidity = { parameterInvalid = it },
         )
         if (draft.section == CommandSection.ACTIONS && !draft.isNew) {
             EditorPill("移动到…", "移动到其他位置") { moveOpen = true }
