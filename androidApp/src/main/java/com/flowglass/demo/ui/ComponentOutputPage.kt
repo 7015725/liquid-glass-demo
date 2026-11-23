@@ -67,7 +67,9 @@ internal fun ComponentOutputPage(
     }
 
     // 有这个动作/触发器就一定有这个输出，界面不再提供启用/禁用；保存时统一按启用写回。
-    fun normalized(): List<OutputBinding> = outputs.map { if (it.enabled) it else it.copy(enabled = true) }
+    // Trimming at save time keeps the stored key equal to what the insertion picker emits;
+    // validation already trims, so a name with edge spaces would otherwise pass and never resolve.
+    fun normalized(): List<OutputBinding> = outputs.map { it.copy(name = it.name.trim(), enabled = true) }
 
     Column(
         Modifier.fillMaxSize().background(C.Bg).testTag("component-output-page")

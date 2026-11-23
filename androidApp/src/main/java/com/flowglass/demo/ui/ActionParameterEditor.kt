@@ -60,6 +60,7 @@ internal fun ActionParameterEditor(
     showDone: Boolean = true,
     canConfigureOutputs: Boolean = false,
     onConfigureOutputs: (() -> Unit)? = null,
+    onValidity: (Boolean) -> Unit = {},
 ) {
     val meta = item.typeId?.let { id -> com.flowglass.engine.BuiltInComponents.registry().find(id) }
     if (meta == null || meta.params.isEmpty()) {
@@ -71,7 +72,7 @@ internal fun ActionParameterEditor(
         if (item.typeId == "condition.variable") {
             VariableConditionEditor(meta, item, onParameter, variables)
         } else if (item.typeId == "action.set_var") {
-            SetVariableEditor(meta, item, onParameter, targets, variables)
+            SetVariableEditor(meta, item, onParameter, targets, variables, onValidity)
         } else {
             MultiParameterEditor(meta, item, onParameter, onAuthorization, targets, variables,
                 canConfigureOutputs, onConfigureOutputs)
@@ -110,6 +111,7 @@ private fun SetVariableEditor(
     onParameter: (String) -> Unit,
     targets: List<String>,
     variables: List<VariableOption>,
+    onValidity: (Boolean) -> Unit = {},
 ) {
     var fields by remember(item.id) {
         mutableStateOf(
@@ -126,8 +128,8 @@ private fun SetVariableEditor(
         val next = fields + (key to value)
         fields = next
         ParameterForm.compose(meta, next)
-            .onSuccess { onParameter(it); error = null }
-            .onFailure { error = it.message?.replace('\n', ' ')?.take(120) }
+            .onSuccess { onParameter(it); error = null; onValidity(false) }
+            .onFailure { error = it.message?.replace('\n', ' ')?.take(120); onValidity(true) }
     }
 
     fun selectType(next: com.flowglass.engine.VariableType) {
@@ -209,6 +211,7 @@ private fun MultiParameterEditor(
     variables: List<VariableOption> = emptyList(),
     canConfigureOutputs: Boolean = false,
     onConfigureOutputs: (() -> Unit)? = null,
+    onValidity: (Boolean) -> Unit = {},
 ) {
     var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
@@ -217,8 +220,8 @@ private fun MultiParameterEditor(
         val next = fields + (key to value)
         fields = next
         ParameterForm.compose(meta, next)
-            .onSuccess { onParameter(it); error = null }
-            .onFailure { error = it.message?.replace('\n', ' ')?.take(120) }
+            .onSuccess { onParameter(it); error = null; onValidity(false) }
+            .onFailure { error = it.message?.replace('\n', ' ')?.take(120); onValidity(true) }
     }
 
     if (item.typeId == "trigger.time" && !canScheduleExactAlarms(androidx.compose.ui.platform.LocalContext.current)) {

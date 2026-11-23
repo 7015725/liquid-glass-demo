@@ -679,6 +679,47 @@ class AppState internal constructor(saved: PersistedAppState?) {
     internal fun ruleIdFor(cmdId: Long): String? =
         engineUi.presentation.entries.firstOrNull { it.value.legacyId == cmdId }?.key
 
+    /**
+     * A command created in this process has no canonical rule until the first save, so local
+     * variables cannot be attached to it. Materialize the same rule/presentation the mapper would
+     * create, keyed by the stable legacy id, before editing its locals.
+     */
+    private fun ensureEngineRule(cmd: Cmd): String {
+        ruleIdFor(cmd.id)?.let { return it }
+        val ruleId = com.flowglass.engine.LegacyCommandMigration.uuidForLegacyId(cmd.id)
+        if (engineRules.none { it.id == ruleId }) {
+            engineRules = engineRules + com.flowglass.engine.Rule(
+                id = ruleId,
+                name = cmd.title,
+                description = cmd.desc,
+                type = if (cmd.auto) com.flowglass.engine.RuleType.AUTO else com.flowglass.engine.RuleType.MANUAL,
+                enabled = cmd.enabled,
+                runMode = cmd.runMode,
+                triggerMatch = cmd.triggerMatch,
+            )
+        }
+        if (engineUi.presentation[ruleId] == null) {
+            engineUi = engineUi.copy(
+                presentation = engineUi.presentation + (ruleId to presentationFor(cmd)),
+            )
+        }
+        return ruleId
+    }
+
+    private fun presentationFor(cmd: Cmd): com.flowglass.engine.RulePresentation {
+        val items = (cmd.triggers + cmd.conditions + cmd.actions).allItems()
+        return com.flowglass.engine.RulePresentation(
+            category = cmd.category,
+            icon = cmd.ic.name,
+            pinned = cmd.pinned,
+            lastRun = cmd.lastRun,
+            descriptionEdited = cmd.descriptionEdited,
+            legacyId = cmd.id,
+            items = items.associate { it.id to com.flowglass.engine.ComponentPresentation(it.id, it.ic.name) },
+            collapsed = items.filter { it.collapsed }.map { it.id },
+        )
+    }
+
     fun localsOf(cmdId: Long): List<com.flowglass.engine.LocalVariable> =
         engineRules.firstOrNull { it.id == ruleIdFor(cmdId) }?.locals.orEmpty()
 
@@ -866,7 +907,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
                 )
             }
             com.flowglass.engine.VariableScope.LOCAL -> {
-                val ruleId = commandId?.let(::ruleIdFor) ?: return
+                val command = commandId?.let(::find) ?: return
+                val ruleId = ensureEngineRule(command)
                 engineRules = engineRules.map { rule ->
                     if (rule.id != ruleId) rule else rule.copy(
                         locals = rule.locals.filterNot { it.name == name } + com.flowglass.engine.LocalVariable(
@@ -1199,6 +1241,33 @@ class AppState internal constructor(saved: PersistedAppState?) {
             triggers = copied(src.triggers), conditions = copied(src.conditions), actions = copied(src.actions),
         )
         l.add(i + 1, copy)
+        val sourceRuleId = ruleIdFor(src.id)
+        val sourceRule = engineRules.firstOrNull { it.id == sourceRuleId }
+        val copyRuleId = com.flowglass.engine.LegacyCommandMigration.uuidForLegacyId(copy.id)
+        if (engineRules.none { it.id == copyRuleId }) {
+            engineRules = engineRules + (sourceRule?.copy(
+                id = copyRuleId,
+                name = copy.title,
+                description = copy.desc,
+                type = if (copy.auto) com.flowglass.engine.RuleType.AUTO else com.flowglass.engine.RuleType.MANUAL,
+                enabled = copy.enabled,
+                runMode = copy.runMode,
+                triggerMatch = copy.triggerMatch,
+            ) ?: com.flowglass.engine.Rule(
+                id = copyRuleId,
+                name = copy.title,
+                description = copy.desc,
+                type = if (copy.auto) com.flowglass.engine.RuleType.AUTO else com.flowglass.engine.RuleType.MANUAL,
+                enabled = copy.enabled,
+                runMode = copy.runMode,
+                triggerMatch = copy.triggerMatch,
+            ))
+        }
+        if (engineUi.presentation[copyRuleId] == null) {
+            engineUi = engineUi.copy(
+                presentation = engineUi.presentation + (copyRuleId to presentationFor(copy)),
+            )
+        }
         return copy.id
     }
 
