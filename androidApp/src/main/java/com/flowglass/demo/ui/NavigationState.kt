@@ -55,11 +55,12 @@ internal fun restoreNavigation(state: AppState, saved: NavSnapshot): NavSnapshot
     val savedEditing = saved.editing.takeIf { it > 0L && state.find(it) != null }
     if (state.editing == null) savedEditing?.let(state::openEditor)
 
-    val actionCmd = state.actionEditingCmd
+    val lostDraft = processRestore && saved.draft
+    val actionCmd = if (lostDraft) null else state.actionEditingCmd
         ?.takeIf { state.find(it) != null }
         ?: if (processRestore) saved.actionCmd.takeIf { it > 0L && state.find(it) != null } else null
         ?: state.editing
-    val action = state.actionEditing
+    val action = if (lostDraft) null else state.actionEditing
         ?.takeIf { id -> actionCmd != null && state.itemById(actionCmd, id) != null }
         ?: if (processRestore) saved.action.takeIf { id -> actionCmd != null && id > 0L && state.itemById(actionCmd, id) != null } else null
     if (actionCmd != null && action != null) {
@@ -71,7 +72,7 @@ internal fun restoreNavigation(state: AppState, saved: NavSnapshot): NavSnapshot
     // saved snapshot must win over that stale snapshot. A process restore has no in-memory path,
     // so it falls back to the saved one.
     state.blockPath = state.validBlockPath(if (processRestore) saved.blockPath else liveBlockPath)
-    if (processRestore && saved.draft) {
+    if (lostDraft) {
         // A new component draft has no stable id, and an edited saved component silently reopens
         // from disk. Tell the user the draft is gone instead of presenting the saved version as theirs.
         state.editorNotice = "未保存的组件草稿已丢失，已恢复上次保存的版本"

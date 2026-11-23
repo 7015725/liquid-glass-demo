@@ -128,6 +128,9 @@ fun FlowGlassApp() {
             navRestored = true
         }
     }
+    // componentDraft is only read inside a child page, so derive it here to make this scope
+    // recompose when a draft opens or closes; otherwise nav.draft would keep a stale value.
+    val draftOpen by remember { derivedStateOf { state.componentDraft != null } }
     // Keep the saveable snapshot in step with navigation performed directly on AppState.
     SideEffect {
         if (navRestored) {
@@ -137,7 +140,7 @@ fun FlowGlassApp() {
                 action = state.actionEditing ?: 0L,
                 settingsPage = state.settingsPage,
                 blockPath = state.blockPath,
-                draft = state.componentDraft != null,
+                draft = draftOpen,
             )
             if (next != nav) nav = next
         }
