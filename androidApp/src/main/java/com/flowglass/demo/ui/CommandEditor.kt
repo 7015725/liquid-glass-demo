@@ -138,6 +138,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
             title = {
                 // BasicTextField cannot ellipsize when unfocused; show a one-line preview and
                 // swap in the editable field only while it has focus.
+                val titleText = state.editorTitleDraft ?: cmd.title
                 Box(Modifier.fillMaxWidth()) {
                     if (!titleFocused) {
                         T(
@@ -147,14 +148,18 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                         )
                     }
                     BasicTextField(
-                        cmd.title, { state.setTitle(cmd.id, it) },
+                        titleText, { state.setTitle(cmd.id, it) },
                         Modifier.fillMaxWidth().testTag("editor-name").imeAutoScroll()
-                            .onFocusChanged { titleFocused = it.isFocused }
+                            .onFocusChanged {
+                                val wasFocused = titleFocused
+                                titleFocused = it.isFocused
+                                if (wasFocused && !it.isFocused) state.clearTitleDraft()
+                            }
                             .alpha(if (titleFocused) 1f else 0f),
                         textStyle = TextStyle(color = C.OnSurface, fontSize = 20.sp, fontWeight = FontWeight.Bold),
                         singleLine = true,
                         cursorBrush = SolidColor(C.Primary),
-                        decorationBox = { inner -> Box { if (cmd.title.isEmpty() && titleFocused) T("指令名称", 20.sp, color = C.Muted, maxLines = 1); inner() } },
+                        decorationBox = { inner -> Box { if (titleText.isEmpty() && titleFocused) T("指令名称", 20.sp, color = C.Muted, maxLines = 1); inner() } },
                     )
                 }
             },
