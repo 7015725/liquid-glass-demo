@@ -171,6 +171,16 @@ object ParameterCodec {
         // Old set-var rows had exactly name|op|value. Keep them editable while the new editor
         // adds type/scope/retain fields.
         if (meta.typeId == "action.set_var") {
+            // A free-form value may contain `|`; such rows are stored as a JSON object so the
+            // legacy separator cannot split the value. Plain rows keep the compact form.
+            val structured = jsonObjectOrNull(text)?.takeIf { it.containsKey("name") }
+            if (structured != null) {
+                return meta.params.associate { spec ->
+                    val raw = (structured[spec.key] as? JsonPrimitive)?.content
+                        ?: spec.defaultValue.jsonPrimitive.content
+                    spec.key to parse(spec, raw)
+                }
+            }
             val parts = text.split('|')
             if (parts.size == 3) {
                 return mapOf(
@@ -303,6 +313,16 @@ object ParameterCodec {
             val defaults = meta.params.associate { it.key to it.defaultValue }
             val merged = defaults + params
             val values = meta.params.map { format(it, merged[it.key]) }
+            if (values.any { '|' in it }) {
+                // `|` is the legacy separator; a value containing it is stored as JSON so the
+                // separator cannot corrupt it. The editor still displays the parsed form.
+                return buildJsonObject {
+                    meta.params.forEach { spec ->
+                        val raw = (merged[spec.key] as? JsonPrimitive)?.content.orEmpty()
+                        put(spec.key, JsonPrimitive(raw))
+                    }
+                }.toString()
+            }
             require(values.none { '|' in it }) { "参数不能包含 |" }
             return values.joinToString("|")
         }
