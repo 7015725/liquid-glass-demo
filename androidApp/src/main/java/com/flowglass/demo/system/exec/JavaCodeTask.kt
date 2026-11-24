@@ -6,7 +6,7 @@ import com.flowglass.demo.ui.CommandItem
 import com.flowglass.engine.ScriptVariableAccess
 
 /**
- * Tasker-style Java Code action: parse, gate, run, write back. The runner boundary keeps the
+ * Java Code action: parse, gate, run, write back. The runner boundary keeps the
  * BeanShell/process choice out of the engine and the UI.
  */
 internal object JavaCodeTask {
