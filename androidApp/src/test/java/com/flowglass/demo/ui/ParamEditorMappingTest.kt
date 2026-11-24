@@ -15,8 +15,8 @@ class ParamEditorMappingTest {
 
     @Test fun everyBuiltInParameterResolvesToAConcreteEditor() {
         val all = registry.all()
-        assertEquals("组件数量", 64, all.size)
-        assertEquals("参数数量", 91, all.sumOf { it.params.size })
+        assertEquals("组件数量", 65, all.size)
+        assertEquals("参数数量", 93, all.sumOf { it.params.size })
         all.forEach { meta ->
             meta.params.forEach { spec ->
                 assertNotEquals(
@@ -45,6 +45,8 @@ class ParamEditorMappingTest {
         assertEquals(ParamEditor.CODE, script.resolvedEditor())
         val shell = requireNotNull(registry.find("action.root_shell")).params.single { it.key == "command" }
         assertEquals(ParamEditor.CODE, shell.resolvedEditor())
+        val java = requireNotNull(registry.find("action.java_code")).params.single { it.key == "code" }
+        assertEquals(ParamEditor.CODE, java.resolvedEditor())
     }
 
     @Test fun onlySemanticOverridesUseDedicatedPickers() {

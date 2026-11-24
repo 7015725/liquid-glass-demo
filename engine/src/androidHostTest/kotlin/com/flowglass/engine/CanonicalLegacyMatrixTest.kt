@@ -55,6 +55,7 @@ class CanonicalLegacyMatrixTest {
             it.block == null && it.typeId != "condition.variable" &&
                 it.typeId !in setOf(
                     "action.script", // introduced in 0.8, no v0.5 form
+                    "action.java_code", // 新增动作，无 v0.5 文本形态
                     "action.force_stop", // alpha11, root-only
                     "trigger.app_process", "trigger.app_crash", "condition.app_process_state",
                     "trigger.keyguard", // alpha8

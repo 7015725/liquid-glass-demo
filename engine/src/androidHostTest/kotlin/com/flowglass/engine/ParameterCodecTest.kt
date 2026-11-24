@@ -196,5 +196,16 @@ class ParameterCodecTest {
         assertTrue(issues.any { it.path == "triggerMatch.atLeast" })
         assertTrue(issues.any { it.path == "actions[0].params.package" })
     }
+    @Test fun javaCodeRoundTripsMultilineAndPipes() {
+        val meta = BuiltInComponents.registry().find("action.java_code")
+            ?: error("missing java code action")
+        val params = mapOf(
+            "code" to JsonPrimitive("if (a || b) {\n  return 1 | 2;\n}\nreturn 0;"),
+            "timeout" to JsonPrimitive(45),
+        )
+        val text = ParameterCodec.formatComponent(meta, params)
+        assertEquals(params, ParameterCodec.parseComponent(meta, text))
+    }
+
     private fun obj(text: String) = RuleJson.format.parseToJsonElement(text)
 }

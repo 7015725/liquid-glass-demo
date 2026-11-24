@@ -121,6 +121,25 @@ object BuiltInActions {
                 out("script.result", "脚本结果", VariableType.TEXT, "脚本结果", "脚本最后的返回值"),
             ), supports = normalLayer,
             description = "在沙箱中执行 JavaScript，返回值作为脚本输出。"),
+        ComponentMeta("action.java_code", "执行 Java 代码", "脚本", ComponentKind.ACTION,
+            listOf(
+                ParamSpec("code", "代码", ParamType.MULTILINE_TEXT, required = true,
+                    defaultValue = JsonPrimitive("log(\"hello\");\nreturn \"done\";"),
+                    hint = "BeanShell 解释执行（Java 5 之前语法，不支持泛型/Lambda/Stream）。" +
+                        "没有沙箱：代码以本应用权限运行，可读写文件、访问网络、执行命令。" +
+                        "可用对象：context（Context）、host（getVariable/setVariable/clearVariable/log/showToast/notify/http/sleep）。" +
+                        "变量请写 host.getVariable(\"名字\")，不要写 {名字}；超时 1–120 秒。",
+                    expansion = ParamExpansion.SCRIPT,
+                    editor = ParamEditor.CODE),
+                ParamSpec("timeout", "超时", ParamType.INTEGER, required = false,
+                    defaultValue = JsonPrimitive(30), minValue = 1, maxValue = 120, suffix = "秒",
+                    hint = "默认 30 秒；超时后动作失败。纯死循环无法被强制终止，必要时只能结束应用进程。"),
+            ),
+            outputs = listOf(
+                out("java.result", "代码结果", VariableType.TEXT, "代码结果", "代码 return 值的文本形式"),
+            ),
+            supports = normalLayer,
+            description = "在应用进程内执行 Java（BeanShell）代码，无沙箱隔离。"),
         ComponentMeta("action.http_request", "HTTP 请求", "网络", ComponentKind.ACTION,
             listOf(parameter("request", "请求", ParamType.MULTILINE_TEXT, "GET https://example.com", false,
                 hint = "格式：GET <URL> 或 POST <URL> <内容>；GET 不带正文，POST 内容可换行。",
