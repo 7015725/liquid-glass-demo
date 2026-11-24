@@ -40,3 +40,6 @@
 -dontwarn javax.servlet.**
 -dontwarn java.awt.**
 -dontwarn javax.swing.**
+
+# Java Code scripts call these methods by name; BeanShell resolves them reflectively.
+-keep class com.flowglass.demo.system.exec.JavaCodeHost { public *; }
