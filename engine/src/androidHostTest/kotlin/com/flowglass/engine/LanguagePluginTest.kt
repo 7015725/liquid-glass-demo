@@ -51,6 +51,75 @@ class LanguagePluginTest {
     }
 
     @Test
+    fun javascriptExpandsTokensInsideATemplateExpression() {
+        val prepared = JavaScriptLanguage.prepare(
+            "var v = `x=\${ {名字} }`; v;",
+            listOf(LanguageBinding("名字", "小明")),
+        )
+
+        assertTrue(prepared.source.contains("__fg0"), prepared.source)
+        assertFalse(prepared.source.contains("{名字}"), prepared.source)
+        assertEquals("小明", prepared.bindings.getValue("__fg0"))
+    }
+
+    @Test
+    fun javascriptLeavesTemplateTextUntouched() {
+        val script = "var v = `a={名字}`;"
+        val prepared = JavaScriptLanguage.prepare(script, listOf(LanguageBinding("名字", "小明")))
+
+        assertEquals(script, prepared.source)
+        assertTrue(prepared.bindings.isEmpty())
+    }
+
+    @Test
+    fun javascriptKeepsObjectLiteralsInsideATemplateExpression() {
+        val script = "var v = `\${ {a:1}.a }`;"
+        val prepared = JavaScriptLanguage.prepare(script, listOf(LanguageBinding("名字", "小明")))
+
+        assertEquals(script, prepared.source)
+        assertTrue(prepared.bindings.isEmpty())
+    }
+
+    @Test
+    fun javascriptHandlesNestedTemplateExpressions() {
+        val prepared = JavaScriptLanguage.prepare(
+            "var v = `\${ `x=\${ {名字} }` }`;",
+            listOf(LanguageBinding("名字", "小明")),
+        )
+
+        assertTrue(prepared.source.contains("__fg0"), prepared.source)
+        assertFalse(prepared.source.contains("{名字}"), prepared.source)
+        assertEquals("小明", prepared.bindings.getValue("__fg0"))
+    }
+
+    @Test
+    fun javascriptResumesCodeAfterTheTemplateCloses() {
+        val prepared = JavaScriptLanguage.prepare(
+            "var v = `\${ {名字} }`; var w = {名字};",
+            listOf(LanguageBinding("名字", "小明")),
+        )
+
+        assertEquals(2, prepared.source.windowed("__fg0".length).count { it == "__fg0" })
+        assertFalse(prepared.source.contains("{名字}"), prepared.source)
+    }
+
+    @Test
+    fun javascriptDoesNotTreatQuotedDollarBraceAsATemplate() {
+        val script = "var v = '\${ {名字} }';"
+        val prepared = JavaScriptLanguage.prepare(script, listOf(LanguageBinding("名字", "小明")))
+
+        assertEquals(script, prepared.source)
+    }
+
+    @Test
+    fun javascriptKeepsBracesInTemplateCommentsFromClosingTheExpression() {
+        val script = "var v = `\${ /* } */ 1 }`;"
+        val prepared = JavaScriptLanguage.prepare(script, listOf(LanguageBinding("名字", "小明")))
+
+        assertEquals(script, prepared.source)
+    }
+
+    @Test
     fun bothLanguagesShareTheSameBindingContract() {
         val bindings = listOf(
             LanguageBinding("中文", "第一行\n第二行"),

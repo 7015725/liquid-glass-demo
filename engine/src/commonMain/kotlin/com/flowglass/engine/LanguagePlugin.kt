@@ -40,6 +40,10 @@ object ShellLanguage : ScriptLanguage {
  * JavaScript binding pass. It scans code, skips strings and comments (so JSON examples and
  * `{...}` in strings are untouched), and replaces recognised tokens with generated identifiers.
  * The actual values live in [PreparedLanguageScript.bindings] and are installed read-only by Rhino.
+ *
+ * Template literals follow JavaScript semantics: the text between backticks is data, but
+ * `${ ... }` is code and goes through the same token pass — including nested templates and
+ * object literals inside the expression.
  */
 object JavaScriptLanguage : ScriptLanguage {
     override val id: String = "javascript"
@@ -51,6 +55,9 @@ object JavaScriptLanguage : ScriptLanguage {
         val out = StringBuilder(source.length)
         var index = 0
         var state = State.CODE
+        // Brace depth of each active `${ ... }`; a template nested inside an expression pushes
+        // another entry, so the closing braces unwind in the right order.
+        val expressionDepth = ArrayDeque<Int>()
         while (index < source.length) {
             val char = source[index]
             when (state) {
@@ -70,12 +77,8 @@ object JavaScriptLanguage : ScriptLanguage {
                     }
                     continue
                 }
-                State.SINGLE, State.DOUBLE, State.TEMPLATE -> {
-                    val quote = when (state) {
-                        State.SINGLE -> '\''
-                        State.DOUBLE -> '"'
-                        else -> '`'
-                    }
+                State.SINGLE, State.DOUBLE -> {
+                    val quote = if (state == State.SINGLE) '\'' else '"'
                     out.append(char)
                     index++
                     if (char == '\\' && index < source.length) {
@@ -84,6 +87,29 @@ object JavaScriptLanguage : ScriptLanguage {
                     } else if (char == quote) {
                         state = State.CODE
                     }
+                    continue
+                }
+                State.TEMPLATE -> {
+                    if (char == '\\' && index + 1 < source.length) {
+                        out.append(char).append(source[index + 1])
+                        index += 2
+                        continue
+                    }
+                    if (char == '`') {
+                        state = State.CODE
+                        out.append(char)
+                        index++
+                        continue
+                    }
+                    if (char == '$' && index + 1 < source.length && source[index + 1] == '{') {
+                        out.append('$').append('{')
+                        index += 2
+                        expressionDepth.addLast(1)
+                        state = State.CODE
+                        continue
+                    }
+                    out.append(char)
+                    index++
                     continue
                 }
                 State.CODE -> Unit
@@ -103,13 +129,13 @@ object JavaScriptLanguage : ScriptLanguage {
                 char == '"' -> { state = State.DOUBLE; out.append(char); index++ }
                 char == '`' -> { state = State.TEMPLATE; out.append(char); index++ }
                 else -> {
-                    val literal = literalBrace(source, index)
+                    val literal = VariableToken.literal(source, index)
                     if (literal != null) {
                         out.append(literal.first)
                         index = literal.second
                         continue
                     }
-                    val token = tokenAt(source, index)
+                    val token = VariableToken.at(source, index)
                     if (token != null) {
                         val value = known[token.name]
                         if (value == null) {
@@ -124,53 +150,34 @@ object JavaScriptLanguage : ScriptLanguage {
                             out.append(identifier)
                         }
                         index = token.end + 1
-                    } else {
+                        continue
+                    }
+                    // Braces that belong to the surrounding `${ ... }`. Braces written as a
+                    // variable token were already consumed above and never change the depth.
+                    if (expressionDepth.isNotEmpty() && char == '{') {
+                        expressionDepth.addLast(expressionDepth.removeLast() + 1)
                         out.append(char)
                         index++
+                        continue
                     }
+                    if (expressionDepth.isNotEmpty() && char == '}') {
+                        val depth = expressionDepth.removeLast() - 1
+                        if (depth == 0) {
+                            state = State.TEMPLATE
+                        } else {
+                            expressionDepth.addLast(depth)
+                        }
+                        out.append(char)
+                        index++
+                        continue
+                    }
+                    out.append(char)
+                    index++
                 }
             }
         }
         return PreparedLanguageScript(out.toString(), generated)
     }
 
-    private fun tokenAt(text: String, start: Int): Token? {
-        if (start + 2 < text.length && text[start] == '%' && text[start + 1] == '{') {
-            var index = start + 2
-            while (index < text.length && text[index] != '}') {
-                val char = text[index]
-                if (char !in 'A'..'Z' && char !in 'a'..'z' && char !in '0'..'9' &&
-                    char != '.' && char != '_' && char != '-'
-                ) return null
-                index++
-            }
-            if (index >= text.length || index == start + 2) return null
-            return Token(text.substring(start + 2, index), index)
-        }
-        if (start + 1 < text.length && text[start] == '{' && text[start + 1] != '{') {
-            var index = start + 1
-            while (index < text.length && text[index] != '}') {
-                val char = text[index]
-                if (!char.isLetterOrDigit() && char != '_' && char != '-') return null
-                index++
-            }
-            if (index >= text.length || index == start + 1) return null
-            val name = text.substring(start + 1, index)
-            if (!VariableName.isValid(name)) return null
-            return Token(name, index)
-        }
-        return null
-    }
-
-    private fun literalBrace(text: String, start: Int): Pair<String, Int>? {
-        if (start + 3 >= text.length || text[start] != '{' || text[start + 1] != '{') return null
-        val close = text.indexOf("}}", start + 2)
-        if (close < 0) return null
-        val name = text.substring(start + 2, close)
-        if (!VariableName.isValid(name)) return null
-        return "{$name}" to close + 2
-    }
-
-    private data class Token(val name: String, val end: Int)
     private enum class State { CODE, SINGLE, DOUBLE, TEMPLATE, LINE_COMMENT, BLOCK_COMMENT }
 }
