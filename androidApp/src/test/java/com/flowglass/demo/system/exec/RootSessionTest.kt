@@ -100,7 +100,7 @@ class RootSessionTest {
             lines.send("__FLOWGLASS_BEGIN__:$id")
             lines.send("__FLOWGLASS_PID__:$id:42:1")
             output.lineSequence().forEach { lines.send(it) }
-            error.lineSequence().forEach { lines.send("__FLOWGLASS_ERR__:$id:$it") }
+            if (error.isNotEmpty()) error.lineSequence().forEach { lines.send("__FLOWGLASS_ERR__:$id:$it") }
             if (emitExit) lines.send("__FLOWGLASS_EXIT__:$id:0")
         }
 
