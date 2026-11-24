@@ -32,3 +32,11 @@
 # Rhino loads interpreter classes reflectively; keep the engine intact in release builds.
 -keep class org.mozilla.javascript.** { *; }
 -dontwarn org.mozilla.javascript.**
+
+# BeanShell 反射加载解释器类；保留核心，并忽略 Android 上不存在的桌面端依赖。
+-keep class bsh.** { *; }
+-dontwarn bsh.**
+-dontwarn javax.script.**
+-dontwarn javax.servlet.**
+-dontwarn java.awt.**
+-dontwarn javax.swing.**

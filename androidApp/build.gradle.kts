@@ -141,6 +141,8 @@ dependencies {
     implementation(libs.kyant.shapes)
     implementation(project(":backdrop"))
     implementation("org.mozilla:rhino:1.9.2")
+    // Tasker 同款 Java 代码解释器：BeanShell 2.0b6（纯解释，不生成 dex）
+    implementation("org.apache-extras.beanshell:bsh:2.0b6")
     implementation("io.github.ma7moud3ly:nemo-editor:2.0.1")
     implementation(libs.libxposed.service)
     compileOnly("de.robv.android.xposed:api:82")
