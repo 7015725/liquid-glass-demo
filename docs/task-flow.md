@@ -1,8 +1,8 @@
 # 任务流程设计（FlowGlass Task v1，历史设计稿）
 
-> 本文描述 v1 任务模型，保留作历史参考。变量语法、作用域和输出变量以
-> [`docs/output-variables.md`](output-variables.md) 为准；文中 `%{var}` 是 v1 语法，当前编辑器
-> 写入 `{名字}`，解析器仍兼容旧文档。
+> 本文描述 v1 任务模型，保留作历史参考。变量语法与作用域以
+> [`docs/variables.md`](variables.md) 为准，输出变量另见 [`docs/output-variables.md`](output-variables.md)；
+> 文中 `%{var}` 是 v1 语法，当前编辑器写入 `{名字}`，解析器仍兼容旧文档。
 
 交互上参考了 Tasker 等同类自动化应用的使用习惯；执行模型、数据结构和编辑流程都按本应用的
 typed 组件模型重新设计，不复刻任何第三方实现。
