@@ -301,30 +301,65 @@ internal class SuRootShell(private val root: RootInfo) : RootShell {
     }
 
     private companion object {
-        val SUPERVISOR = """
-            PS1=
-            export PS1
-            while IFS= read -r line; do
-              id=${'$'}{line%%:*}
-              payload=${'$'}{line#*:}
-              cmd=${'$'}(printf '%s' "${'$'}payload" | base64 -d 2>/dev/null)
-              printf '__FLOWGLASS_BEGIN__:%s\n' "${'$'}id"
-              if command -v setsid >/dev/null 2>&1; then
-                setsid /system/bin/sh -c "${'$'}cmd" 2>&1 &
-                grouped=1
-              else
-                /system/bin/sh -c "${'$'}cmd" 2>&1 &
-                grouped=0
-              fi
-              pid=${'$'}!
-              printf '\n__FLOWGLASS_PID__:%s:%s:%s\n' "${'$'}id" "${'$'}pid" "${'$'}grouped"
-              wait "${'$'}pid"
-              code=${'$'}?
-              printf '\n__FLOWGLASS_EXIT__:%s:%s\n' "${'$'}id" "${'$'}code"
-            done
-        """.trimIndent()
+        val SUPERVISOR = suSupervisorScript("/system/bin/sh", "/data/local/tmp")
     }
 }
+
+/**
+ * Supervisor loop fed to the privileged shell. [shell] is the shell used for each command and
+ * [tempDir] holds the per-request stderr FIFO; both are parameters so the framing can be tested
+ * on a host JVM, not only on a rooted device.
+ */
+internal fun suSupervisorScript(shell: String, tempDir: String): String = """
+    PS1=
+    export PS1
+    while IFS= read -r line; do
+      id=${'$'}{line%%:*}
+      payload=${'$'}{line#*:}
+      cmd=${'$'}(printf '%s' "${'$'}payload" | base64 -d 2>/dev/null)
+      printf '__FLOWGLASS_BEGIN__:%s\n' "${'$'}id"
+
+      errfifo="$tempDir/.flowglass-${'$'}id.err"
+      errpid=
+      rm -f "${'$'}errfifo"
+      if ( umask 077; mkfifo "${'$'}errfifo" ) 2>/dev/null; then
+        (
+          while IFS= read -r errline || [ -n "${'$'}errline" ]; do
+            printf '__FLOWGLASS_ERR__:%s:%s\n' "${'$'}id" "${'$'}errline"
+          done < "${'$'}errfifo"
+        ) &
+        errpid=${'$'}!
+        if command -v setsid >/dev/null 2>&1; then
+          setsid $shell -c "${'$'}cmd" 2>"${'$'}errfifo" &
+          grouped=1
+        else
+          $shell -c "${'$'}cmd" 2>"${'$'}errfifo" &
+          grouped=0
+        fi
+      else
+        errfifo=
+        if command -v setsid >/dev/null 2>&1; then
+          setsid $shell -c "${'$'}cmd" 2>&1 &
+          grouped=1
+        else
+          $shell -c "${'$'}cmd" 2>&1 &
+          grouped=0
+        fi
+      fi
+      pid=${'$'}!
+      printf '\n__FLOWGLASS_PID__:%s:%s:%s\n' "${'$'}id" "${'$'}pid" "${'$'}grouped"
+      wait "${'$'}pid"
+      code=${'$'}?
+      if [ -n "${'$'}errfifo" ]; then
+        ( sleep 1; kill "${'$'}errpid" 2>/dev/null ) &
+        killer=${'$'}!
+        wait "${'$'}errpid" 2>/dev/null
+        kill "${'$'}killer" 2>/dev/null
+        rm -f "${'$'}errfifo"
+      fi
+      printf '\n__FLOWGLASS_EXIT__:%s:%s\n' "${'$'}id" "${'$'}code"
+    done
+""".trimIndent()
 
 /** Process-wide session; one root shell is shared by all actions in the app process. */
 internal object RootSessions {

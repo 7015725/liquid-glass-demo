@@ -56,18 +56,46 @@ internal object RootTasks {
         }
     }
 
-    private suspend fun rootShell(root: RootInfo, command: String): TaskOutcome {
+    internal suspend fun rootShell(
+        root: RootInfo,
+        command: String,
+        run: suspend (String) -> ProcessResult = { RootSessions.run(root, it) },
+    ): TaskOutcome {
         require(command.isNotBlank()) { "参数格式不正确：期望 非空 Shell 命令" }
-        val result = RootSessions.run(root, command)
+        val result = run(command)
+        val outputs = mapOf(
+            "shell.stdout" to result.output,
+            "shell.stderr" to result.stderr,
+            "shell.code" to result.exitCode,
+        )
+        val streams = shellStreams(result)
         return when {
-            result.timedOut -> TaskOutcome(StepStatus.FAILURE, "Shell 执行超时（30 秒）；已清理 Root 会话\n${result.output}")
-            result.truncated -> TaskOutcome(StepStatus.FAILURE, "Shell 输出超过上限，结果不完整\n${result.output}")
-            result.exitCode != 0 -> TaskOutcome(StepStatus.FAILURE, "Shell 退出码 ${result.exitCode}\n${result.output}")
-            else -> TaskOutcome(StepStatus.SUCCESS, result.output.ifEmpty { "Shell 执行完成" }, mapOf(
-                "shell.stdout" to result.output,
-                "shell.stderr" to "",
-                "shell.code" to result.exitCode,
-            ))
+            result.timedOut -> TaskOutcome(
+                StepStatus.FAILURE,
+                "Shell 执行超时（30 秒）；已清理 Root 会话" + streams.withPrefix(),
+                outputs,
+            )
+            result.truncated -> TaskOutcome(
+                StepStatus.FAILURE,
+                "Shell 输出超过上限，结果不完整" + streams.withPrefix(),
+                outputs,
+            )
+            result.exitCode != 0 -> TaskOutcome(
+                StepStatus.FAILURE,
+                "Shell 退出码 ${result.exitCode}" + streams.withPrefix(),
+                outputs,
+            )
+            else -> TaskOutcome(StepStatus.SUCCESS, streams.ifEmpty { "Shell 执行完成" }, outputs)
         }
     }
+
+    private fun shellStreams(result: ProcessResult): String = buildString {
+        append(result.output)
+        if (result.stderr.isNotEmpty()) {
+            if (isNotEmpty()) append('\n')
+            append("[标准错误]\n").append(result.stderr)
+        }
+    }
+
+    private fun String.withPrefix(): String = if (isEmpty()) "" else "\n$this"
 }
