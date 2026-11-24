@@ -56,6 +56,19 @@ class RootShellOutcomeTest {
     }
 
     @Test
+    fun aSessionFailureStillPublishesTheThreeOutputs() = runBlocking {
+        val outcome = RootTasks.rootShell(root, "x") {
+            error("Root 会话启动失败")
+        }
+
+        assertEquals(StepStatus.FAILURE, outcome.status)
+        assertEquals("", outcome.outputs["shell.stdout"])
+        assertEquals("", outcome.outputs["shell.stderr"])
+        assertEquals(-1, outcome.outputs["shell.code"])
+        assertTrue(outcome.detail, outcome.detail.contains("Root 会话启动失败"))
+    }
+
+    @Test
     fun aSuccessfulCommandUsesTheSameOutputKeys() = runBlocking {
         val outcome = RootTasks.rootShell(root, "ok") {
             ProcessResult(0, "out", timedOut = false, stderr = "")

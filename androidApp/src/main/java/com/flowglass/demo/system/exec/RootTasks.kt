@@ -4,6 +4,7 @@ import android.content.Context
 import com.flowglass.demo.system.RootInfo
 import com.flowglass.demo.ui.Cmd
 import com.flowglass.demo.ui.CommandItem
+import kotlinx.coroutines.CancellationException
 
 /**
  * Root-layer action implementations. [root] is selected once by [LayerResolver] and passed in;
@@ -62,7 +63,17 @@ internal object RootTasks {
         run: suspend (String) -> ProcessResult = { RootSessions.run(root, it) },
     ): TaskOutcome {
         require(command.isNotBlank()) { "参数格式不正确：期望 非空 Shell 命令" }
-        val result = run(command)
+        val result = try {
+            run(command)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            return TaskOutcome(
+                StepStatus.FAILURE,
+                "Shell 执行失败：${failure.message ?: failure.javaClass.simpleName}",
+                mapOf("shell.stdout" to "", "shell.stderr" to "", "shell.code" to -1),
+            )
+        }
         val outputs = mapOf(
             "shell.stdout" to result.output,
             "shell.stderr" to result.stderr,
