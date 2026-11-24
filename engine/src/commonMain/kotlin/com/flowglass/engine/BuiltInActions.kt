@@ -124,7 +124,7 @@ object BuiltInActions {
         ComponentMeta("action.java_code", "执行 Java 代码", "脚本", ComponentKind.ACTION,
             listOf(
                 ParamSpec("code", "代码", ParamType.MULTILINE_TEXT, required = true,
-                    defaultValue = JsonPrimitive("log(\"hello\");\nreturn \"done\";"),
+                    defaultValue = JsonPrimitive("host.log(\"hello\");\nreturn \"done\";"),
                     hint = "BeanShell 解释执行（Java 5 之前语法，不支持泛型/Lambda/Stream）。" +
                         "没有沙箱：代码以本应用权限运行，可读写文件、访问网络、执行命令。" +
                         "可用对象：context（Context）、host（getVariable/setVariable/clearVariable/log/showToast/notify/http/sleep）。" +
