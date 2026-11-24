@@ -1056,7 +1056,7 @@ private fun VariablePanel(state: AppState, cmd: Cmd) {
     }
     EditorPill("＋全局变量", "添加全局变量") { state.setGlobal("g${state.engineGlobals.size + 1}", "") }
     Spacer(Modifier.height(6.dp))
-    T("在参数里用 %{rule.变量名} 或 %{global.变量名} 引用；运行期临时变量用 %{run.变量名}。",
+    T("在参数里用 {rule.变量名} 或 {global.变量名} 引用；运行期临时变量用 {run.变量名}。旧写法 %{...} 同样可用。",
         12.sp, color = C.Muted, lineHeight = 17.sp)
 }
 
