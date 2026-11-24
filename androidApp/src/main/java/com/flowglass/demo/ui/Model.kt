@@ -600,13 +600,15 @@ class AppState internal constructor(saved: PersistedAppState?) {
         componentDraft = componentDraft?.copy(item = item)
     }
 
-    /** Replaces only the output bindings of the open draft; parameters stay untouched. */
+    /** Replaces only the output bindings of the open draft; references follow on save. */
     fun updateComponentOutputs(outputs: List<com.flowglass.engine.OutputBinding>) {
-        componentDraft = componentDraft?.let { draft -> draft.copy(item = draft.item.copy(outputs = outputs)) }
+        componentDraft = componentDraft?.copy(item = componentDraft!!.item.copy(outputs = outputs))
     }
 
     /** Block pages edit a saved item directly, not a draft. */
     fun updateBlockOutputs(cmdId: Long, itemId: Long, outputs: List<com.flowglass.engine.OutputBinding>) {
+        val old = find(cmdId)?.actions?.findItem(itemId)?.outputs.orEmpty()
+        rewriteOutputReferences(cmdId, outputRenames(old, outputs))
         editActions(cmdId) { items -> items.updateItem(itemId) { it.copy(outputs = outputs) } }
     }
 
@@ -617,12 +619,65 @@ class AppState internal constructor(saved: PersistedAppState?) {
         itemId: Long,
         outputs: List<com.flowglass.engine.OutputBinding>,
     ) {
+        val old = find(cmdId)?.items(section)?.findItem(itemId)?.outputs.orEmpty()
+        rewriteOutputReferences(cmdId, outputRenames(old, outputs))
         if (section == CommandSection.ACTIONS) {
             editActions(cmdId) { items -> items.updateItem(itemId) { it.copy(outputs = outputs) } }
         } else {
             editItems(cmdId, section) { items -> items.updateItem(itemId) { it.copy(outputs = outputs) } }
         }
     }
+
+    /**
+     * Output names are per command, so renaming one has to follow every `{旧名}` written in
+     * that command. `{{旧名}}` (escaped literal) and `{global.旧名}` stay untouched.
+     */
+    private fun outputRenames(
+        old: List<com.flowglass.engine.OutputBinding>,
+        new: List<com.flowglass.engine.OutputBinding>,
+    ): Map<String, String> {
+        if (old.isEmpty() || old == new) return emptyMap()
+        val newNames = new.map { it.name }.toSet()
+        val renames = linkedMapOf<String, String>()
+        for (before in old) {
+            val after = new.firstOrNull { it.key == before.key } ?: continue
+            if (before.name != after.name && before.name !in newNames) renames[before.name] = after.name
+        }
+        return renames
+    }
+
+    private fun rewriteOutputReferences(cmdId: Long, renames: Map<String, String>) {
+        if (renames.isEmpty()) return
+        update(cmdId) { command ->
+            command.copy(
+                triggers = command.triggers.map { it.withRenamedOutputs(renames) },
+                conditions = command.conditions.map { it.withRenamedOutputs(renames) },
+                actions = command.actions.map { it.withRenamedOutputs(renames) },
+            )
+        }
+    }
+
+    private fun CommandItem.withRenamedOutputs(renames: Map<String, String>): CommandItem {
+        fun rewrite(text: String): String {
+            if ('{' !in text) return text
+            return outputTokenPattern.replace(text) { match ->
+                renames[match.groupValues[1]]?.let { "{$it}" } ?: match.value
+            }
+        }
+        return copy(
+            parameter = rewrite(parameter),
+            children = children.map { it.withRenamedOutputs(renames) },
+            conditions = conditions.map { it.withRenamedOutputs(renames) },
+            branches = branches.map { branch ->
+                branch.copy(
+                    conditions = branch.conditions.map { it.withRenamedOutputs(renames) },
+                    children = branch.children.map { it.withRenamedOutputs(renames) },
+                )
+            },
+        )
+    }
+
+    private val outputTokenPattern = Regex("""(?<!\{)\{([^{}]+)\}(?!\})""")
 
     /** Adds a component without opening the parameter page (blocks and parameterless items). */
     fun addComponentDirect(
@@ -647,7 +702,13 @@ class AppState internal constructor(saved: PersistedAppState?) {
     }
 
     fun saveComponentDraft(): Boolean {
-        val draft = componentDraft ?: return false
+        var draft = componentDraft ?: return false
+        val renames = outputRenames(draft.original?.outputs.orEmpty(), draft.item.outputs)
+        if (renames.isNotEmpty()) {
+            // Discard-safe: references move only when the draft is committed, not on 保存输出.
+            rewriteOutputReferences(draft.cmdId, renames)
+            draft = draft.copy(item = draft.item.withRenamedOutputs(renames))
+        }
         if (draft.isNew) insertDraftItem(draft) else replaceDraftItem(draft)
         componentDraft = null
         actionEditing = null
