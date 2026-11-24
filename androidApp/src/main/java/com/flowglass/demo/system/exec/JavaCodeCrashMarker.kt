@@ -14,7 +14,8 @@ internal object JavaCodeCrashMarker {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun markRunning(context: Context) {
-        prefs(context).edit().putLong(KEY_RUNNING, System.currentTimeMillis()).apply()
+        // commit, not apply: the marker only matters if it survives an immediate process death.
+        prefs(context).edit().putLong(KEY_RUNNING, System.currentTimeMillis()).commit()
     }
 
     fun clear(context: Context) {
