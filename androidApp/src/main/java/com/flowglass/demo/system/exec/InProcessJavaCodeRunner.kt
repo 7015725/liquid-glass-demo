@@ -49,14 +49,15 @@ internal class InProcessJavaCodeRunner(private val context: Context) : JavaCodeR
                 throw cancelled
             }
             if (worker.isAlive) {
+                // Do not read value/failure here: the worker may still be writing them. Abandon
+                // the thread and report the deadline; the interrupt only helps cooperative code.
                 worker.interrupt()
-                return JavaCodeResult(
-                    StepStatus.FAILURE,
-                    "Java 代码执行超时（上限 ${request.timeoutSeconds} 秒）；未响应的代码可能仍在后台运行，必要时请结束应用",
-                    writes = snapshot(writes),
-                )
+                return timeoutResult(request, writes)
             }
-            failure?.let { return failureResult(it, writes) }
+            failure?.let {
+                if (isTimeout(it)) return timeoutResult(request, writes)
+                return failureResult(it, writes)
+            }
         } finally {
             JavaCodeCrashMarker.clear(context)
         }
@@ -75,6 +76,23 @@ internal class InProcessJavaCodeRunner(private val context: Context) : JavaCodeR
             mapOf("java.result" to text),
             snapshot(writes),
         )
+    }
+
+    private fun timeoutResult(request: JavaCodeRequest, writes: MutableMap<String, Any?>): JavaCodeResult =
+        JavaCodeResult(
+            StepStatus.FAILURE,
+            "Java 代码执行超时（上限 ${request.timeoutSeconds} 秒）；已放弃等待，未响应的代码可能仍在后台运行，必要时请结束应用",
+            writes = snapshot(writes),
+        )
+
+    private fun isTimeout(error: Throwable): Boolean {
+        var current: Throwable? = error
+        while (current != null) {
+            if (current is InterruptedException) return true
+            if (current.message.orEmpty().contains("Java 代码执行超时")) return true
+            current = current.cause
+        }
+        return false
     }
 
     private fun failureResult(error: Throwable, writes: Map<String, Any?>): JavaCodeResult {

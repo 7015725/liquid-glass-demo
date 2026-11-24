@@ -212,15 +212,17 @@ object ParameterCodec {
     }
 
     private fun parseCode(meta: ComponentMeta, text: String, codeKey: String): Map<String, JsonElement> {
+        val timeoutSpec = meta.params.single { it.key == "timeout" }
+        val timeoutDefault = timeoutSpec.defaultValue.jsonPrimitive.content
         val structured = jsonObjectOrNull(text)?.takeIf { it.containsKey(codeKey) }
         if (structured != null) {
             val code = stringField(meta, codeKey, structured[codeKey]?.jsonPrimitive?.contentOrNull ?: "")
-            val timeout = stringField(meta, "timeout", structured["timeout"]?.jsonPrimitive?.contentOrNull ?: "10")
+            val timeout = stringField(meta, "timeout", structured["timeout"]?.jsonPrimitive?.contentOrNull ?: timeoutDefault)
             return mapOf(codeKey to code, "timeout" to timeout)
         }
         return mapOf(
             codeKey to parse(meta.params.single { it.key == codeKey }, text),
-            "timeout" to JsonPrimitive(10),
+            "timeout" to timeoutSpec.defaultValue,
         )
     }
 

@@ -101,6 +101,8 @@ class JavaCodeTaskTest {
         val elapsedMs = (System.nanoTime() - started) / 1_000_000
         assertTrue(result.detail, result.status == StepStatus.FAILURE)
         assertTrue(result.detail, result.detail.contains("超时"))
+        assertTrue(result.detail, result.detail.contains("上限 1 秒"))
+        assertTrue(result.detail, !result.detail.contains("第 1 行"))
         assertTrue("超时必须在 8 秒内返回，实际 $elapsedMs ms", elapsedMs < 8_000)
     }
 
@@ -112,6 +114,17 @@ class JavaCodeTaskTest {
         )
         assertTrue(result.detail, result.status == StepStatus.SUCCESS)
         assertTrue(result.detail, result.outputs["java.result"].toString().startsWith("com.flowglass.demo/"))
+    }
+
+    @Test
+    fun secondRunReadsThePreviousWrite() {
+        val (access, _) = variables()
+        val first = task("""host.setVariable("shared", "v1"); return "ok";""")
+        JavaCodeTask.run(RuntimeEnvironment.getApplication(), command(first), first, access)
+        val second = task("""return host.getVariable("shared");""")
+        val result = JavaCodeTask.run(RuntimeEnvironment.getApplication(), command(second), second, access)
+        assertTrue(result.detail, result.status == StepStatus.SUCCESS)
+        assertEquals("v1", result.outputs["java.result"])
     }
 
     @Test

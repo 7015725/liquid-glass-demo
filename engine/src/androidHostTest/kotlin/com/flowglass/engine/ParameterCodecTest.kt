@@ -207,5 +207,13 @@ class ParameterCodecTest {
         assertEquals(params, ParameterCodec.parseComponent(meta, text))
     }
 
+    @Test fun javaCodeRawTextUsesTheDocumentedTimeout() {
+        val meta = BuiltInComponents.registry().find("action.java_code")
+            ?: error("missing java code action")
+        val parsed = ParameterCodec.parseComponent(meta, "return 1;")
+        assertEquals(JsonPrimitive("return 1;"), parsed["code"])
+        assertEquals(JsonPrimitive(30), parsed["timeout"])
+    }
+
     private fun obj(text: String) = RuleJson.format.parseToJsonElement(text)
 }
