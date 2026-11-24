@@ -504,7 +504,7 @@ private fun RootPage(state: AppState) {
         if (granted) {
             "辅助授权只会执行固定命令，并在执行后逐项重新检查权限；不会自动运行，必须点击确认。"
         } else {
-            "Root 只用于「执行脚本」这类需要 Shell 权限的指令。点击申请后，Magisk / KernelSU / APatch 会弹出授权框，请选择允许。"
+            "Root 只用于「执行 Shell(Root)」这类需要 Shell 权限的指令。点击申请后，Magisk / KernelSU / APatch 会弹出授权框，请选择允许。"
         }
     )
     if (grantConfirm) {

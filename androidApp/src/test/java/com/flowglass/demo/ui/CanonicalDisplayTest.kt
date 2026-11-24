@@ -36,7 +36,7 @@ class CanonicalDisplayTest {
             "开关 WiFi：开启", "开关蓝牙：开启", "开关勿扰：开启", "调节亮度：50%", "调节音量：50%", "启动应用：应用包名",
             "强制停止应用：应用包名",
             "发送通知：任务已完成", "复制到剪贴板：待复制文本", "延时等待：1 秒", "执行 Shell(Root)：echo 流光",
-            "执行脚本：JavaScript · 2 行", "HTTP 请求：GET https://example.com",
+            "执行 JavaScript：JavaScript · 2 行", "HTTP 请求：GET https://example.com",
             "振动：500 毫秒", "手电筒：切换", "响铃模式：响铃", "媒体控制：播放", "打开网页：https://example.com",
             "文字朗读：你好，流光", "Toast 提示：任务已完成", "屏幕超时：30 秒", "自动旋转：开启", "系统导航：主页",
             "飞行模式：开启", "移动数据：开启",
