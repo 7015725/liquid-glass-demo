@@ -21,6 +21,8 @@ internal data class ProcessResult(
     val timedOut: Boolean,
     /** True when [output] is only the beginning of a larger stream; never parse it as complete. */
     val truncated: Boolean = false,
+    /** stderr captured separately by the persistent root shell; empty for merged-stream callers. */
+    val stderr: String = "",
 )
 internal object BoundedProcess {
     private val android = File("/system/bin/sh").isFile

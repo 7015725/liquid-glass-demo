@@ -67,7 +67,13 @@ internal class RootSession(
                         withContext(NonCancellable) {
                             abort(activeCommand, "命令超时，已终止 Root 会话")
                         }
-                        ProcessResult(-1, activeCommand.output(), timedOut = true, truncated = activeCommand.truncated)
+                        ProcessResult(
+                            -1,
+                            activeCommand.output(),
+                            timedOut = true,
+                            truncated = activeCommand.truncated,
+                            stderr = activeCommand.error(),
+                        )
                     } else {
                         result
                     }
@@ -76,7 +82,13 @@ internal class RootSession(
                 }
             } catch (limit: OutputLimitExceeded) {
                 withContext(NonCancellable) { abort(activeCommand, "命令输出超过上限，已终止 Root 会话") }
-                ProcessResult(-1, activeCommand.output(), timedOut = false, truncated = true)
+                ProcessResult(
+                    -1,
+                    activeCommand.output(),
+                    timedOut = false,
+                    truncated = true,
+                    stderr = activeCommand.error(),
+                )
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) { abort(activeCommand, "执行被取消，已终止 Root 会话") }
                 throw cancelled
@@ -119,6 +131,7 @@ internal class RootSession(
         val begin = "__FLOWGLASS_BEGIN__:${activeCommand.id}"
         val pid = "__FLOWGLASS_PID__:${activeCommand.id}:"
         val exit = "__FLOWGLASS_EXIT__:${activeCommand.id}:"
+        val error = "__FLOWGLASS_ERR__:${activeCommand.id}:"
         while (true) {
             val line = target.readLine() ?: throw IOException("Root 会话已断开")
             when {
@@ -134,7 +147,19 @@ internal class RootSession(
                 line.startsWith(exit) -> {
                     val code = line.removePrefix(exit).toIntOrNull()
                         ?: throw IOException("Root 会话返回无效退出码")
-                    return ProcessResult(code, activeCommand.output(), timedOut = false, truncated = activeCommand.truncated)
+                    return ProcessResult(
+                        code,
+                        activeCommand.output(),
+                        timedOut = false,
+                        truncated = activeCommand.truncated,
+                        stderr = activeCommand.error(),
+                    )
+                }
+                line.startsWith(error) -> {
+                    activeCommand.appendError(line.removePrefix(error))
+                    if (activeCommand.truncated) {
+                        throw OutputLimitExceeded()
+                    }
                 }
                 else -> {
                     activeCommand.append(line)
@@ -167,10 +192,21 @@ internal class RootSession(
         shellPath = null
     }
 
-    private class ActiveCommand(val id: String, private val limit: Int) {
-        private val text = StringBuilder()
+    private class ActiveCommand(val id: String, limit: Int) {
+        private val stdout = StreamBuffer(limit)
+        private val stderr = StreamBuffer(limit)
         var pid: Long? = null
         var grouped = false
+        val truncated: Boolean get() = stdout.truncated || stderr.truncated
+
+        fun append(line: String) = stdout.append(line)
+        fun appendError(line: String) = stderr.append(line)
+        fun output(): String = stdout.value()
+        fun error(): String = stderr.value()
+    }
+
+    private class StreamBuffer(private val limit: Int) {
+        private val text = StringBuilder()
         var truncated = false
             private set
 
@@ -188,7 +224,7 @@ internal class RootSession(
             }
         }
 
-        fun output(): String = text.toString().trimEnd()
+        fun value(): String = text.toString().trimEnd()
     }
 
     private class OutputLimitExceeded : IOException("Root 命令输出超过上限")
