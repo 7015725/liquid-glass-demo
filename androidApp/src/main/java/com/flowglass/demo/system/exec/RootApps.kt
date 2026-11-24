@@ -57,7 +57,7 @@ internal object RootApps {
                 outputLimit = SCAN_OUTPUT_LIMIT,
             )
             check(!result.timedOut) { "Root 扫描超时" }
-            check(result.exitCode == 0) { "Root 扫描失败：${result.output.take(200)}" }
+            check(result.exitCode == 0) { "Root 扫描失败：${result.combinedOutput.take(200)}" }
             check(!result.truncated) {
                 "Root 扫描输出超过上限，结果不完整；请稍后重试"
             }
@@ -113,7 +113,7 @@ internal object RootApps {
             val result = RootSessions.run(root, "am start --user $userId -n $component")
             check(!result.timedOut) { "Root 启动超时" }
             check(!result.truncated) { "Root 启动输出超过上限" }
-            check(result.exitCode == 0) { "Root 启动失败：${result.output.take(200)}" }
+            check(result.exitCode == 0) { "Root 启动失败：${result.combinedOutput.take(200)}" }
         }
     }
 
@@ -130,7 +130,7 @@ internal object RootApps {
         val result = RootSessions.run(info, command, 30_000)
         check(!result.timedOut) { "Root 命令超时" }
         check(!result.truncated) { "Root 命令输出超过上限" }
-        check(result.exitCode == 0) { "Root 命令失败：${result.output.take(200)}" }
+        check(result.exitCode == 0) { "Root 命令失败：${result.combinedOutput.take(200)}" }
         return result.output
     }
 

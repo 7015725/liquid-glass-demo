@@ -23,7 +23,11 @@ internal data class ProcessResult(
     val truncated: Boolean = false,
     /** stderr captured separately by the persistent root shell; empty for merged-stream callers. */
     val stderr: String = "",
-)
+) {
+    /** Error text for callers that show one human-readable block; parsers keep using [output]. */
+    val combinedOutput: String
+        get() = if (stderr.isEmpty()) output else if (output.isEmpty()) stderr else "$output\n$stderr"
+}
 internal object BoundedProcess {
     private val android = File("/system/bin/sh").isFile
     private val shell = if (android) "/system/bin/sh" else "/bin/sh"

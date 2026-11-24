@@ -43,11 +43,11 @@ internal object RootTasks {
         val target = ForceStopGuard.parse(raw, ForceStopGuard.launcherPackages(context))
         val result = RootSessions.run(root, target.command)
         return when {
-            result.timedOut -> TaskOutcome(StepStatus.FAILURE, "强制停止超时（30 秒）\n${result.output}")
-            result.truncated -> TaskOutcome(StepStatus.FAILURE, "强制停止输出超过上限\n${result.output}")
+            result.timedOut -> TaskOutcome(StepStatus.FAILURE, "强制停止超时（30 秒）\n${result.combinedOutput}")
+            result.truncated -> TaskOutcome(StepStatus.FAILURE, "强制停止输出超过上限\n${result.combinedOutput}")
             result.exitCode != 0 -> TaskOutcome(
                 StepStatus.FAILURE,
-                "强制停止失败：退出码 ${result.exitCode}\n${result.output}",
+                "强制停止失败：退出码 ${result.exitCode}\n${result.combinedOutput}",
             )
             else -> TaskOutcome(
                 StepStatus.SUCCESS,
