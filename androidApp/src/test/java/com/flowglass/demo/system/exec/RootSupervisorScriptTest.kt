@@ -2,6 +2,7 @@ package com.flowglass.demo.system.exec
 
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -10,7 +11,7 @@ import org.junit.Test
 class RootSupervisorScriptTest {
     @Test
     fun separatesStdoutAndStderrAndKeepsTheExitCode() {
-        val id = "supervisor-test"
+        val id = "supervisor-${UUID.randomUUID()}"
         val command = "printf 'out\\n'; printf 'err\\n' >&2; exit 7"
         val payload = Base64.getEncoder().encodeToString(command.toByteArray(StandardCharsets.UTF_8))
         val script = suSupervisorScript("/bin/sh", "/tmp")

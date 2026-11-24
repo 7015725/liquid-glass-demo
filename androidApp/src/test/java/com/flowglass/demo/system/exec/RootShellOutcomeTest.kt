@@ -43,6 +43,19 @@ class RootShellOutcomeTest {
     }
 
     @Test
+    fun aSuccessfulCommandCanStillCarryStderr() = runBlocking {
+        val outcome = RootTasks.rootShell(root, "ok") {
+            ProcessResult(0, "out", timedOut = false, stderr = "warn")
+        }
+
+        assertEquals(StepStatus.SUCCESS, outcome.status)
+        assertEquals("out", outcome.outputs["shell.stdout"])
+        assertEquals("warn", outcome.outputs["shell.stderr"])
+        assertEquals(0, outcome.outputs["shell.code"])
+        assertTrue(outcome.detail, outcome.detail.contains("warn"))
+    }
+
+    @Test
     fun aSuccessfulCommandUsesTheSameOutputKeys() = runBlocking {
         val outcome = RootTasks.rootShell(root, "ok") {
             ProcessResult(0, "out", timedOut = false, stderr = "")
