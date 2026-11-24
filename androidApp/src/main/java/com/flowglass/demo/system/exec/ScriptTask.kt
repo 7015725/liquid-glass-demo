@@ -12,6 +12,7 @@ import com.flowglass.demo.ui.Cmd
 import com.flowglass.demo.ui.CommandItem
 import com.flowglass.engine.JavaScriptLanguage
 import com.flowglass.engine.LanguageBinding
+import com.flowglass.engine.PreparedLanguageScript
 import com.flowglass.engine.ScriptVariableAccess
 import kotlinx.coroutines.runBlocking
 import org.mozilla.javascript.BaseFunction
@@ -81,7 +82,7 @@ internal object ScriptTask {
         return try {
             val result = DeadlineFactory(deadline).call { cx ->
                 val scope = cx.initSafeStandardObjects()
-                installApi(cx, scope, context, cmd, variables, prepared.bindings, logs, deadline)
+                installApi(cx, scope, context, cmd, variables, prepared, logs, deadline)
                 cx.evaluateString(scope, prepared.source, "script.js", 1, null)
             }
             val text = RhinoContext.toString(result)
@@ -139,13 +140,25 @@ internal object ScriptTask {
         context: Context,
         cmd: Cmd,
         variables: ScriptVariableAccess?,
-        bindings: Map<String, Any?>,
+        prepared: PreparedLanguageScript,
         logs: StringBuilder,
         deadline: Long,
     ) {
-        for ((name, value) in bindings) {
-            ScriptableObject.putProperty(scope, name, jsValue(cx, scope, value))
-            (scope as? ScriptableObject)?.setAttributes(name, ScriptableObject.READONLY)
+        val scriptable = scope as? ScriptableObject
+        for ((name, value) in prepared.bindings) {
+            val source = prepared.bindingSources[name]
+            // `{变量}` is a read-only view, but it must not be a snapshot: after set() the next
+            // read in the same script sees the new value. Rhino getter slots give us that while
+            // still rejecting assignment from script code.
+            if (scriptable != null && source != null && variables != null) {
+                val getter = ScriptableObject.LambdaGetterFunction { _ ->
+                    jsValue(cx, scope, variables.read(source))
+                }
+                scriptable.defineProperty(cx, name, getter, ScriptableObject.READONLY)
+            } else {
+                ScriptableObject.putProperty(scope, name, jsValue(cx, scope, value))
+                scriptable?.setAttributes(name, ScriptableObject.READONLY)
+            }
         }
         fun put(name: String, fn: (Array<Any?>) -> Any?) {
             ScriptableObject.putProperty(scope, name, object : BaseFunction() {

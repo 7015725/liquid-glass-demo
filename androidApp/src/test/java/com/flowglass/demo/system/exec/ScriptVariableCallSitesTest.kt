@@ -172,6 +172,21 @@ class ScriptVariableCallSitesTest {
     }
 
     @Test
+    fun tokensReflectWritesInsideTheSameScript() {
+        val run = run(
+            engine(
+                locals = listOf(LocalVariable("局部", "text", JsonPrimitive("原局部"))),
+                globals = mapOf("全局" to JsonPrimitive("原全局")),
+                meta = mapOf("全局" to GlobalVariableMeta("text")),
+            ),
+            "set('局部', '新局部'); set('全局', '新全局'); String({局部}) + '|' + String({全局});",
+        )
+
+        assertTrue(run.detail, run.ok)
+        assertEquals("新局部|新全局", result(run))
+    }
+
+    @Test
     fun writingABuiltinFailsWithAReadableMessage() {
         val run = run(engine(), "set('上一步结果', 'x');")
 
