@@ -60,6 +60,7 @@ class LanguagePluginTest {
         assertTrue(prepared.source.contains("__fg0"), prepared.source)
         assertFalse(prepared.source.contains("{名字}"), prepared.source)
         assertEquals("小明", prepared.bindings.getValue("__fg0"))
+        assertEquals(mapOf("__fg0" to "名字"), prepared.bindingSources)
     }
 
     @Test

@@ -108,7 +108,7 @@ object BuiltInActions {
                         "set(\"最后结果\", \"ok\");\n" +
                         "\"完成\";\n" +
                         "可用 API：get(name)、set(name, value)、log(text)、toast(text)、notify(title, text)、http(method, url, body?)、sleep(ms)。" +
-                        "直接写 {变量} 会作为只读数据绑定（脚本开始时取值，写入后用 get() 读取）；" +
+                        "直接写 {变量} 会作为只读实时绑定（每次读取取当前值，set() 后用 get() 或再次读取）；" +
                         "模板字符串里只有 ${'$'}{...} 内的 {变量} 会展开。" +
                         "get/set 支持裸名与 rule./global./run./event. 前缀。脚本不能访问 Java 类、反射或文件系统。",
                     expansion = ParamExpansion.SCRIPT,

@@ -6,10 +6,13 @@ data class LanguageBinding(val name: String, val value: Any?)
 /**
  * A code field prepared for one language. [bindings] are injected as read-only values by the
  * host; [source] only contains generated identifiers (or shell references), never user values.
+ * [bindingSources] maps each generated identifier back to the variable name, so the host can
+ * install a live getter instead of freezing the value at script start.
  */
 data class PreparedLanguageScript(
     val source: String,
     val bindings: Map<String, Any?> = emptyMap(),
+    val bindingSources: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -51,6 +54,7 @@ object JavaScriptLanguage : ScriptLanguage {
     override fun prepare(source: String, bindings: List<LanguageBinding>): PreparedLanguageScript {
         val known = bindings.associateBy { it.name }
         val generated = linkedMapOf<String, Any?>()
+        val sources = linkedMapOf<String, String>()
         val identifierFor = mutableMapOf<String, String>()
         val out = StringBuilder(source.length)
         var index = 0
@@ -145,6 +149,7 @@ object JavaScriptLanguage : ScriptLanguage {
                                 var candidate = "__fg${identifierFor.size}"
                                 while (source.contains(candidate)) candidate += "_"
                                 generated[candidate] = value.value
+                                sources[candidate] = token.name
                                 candidate
                             }
                             out.append(identifier)
@@ -176,7 +181,7 @@ object JavaScriptLanguage : ScriptLanguage {
                 }
             }
         }
-        return PreparedLanguageScript(out.toString(), generated)
+        return PreparedLanguageScript(out.toString(), generated, sources)
     }
 
     private enum class State { CODE, SINGLE, DOUBLE, TEMPLATE, LINE_COMMENT, BLOCK_COMMENT }
