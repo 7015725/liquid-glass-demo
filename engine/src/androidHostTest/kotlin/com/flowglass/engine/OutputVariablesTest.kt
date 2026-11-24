@@ -123,6 +123,26 @@ class OutputVariablesTest {
     }
 
     @Test
+    fun codeActionsUseActionSpecificDefaultNames() {
+        val registry = BuiltInComponents.registry()
+        val shell = registry.find("action.root_shell")!!
+        assertEquals(
+            listOf("Shell标准输出", "Shell标准错误", "Shell退出码"),
+            OutputCatalog.bindingsForNew(shell, emptySet()).map { it.name },
+        )
+        val script = registry.find("action.script")!!
+        assertEquals(
+            listOf("JS返回值"),
+            OutputCatalog.bindingsForNew(script, emptySet()).map { it.name },
+        )
+        val java = registry.find("action.java_code")!!
+        assertEquals(
+            listOf("Java返回值"),
+            OutputCatalog.bindingsForNew(java, emptySet()).map { it.name },
+        )
+    }
+
+    @Test
     fun editorRepairsLegacyGenericBindings() {
         val registry = BuiltInComponents.registry()
         val toast = registry.find("action.toast")!!

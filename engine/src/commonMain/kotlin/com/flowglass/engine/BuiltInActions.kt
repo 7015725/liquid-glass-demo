@@ -93,9 +93,9 @@ object BuiltInActions {
                 hint = "格式：非空 Shell 命令，执行前需要 Root 授权。变量值会先写入 FG_Vn 再以引用形式使用；请只执行你理解其作用的命令。",
                 expansion = ParamExpansion.SHELL_QUOTED, editor = ParamEditor.CODE)),
             minTier = Tier.ROOT, supports = rootLayer, outputs = listOf(
-                out("shell.stdout", "标准输出", VariableType.TEXT, "标准输出", "Shell 的标准输出；当前 Root 会话会合并标准错误"),
-                out("shell.stderr", "标准错误", VariableType.TEXT, "标准错误", "当前 Root 会话与标准输出合并，通常为空"),
-                out("shell.code", "退出码", VariableType.INT, "退出码", "Shell 的退出码"),
+                out("shell.stdout", "Shell 标准输出", VariableType.TEXT, "Shell标准输出", "命令写入标准输出（stdout）的内容，与标准错误分开采集"),
+                out("shell.stderr", "Shell 标准错误", VariableType.TEXT, "Shell标准错误", "命令写入标准错误（stderr）的内容，与标准输出分开采集"),
+                out("shell.code", "Shell 退出码", VariableType.INT, "Shell退出码", "命令的退出码；超时或输出超限时为 -1"),
             )),
         ComponentMeta("action.script", "执行 JavaScript", "脚本", ComponentKind.ACTION,
             listOf(
@@ -118,7 +118,7 @@ object BuiltInActions {
                     hint = "默认 10 秒；超时会中断脚本并把该动作标记为失败。"),
             ),
             outputs = listOf(
-                out("script.result", "脚本结果", VariableType.TEXT, "脚本结果", "脚本最后的返回值"),
+                out("script.result", "JS 返回值", VariableType.TEXT, "JS返回值", "脚本最后的 return 值的文本形式"),
             ), supports = normalLayer,
             description = "在沙箱中执行 JavaScript，返回值作为脚本输出。"),
         ComponentMeta("action.java_code", "执行 Java 代码", "脚本", ComponentKind.ACTION,
@@ -136,7 +136,7 @@ object BuiltInActions {
                     hint = "默认 30 秒；超时后动作失败。纯死循环无法被强制终止，必要时只能结束应用进程。"),
             ),
             outputs = listOf(
-                out("java.result", "代码结果", VariableType.TEXT, "代码结果", "代码 return 值的文本形式"),
+                out("java.result", "Java 返回值", VariableType.TEXT, "Java返回值", "代码 return 值的文本形式"),
             ),
             supports = normalLayer,
             description = "在应用进程内执行 Java（BeanShell）代码，无沙箱隔离。"),

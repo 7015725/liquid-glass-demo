@@ -436,7 +436,7 @@ internal object RootActions {
         return when {
             result.timedOut -> TaskOutcome(StepStatus.FAILURE, "Root Shell 执行超时（30 秒）；已清理 Root 会话")
             result.truncated -> TaskOutcome(StepStatus.FAILURE, "Root Shell 输出超过上限")
-            result.exitCode != 0 -> TaskOutcome(StepStatus.FAILURE, "Root Shell 退出码 ${result.exitCode}\n${result.output}")
+            result.exitCode != 0 -> TaskOutcome(StepStatus.FAILURE, "Root Shell 退出码 ${result.exitCode}\n${result.combinedOutput}")
             else -> TaskOutcome(StepStatus.SUCCESS, success)
         }
     }

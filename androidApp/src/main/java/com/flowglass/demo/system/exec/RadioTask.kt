@@ -31,7 +31,7 @@ internal object RadioTask {
             when {
                 result.timedOut -> TaskOutcome(StepStatus.FAILURE, "无线设置执行超时；已清理 Root 会话")
                 result.truncated -> TaskOutcome(StepStatus.FAILURE, "无线设置输出超过上限")
-                result.exitCode != 0 -> TaskOutcome(StepStatus.FAILURE, "无线设置退出码 ${result.exitCode}\n${result.output}")
+                result.exitCode != 0 -> TaskOutcome(StepStatus.FAILURE, "无线设置退出码 ${result.exitCode}\n${result.combinedOutput}")
                 else -> TaskOutcome(StepStatus.SUCCESS, "已执行：$command")
             }
         }

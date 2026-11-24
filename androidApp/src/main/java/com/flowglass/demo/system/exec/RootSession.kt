@@ -67,7 +67,13 @@ internal class RootSession(
                         withContext(NonCancellable) {
                             abort(activeCommand, "命令超时，已终止 Root 会话")
                         }
-                        ProcessResult(-1, activeCommand.output(), timedOut = true, truncated = activeCommand.truncated)
+                        ProcessResult(
+                            -1,
+                            activeCommand.output(),
+                            timedOut = true,
+                            truncated = activeCommand.truncated,
+                            stderr = activeCommand.error(),
+                        )
                     } else {
                         result
                     }
@@ -76,7 +82,13 @@ internal class RootSession(
                 }
             } catch (limit: OutputLimitExceeded) {
                 withContext(NonCancellable) { abort(activeCommand, "命令输出超过上限，已终止 Root 会话") }
-                ProcessResult(-1, activeCommand.output(), timedOut = false, truncated = true)
+                ProcessResult(
+                    -1,
+                    activeCommand.output(),
+                    timedOut = false,
+                    truncated = true,
+                    stderr = activeCommand.error(),
+                )
             } catch (cancelled: CancellationException) {
                 withContext(NonCancellable) { abort(activeCommand, "执行被取消，已终止 Root 会话") }
                 throw cancelled
@@ -119,6 +131,7 @@ internal class RootSession(
         val begin = "__FLOWGLASS_BEGIN__:${activeCommand.id}"
         val pid = "__FLOWGLASS_PID__:${activeCommand.id}:"
         val exit = "__FLOWGLASS_EXIT__:${activeCommand.id}:"
+        val error = "__FLOWGLASS_ERR__:${activeCommand.id}:"
         while (true) {
             val line = target.readLine() ?: throw IOException("Root 会话已断开")
             when {
@@ -134,7 +147,19 @@ internal class RootSession(
                 line.startsWith(exit) -> {
                     val code = line.removePrefix(exit).toIntOrNull()
                         ?: throw IOException("Root 会话返回无效退出码")
-                    return ProcessResult(code, activeCommand.output(), timedOut = false, truncated = activeCommand.truncated)
+                    return ProcessResult(
+                        code,
+                        activeCommand.output(),
+                        timedOut = false,
+                        truncated = activeCommand.truncated,
+                        stderr = activeCommand.error(),
+                    )
+                }
+                line.startsWith(error) -> {
+                    activeCommand.appendError(line.removePrefix(error))
+                    if (activeCommand.truncated) {
+                        throw OutputLimitExceeded()
+                    }
                 }
                 else -> {
                     activeCommand.append(line)
@@ -167,10 +192,21 @@ internal class RootSession(
         shellPath = null
     }
 
-    private class ActiveCommand(val id: String, private val limit: Int) {
-        private val text = StringBuilder()
+    private class ActiveCommand(val id: String, limit: Int) {
+        private val stdout = StreamBuffer(limit)
+        private val stderr = StreamBuffer(limit)
         var pid: Long? = null
         var grouped = false
+        val truncated: Boolean get() = stdout.truncated || stderr.truncated
+
+        fun append(line: String) = stdout.append(line)
+        fun appendError(line: String) = stderr.append(line)
+        fun output(): String = stdout.value()
+        fun error(): String = stderr.value()
+    }
+
+    private class StreamBuffer(private val limit: Int) {
+        private val text = StringBuilder()
         var truncated = false
             private set
 
@@ -188,7 +224,7 @@ internal class RootSession(
             }
         }
 
-        fun output(): String = text.toString().trimEnd()
+        fun value(): String = text.toString().trimEnd()
     }
 
     private class OutputLimitExceeded : IOException("Root 命令输出超过上限")
@@ -265,30 +301,65 @@ internal class SuRootShell(private val root: RootInfo) : RootShell {
     }
 
     private companion object {
-        val SUPERVISOR = """
-            PS1=
-            export PS1
-            while IFS= read -r line; do
-              id=${'$'}{line%%:*}
-              payload=${'$'}{line#*:}
-              cmd=${'$'}(printf '%s' "${'$'}payload" | base64 -d 2>/dev/null)
-              printf '__FLOWGLASS_BEGIN__:%s\n' "${'$'}id"
-              if command -v setsid >/dev/null 2>&1; then
-                setsid /system/bin/sh -c "${'$'}cmd" 2>&1 &
-                grouped=1
-              else
-                /system/bin/sh -c "${'$'}cmd" 2>&1 &
-                grouped=0
-              fi
-              pid=${'$'}!
-              printf '\n__FLOWGLASS_PID__:%s:%s:%s\n' "${'$'}id" "${'$'}pid" "${'$'}grouped"
-              wait "${'$'}pid"
-              code=${'$'}?
-              printf '\n__FLOWGLASS_EXIT__:%s:%s\n' "${'$'}id" "${'$'}code"
-            done
-        """.trimIndent()
+        val SUPERVISOR = suSupervisorScript("/system/bin/sh", "/data/local/tmp")
     }
 }
+
+/**
+ * Supervisor loop fed to the privileged shell. [shell] is the shell used for each command and
+ * [tempDir] holds the per-request stderr FIFO; both are parameters so the framing can be tested
+ * on a host JVM, not only on a rooted device.
+ */
+internal fun suSupervisorScript(shell: String, tempDir: String): String = """
+    PS1=
+    export PS1
+    while IFS= read -r line; do
+      id=${'$'}{line%%:*}
+      payload=${'$'}{line#*:}
+      cmd=${'$'}(printf '%s' "${'$'}payload" | base64 -d 2>/dev/null)
+      printf '__FLOWGLASS_BEGIN__:%s\n' "${'$'}id"
+
+      errfifo="$tempDir/.flowglass-${'$'}id.err"
+      errpid=
+      rm -f "${'$'}errfifo"
+      if ( umask 077; mkfifo "${'$'}errfifo" ) 2>/dev/null; then
+        (
+          while IFS= read -r errline || [ -n "${'$'}errline" ]; do
+            printf '__FLOWGLASS_ERR__:%s:%s\n' "${'$'}id" "${'$'}errline"
+          done < "${'$'}errfifo"
+        ) &
+        errpid=${'$'}!
+        if command -v setsid >/dev/null 2>&1; then
+          setsid $shell -c "${'$'}cmd" 2>"${'$'}errfifo" &
+          grouped=1
+        else
+          $shell -c "${'$'}cmd" 2>"${'$'}errfifo" &
+          grouped=0
+        fi
+      else
+        errfifo=
+        if command -v setsid >/dev/null 2>&1; then
+          setsid $shell -c "${'$'}cmd" 2>&1 &
+          grouped=1
+        else
+          $shell -c "${'$'}cmd" 2>&1 &
+          grouped=0
+        fi
+      fi
+      pid=${'$'}!
+      printf '\n__FLOWGLASS_PID__:%s:%s:%s\n' "${'$'}id" "${'$'}pid" "${'$'}grouped"
+      wait "${'$'}pid"
+      code=${'$'}?
+      if [ -n "${'$'}errfifo" ]; then
+        ( sleep 1; kill "${'$'}errpid" 2>/dev/null ) &
+        killer=${'$'}!
+        wait "${'$'}errpid" 2>/dev/null
+        kill "${'$'}killer" 2>/dev/null
+        rm -f "${'$'}errfifo"
+      fi
+      printf '\n__FLOWGLASS_EXIT__:%s:%s\n' "${'$'}id" "${'$'}code"
+    done
+""".trimIndent()
 
 /** Process-wide session; one root shell is shared by all actions in the app process. */
 internal object RootSessions {

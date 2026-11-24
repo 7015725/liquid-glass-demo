@@ -103,7 +103,7 @@ internal object RootGrants {
                     }
                     if (result.timedOut || result.truncated || result.exitCode != 0) {
                         commandFailed = true
-                        outputs += result.output.ifBlank { "退出码 ${result.exitCode}" }
+                        outputs += result.combinedOutput.ifBlank { "退出码 ${result.exitCode}" }
                         break
                     }
                 }

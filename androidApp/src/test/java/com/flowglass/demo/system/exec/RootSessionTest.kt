@@ -30,6 +30,19 @@ class RootSessionTest {
         assertNull(shell.killed)
     }
 
+    @Test fun stderrIsKeptSeparateFromStdout() = runBlocking {
+        val shell = FakeShell().apply {
+            output = "out"
+            error = "err"
+        }
+        val session = RootSession { shell }
+
+        val result = session.execute(root, "mixed", timeoutMs = 1_000)
+
+        assertEquals("out", result.output)
+        assertEquals("err", result.stderr)
+    }
+
     @Test fun aTimeoutKillsTheReportedProcessGroupAndDestroysTheSession() = runBlocking {
         val shell = FakeShell().apply { emitExit = false }
         val session = RootSession { shell }
@@ -71,6 +84,7 @@ class RootSessionTest {
         var killed: Pair<Long, Boolean>? = null
         var emitExit = true
         var output = "hello"
+        var error = ""
         val commands = mutableListOf<String>()
         private val lines = Channel<String>(Channel.UNLIMITED)
 
@@ -86,6 +100,7 @@ class RootSessionTest {
             lines.send("__FLOWGLASS_BEGIN__:$id")
             lines.send("__FLOWGLASS_PID__:$id:42:1")
             output.lineSequence().forEach { lines.send(it) }
+            if (error.isNotEmpty()) error.lineSequence().forEach { lines.send("__FLOWGLASS_ERR__:$id:$it") }
             if (emitExit) lines.send("__FLOWGLASS_EXIT__:$id:0")
         }
 
