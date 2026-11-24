@@ -18,7 +18,7 @@ internal object ActionLayers {
         "action.http_request", "action.vibrate", "action.flashlight", "action.ringer_mode",
         "action.media_control", "action.open_url", "action.speak", "action.toast",
         "action.screen_timeout", "action.auto_rotate", "action.global_action",
-        "action.airplane_mode", "action.mobile_data", "action.script",
+        "action.airplane_mode", "action.mobile_data", "action.script", "action.java_code",
     )
 
     val rootTypes: Set<String> = setOf(

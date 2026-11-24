@@ -122,6 +122,16 @@ run(task):
 - 触发器、条件仍用原有玻璃面板（单参数、控件简单），动作改用新的参数页。
 - 动作列表的每一行既是摘要也是入口；点击不再打开旧的单参数弹窗。
 
+### 7.4 执行 Java 代码（action.java_code）
+
+- 解释器：BeanShell，语法接近 Java 5 之前（不支持泛型、Lambda、Stream）。
+- 运行位置：应用进程内，**无沙箱**，拥有应用的全部权限。
+- 可用对象：`context`（Context）、`host`（`getVariable`、`setVariable`、`clearVariable`、`log`、`showToast`、`notify`、`http`、`sleep`）。
+- 变量：用 `host.getVariable("名字")` 读取，不使用 `{名字}` 模板展开。
+- 返回值：`return` 的值写入 `java.result` 输出。
+- 导入：带 Java 代码的步骤默认「待确认」，需在编辑页手动启用；手工新增或修改视为已确认。
+- 超时：1–120 秒，默认 30 秒；死循环无法强制终止，必要时结束应用进程。
+
 ## 8. 未做 / 后续
 
 1. 子任务调用与调用链；需要子任务、返回值和调用栈三件套。

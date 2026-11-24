@@ -4,6 +4,11 @@ import kotlinx.serialization.json.*
 
 /** The only adapter between v0.5 editor text and canonical v2 parameter values. */
 object ParameterCodec {
+    /** Code actions whose source can contain `|` and newlines, so they are stored as JSON. */
+    private val structuredCodeKeys = mapOf(
+        "action.script" to "script",
+        "action.java_code" to "code",
+    )
     val switchOptions = listOf(ParamOption("on", "开启"), ParamOption("off", "关闭"), ParamOption("toggle", "切换"))
     private val clock = Regex("(?:[01][0-9]|2[0-3]):[0-5][0-9]")
     private val weekdayPattern = Regex("^[1-7](,[1-7])*$")
@@ -165,7 +170,7 @@ object ParameterCodec {
     }
 
     private fun parseComponentRaw(meta: ComponentMeta, text: String): Map<String, JsonElement> {
-        if (meta.typeId == "action.script") return parseScript(meta, text)
+        structuredCodeKeys[meta.typeId]?.let { codeKey -> return parseCode(meta, text, codeKey) }
         if (meta.typeId == "action.post_notification") return parseNotification(meta, text)
         if (meta.typeId == "action.toast") return parseToast(meta, text)
         // Old set-var rows had exactly name|op|value. Keep them editable while the new editor
@@ -206,16 +211,18 @@ object ParameterCodec {
         return mapOf(spec.key to parse(spec, text))
     }
 
-    private fun parseScript(meta: ComponentMeta, text: String): Map<String, JsonElement> {
-        val structured = jsonObjectOrNull(text)?.takeIf { it.containsKey("script") }
+    private fun parseCode(meta: ComponentMeta, text: String, codeKey: String): Map<String, JsonElement> {
+        val timeoutSpec = meta.params.single { it.key == "timeout" }
+        val timeoutDefault = timeoutSpec.defaultValue.jsonPrimitive.content
+        val structured = jsonObjectOrNull(text)?.takeIf { it.containsKey(codeKey) }
         if (structured != null) {
-            val script = stringField(meta, "script", structured["script"]?.jsonPrimitive?.contentOrNull ?: "")
-            val timeout = stringField(meta, "timeout", structured["timeout"]?.jsonPrimitive?.contentOrNull ?: "10")
-            return mapOf("script" to script, "timeout" to timeout)
+            val code = stringField(meta, codeKey, structured[codeKey]?.jsonPrimitive?.contentOrNull ?: "")
+            val timeout = stringField(meta, "timeout", structured["timeout"]?.jsonPrimitive?.contentOrNull ?: timeoutDefault)
+            return mapOf(codeKey to code, "timeout" to timeout)
         }
         return mapOf(
-            "script" to parse(meta.params.single { it.key == "script" }, text),
-            "timeout" to JsonPrimitive(10),
+            codeKey to parse(meta.params.single { it.key == codeKey }, text),
+            "timeout" to timeoutSpec.defaultValue,
         )
     }
 
@@ -261,9 +268,9 @@ object ParameterCodec {
         parse(meta.params.single { it.key == key }, raw ?: fallback)
 
     fun formatComponent(meta: ComponentMeta, params: Map<String, JsonElement>): String {
-        if (meta.typeId == "action.script") {
+        structuredCodeKeys[meta.typeId]?.let { codeKey ->
             return buildJsonObject {
-                put("script", JsonPrimitive(format(meta.params.single { it.key == "script" }, params["script"])))
+                put(codeKey, JsonPrimitive(format(meta.params.single { it.key == codeKey }, params[codeKey])))
                 put("timeout", JsonPrimitive(format(meta.params.single { it.key == "timeout" }, params["timeout"])))
             }.toString()
         }
