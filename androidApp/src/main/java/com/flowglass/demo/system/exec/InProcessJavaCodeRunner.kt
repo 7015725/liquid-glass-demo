@@ -53,7 +53,7 @@ internal class InProcessJavaCodeRunner(private val context: Context) : JavaCodeR
                 return JavaCodeResult(
                     StepStatus.FAILURE,
                     "Java 代码执行超时（上限 ${request.timeoutSeconds} 秒）；未响应的代码可能仍在后台运行，必要时请结束应用",
-                    writes = writes.toMap(),
+                    writes = snapshot(writes),
                 )
             }
             failure?.let { return failureResult(it, writes) }
@@ -73,7 +73,7 @@ internal class InProcessJavaCodeRunner(private val context: Context) : JavaCodeR
             StepStatus.SUCCESS,
             detail.take(900),
             mapOf("java.result" to text),
-            writes.toMap(),
+            snapshot(writes),
         )
     }
 
@@ -100,14 +100,19 @@ internal class InProcessJavaCodeRunner(private val context: Context) : JavaCodeR
         private val snapshot: Map<String, Any?>,
         private val writes: MutableMap<String, Any?>,
     ) : ScriptVariableAccess {
-        override fun read(name: String): Any? = if (writes.containsKey(name)) writes[name] else snapshot[name]
-
-        override fun write(name: String, value: Any?) {
-            writes[name] = value
+        override fun read(name: String): Any? = synchronized(writes) {
+            if (writes.containsKey(name)) writes[name] else snapshot[name]
         }
 
-        override fun names(): Set<String> = snapshot.keys + writes.keys
+        override fun write(name: String, value: Any?) {
+            synchronized(writes) { writes[name] = value }
+        }
+
+        override fun names(): Set<String> = synchronized(writes) { snapshot.keys + writes.keys }
     }
+
+    private fun snapshot(writes: Map<String, Any?>): Map<String, Any?> =
+        synchronized(writes) { writes.toMap() }
 
     private companion object {
         const val MAX_RESULT_CHARS = 4_000
