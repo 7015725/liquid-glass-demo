@@ -119,6 +119,23 @@ class ParameterCodecTest {
         assertEquals(params, ParameterCodec.parseComponent(meta, formatted))
     }
 
+    @Test fun setVarValueWithPipeRoundTripsAsJson() {
+        val meta = BuiltInComponents.registry().find("action.set_var")!!
+        val params = mapOf(
+            "name" to JsonPrimitive("变量"),
+            "type" to JsonPrimitive("text"),
+            "value" to JsonPrimitive("甲|乙"),
+            "op" to JsonPrimitive("set"),
+            "scope" to JsonPrimitive("local"),
+            "retain" to JsonPrimitive("false"),
+        )
+        val text = ParameterCodec.formatComponent(meta, params)
+        assertTrue(text.startsWith("{"), text)
+        assertEquals(params, ParameterCodec.parseComponent(meta, text))
+        val plain = params + ("value" to JsonPrimitive("普通值"))
+        assertFalse(ParameterCodec.formatComponent(meta, plain).startsWith("{"))
+    }
+
     @Test fun weekdaysRoundTripNormalisesLabelsAndRejectsEmptySelection() {
         val spec = ParamSpec("days", "重复", ParamType.WEEKDAYS)
         verify(spec, "工作日", JsonPrimitive("1,2,3,4,5"), "工作日", "周八", JsonPrimitive("1,8"))
