@@ -43,8 +43,11 @@ import com.flowglass.demo.system.exec.RootTasks
 import com.flowglass.demo.system.exec.ScriptTask
 import com.flowglass.demo.system.exec.StepStatus
 import com.flowglass.demo.system.exec.TaskOutcome
+import com.flowglass.demo.system.exec.TrialVariables
 import com.flowglass.engine.ComponentMeta
+import com.flowglass.engine.ParamExpansion
 import com.flowglass.engine.ParamSpec
+import com.flowglass.engine.ParamTemplate
 import com.kyant.shapes.RoundedRectangle
 import io.ma7moud3ly.nemo.NemoCodeEditor
 import io.ma7moud3ly.nemo.model.CodeState
@@ -123,6 +126,8 @@ internal fun ScriptActionEditorPage(
     var running by remember { mutableStateOf(false) }
     var runResult by remember(item.id) { mutableStateOf<RunInfo?>(null) }
     var copied by remember(item.id) { mutableStateOf(false) }
+    // Saved locals/globals are visible read-only-ish; writes stay in this map and are dropped.
+    val trial = remember(item.id, variables) { TrialVariables.from(variables) }
     fun runNow() {
         if (running) return
         val parameter = ParameterForm.compose(meta, fields + (codeKey to code.code)).getOrElse { error ->
@@ -138,9 +143,16 @@ internal fun ScriptActionEditorPage(
             val outcome = runCatching {
                 if (language == Language.SHELL) {
                     val authorized = root ?: error("需要 Root 授权，请先在设置里授权 Root")
-                    RootTasks.run(appContext, cmd, probe, authorized)
+                    val expanded = probe.copy(
+                        parameter = ParamTemplate.expand(
+                            probe.parameter,
+                            trial.forTemplate(),
+                            ParamExpansion.SHELL_QUOTED,
+                        ),
+                    )
+                    RootTasks.run(appContext, cmd, expanded, authorized)
                 } else {
-                    runInterruptible(Dispatchers.Default) { ScriptTask.run(appContext, cmd, probe, null) }
+                    runInterruptible(Dispatchers.Default) { ScriptTask.run(appContext, cmd, probe, trial) }
                 }
             }.getOrElse { error ->
                 TaskOutcome(StepStatus.FAILURE, error.message?.take(400) ?: "执行失败")
