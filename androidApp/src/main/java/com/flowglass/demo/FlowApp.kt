@@ -4,6 +4,7 @@ import android.app.Application
 import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.RunningNotification
 import com.flowglass.demo.system.SystemHookSettings
+import com.flowglass.demo.system.exec.JavaCodeCrashMarker
 import com.flowglass.demo.system.trigger.TriggerService
 import com.flowglass.demo.ui.primeComposeStateOnMainThread
 import com.flowglass.demo.xposed.ModernModuleStatus
@@ -34,5 +35,13 @@ class FlowApp : Application() {
         // A reboot, an alarm or a plain launch all end here; the service itself decides whether
         // the engine switch and the enabled-rule set still justify listening.
         TriggerService.ensureStarted(this)
+        // A leftover run marker means the last Java Code action took the process down.
+        if (JavaCodeCrashMarker.consumeCrash(this)) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(
+                    this, "上次 Java 代码运行异常结束", android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
     }
 }

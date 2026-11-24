@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.flowglass.demo.system.RootInfo
+import com.flowglass.demo.system.exec.JavaCodeGate
+import com.flowglass.demo.system.exec.JavaCodeTask
 import com.flowglass.demo.system.exec.RootTasks
 import com.flowglass.demo.system.exec.ScriptTask
 import com.flowglass.demo.system.exec.StepStatus
@@ -60,12 +62,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 
-internal val CodeActionIds = setOf("action.script", "action.root_shell")
+internal val CodeActionIds = setOf("action.script", "action.root_shell", "action.java_code")
 
-private fun codeKeyOf(typeId: String?): String = if (typeId == "action.root_shell") "command" else "script"
+private fun codeKeyOf(typeId: String?): String = when (typeId) {
+    "action.root_shell" -> "command"
+    "action.java_code" -> "code"
+    else -> "script"
+}
 
-private fun codeLanguageOf(typeId: String?): Language =
-    if (typeId == "action.root_shell") Language.SHELL else Language.JAVASCRIPT
+private fun codeLanguageOf(typeId: String?): Language = when (typeId) {
+    "action.root_shell" -> Language.SHELL
+    "action.java_code" -> Language.JAVA
+    else -> Language.JAVASCRIPT
+}
 
 /**
  * Dedicated, full-height editor for script actions. Scripts do not fit the shared parameter form:
@@ -124,6 +133,9 @@ internal fun ScriptActionEditorPage(
     val appContext = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     var running by remember { mutableStateOf(false) }
+    var confirmed by remember(item.id) { mutableStateOf(false) }
+    val needsConfirm = meta.typeId == "action.java_code" &&
+        !confirmed && JavaCodeGate.isPending(appContext, code.code.trim())
     var runResult by remember(item.id) { mutableStateOf<RunInfo?>(null) }
     var copied by remember(item.id) { mutableStateOf(false) }
     // Saved locals/globals are visible read-only-ish; writes stay in this map and are dropped.
@@ -141,18 +153,22 @@ internal fun ScriptActionEditorPage(
         scope.launch {
             val started = System.nanoTime()
             val outcome = runCatching {
-                if (language == Language.SHELL) {
-                    val authorized = root ?: error("需要 Root 授权，请先在设置里授权 Root")
-                    val expanded = probe.copy(
-                        parameter = ParamTemplate.expand(
-                            probe.parameter,
-                            trial.forTemplate(),
-                            ParamExpansion.SHELL_QUOTED,
-                        ),
-                    )
-                    RootTasks.run(appContext, cmd, expanded, authorized)
-                } else {
-                    runInterruptible(Dispatchers.Default) { ScriptTask.run(appContext, cmd, probe, trial) }
+                when (meta.typeId) {
+                    "action.root_shell" -> {
+                        val authorized = root ?: error("需要 Root 授权，请先在设置里授权 Root")
+                        val expanded = probe.copy(
+                            parameter = ParamTemplate.expand(
+                                probe.parameter,
+                                trial.forTemplate(),
+                                ParamExpansion.SHELL_QUOTED,
+                            ),
+                        )
+                        RootTasks.run(appContext, cmd, expanded, authorized)
+                    }
+                    "action.java_code" ->
+                        runInterruptible(Dispatchers.Default) { JavaCodeTask.run(appContext, cmd, probe, trial) }
+                    else ->
+                        runInterruptible(Dispatchers.Default) { ScriptTask.run(appContext, cmd, probe, trial) }
                 }
             }.getOrElse { error ->
                 TaskOutcome(StepStatus.FAILURE, error.message?.take(400) ?: "执行失败")
@@ -190,18 +206,38 @@ internal fun ScriptActionEditorPage(
             TopBarIconButton(Ic.Back, "返回", onClick = onBack)
             Spacer(Modifier.weight(1f))
             TopBarIconButton(Ic.UpDown, "移动到其他位置", onClick = onMove)
-            TopBarTextButton(if (running) "运行中…" else "运行", onClick = { if (!running) runNow() })
+            TopBarTextButton(
+                if (running) "运行中…" else "运行",
+                onClick = { if (!running && !needsConfirm) runNow() },
+            )
             TopBarTextButton("完成", onClick = onDone)
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
             T(item.name, 18.sp, FontWeight.Bold, maxLines = 1)
-            T("脚本 · ${cmd.title}", 11.sp, color = C.Muted, maxLines = 1)
+            T(
+                if (language == Language.JAVA) "Java · ${cmd.title}" else "脚本 · ${cmd.title}",
+                11.sp, color = C.Muted, maxLines = 1,
+            )
+        }
+        if (meta.typeId == "action.java_code") {
+            T(
+                "无沙箱：代码以本应用权限运行，可读写文件、访问网络并执行命令。只运行你信任的代码。",
+                11.sp, color = C.Bad, lineHeight = 16.sp,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            )
         }
         Row(
             Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            T(if (language == Language.SHELL) "Shell" else "JavaScript", 12.sp, color = C.Muted)
+            T(
+                when (language) {
+                    Language.SHELL -> "Shell"
+                    Language.JAVA -> "Java · 无沙箱"
+                    else -> "JavaScript"
+                },
+                12.sp, color = if (language == Language.JAVA) C.Bad else C.Muted,
+            )
             Spacer(Modifier.weight(1f))
             T("${code.code.lineSequence().count()} 行", 12.sp, color = C.Muted)
         }
@@ -260,6 +296,20 @@ internal fun ScriptActionEditorPage(
                 modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 2.dp),
             )
         }
+        if (needsConfirm) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp)
+                    .clip(RoundedRectangle(14.dp)).background(C.BadSoft)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                T("该步骤来自导入，尚未在本机启用。", 11.sp, color = C.Bad, modifier = Modifier.weight(1f))
+                EditorPill("我了解风险，启用", "启用该 Java 代码步骤") {
+                    JavaCodeGate.confirm(appContext, code.code.trim())
+                    confirmed = true
+                }
+            }
+        }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -292,7 +342,11 @@ internal fun ScriptActionEditorPage(
         VariableListDialog(variables, onDismiss = { variableMenu = false }) { option ->
             val text = code.code
             val caret = code.cursorPosition.coerceIn(0, text.length)
-            val snippet = "{" + option.name + "}"
+            val snippet = if (meta.typeId == "action.java_code") {
+                "host.getVariable(\"" + option.name + "\")"
+            } else {
+                "{" + option.name + "}"
+            }
             code.updateText(text.substring(0, caret) + snippet + text.substring(caret), caret + snippet.length)
             variableMenu = false
         }
@@ -309,7 +363,7 @@ internal fun ScriptActionEditorPage(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 T("超时", 16.sp, FontWeight.SemiBold)
-                T("脚本超过这个时间会被中断，并把这个动作标记为失败。", 12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
+                T(if (meta.typeId == "action.java_code") "代码超过这个时间会被判失败；死循环无法强制终止，必要时请结束应用。" else "脚本超过这个时间会被中断，并把这个动作标记为失败。", 12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
                 ParamField(
                     spec = timeoutSpec,
                     current = fields["timeout"].orEmpty(),

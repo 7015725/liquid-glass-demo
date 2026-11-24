@@ -107,6 +107,9 @@ internal object NormalTasks {
             "action.script" -> withContext(Dispatchers.Default) {
                 runInterruptible { ScriptTask.run(context, cmd, task, scriptVariables) }
             }
+            "action.java_code" -> withContext(Dispatchers.Default) {
+                runInterruptible { JavaCodeTask.run(context, cmd, task, scriptVariables) }
+            }
             "action.http_request" -> HttpTask.run(TaskParameters.http(task.parameter))
             // Root-only actions deliberately have no normal implementation. The resolver never
             // selects NORMAL for them; this guard catches a hand-edited/legacy call.

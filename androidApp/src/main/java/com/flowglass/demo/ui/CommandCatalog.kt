@@ -39,6 +39,13 @@ data class CommandItem(
                     ?: parameter
                 "JavaScript · ${script.lineSequence().count()} 行"
             }.getOrDefault("JavaScript")
+            "action.java_code" -> runCatching {
+                val code = kotlinx.serialization.json.Json.parseToJsonElement(parameter)
+                    .let { (it as? kotlinx.serialization.json.JsonObject) }
+                    ?.get("code")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+                    ?: parameter
+                "Java · ${code.lineSequence().count()} 行"
+            }.getOrDefault("Java")
             "trigger.time" -> parameter.split('|').joinToString(" · ")
             "trigger.battery_level" -> parameter.split('|').joinToString(" ").trim()
             "trigger.location_enter", "trigger.location_exit" ->

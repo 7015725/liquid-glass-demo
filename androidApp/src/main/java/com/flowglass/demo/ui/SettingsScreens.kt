@@ -56,6 +56,7 @@ import com.flowglass.demo.system.Perms
 import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.RootGrantResult
 import com.flowglass.demo.system.SystemHookSettings
+import com.flowglass.demo.system.exec.JavaCodeGate
 import com.flowglass.demo.xposed.SystemHookFamily
 import com.flowglass.demo.system.RootGrants
 import com.flowglass.demo.system.SysTick
@@ -1095,6 +1096,10 @@ private fun BackupRestorePage(
                                     val restored = parsed.converted.disarmedAfterRestore()
                                     val preserved = runtime.commitRestore(restored) {
                                         state.replaceWith(restored)
+                                        JavaCodeGate.markImported(
+                                            context,
+                                            restored.autoCmds + restored.oneTaps,
+                                        )
                                         // The old failure banner no longer describes the store.
                                         state.storageError = null
                                     }
@@ -1133,6 +1138,10 @@ private fun BackupRestorePage(
                         try {
                             val count = parsed.preview.commands.size
                             state.applyCommandImport(parsed)
+                            JavaCodeGate.markImported(
+                                context,
+                                parsed.converted.autoCmds + parsed.converted.oneTaps,
+                            )
                             notice = "已导入 $count 条指令"
                             pending = null
                         } catch (error: Exception) {

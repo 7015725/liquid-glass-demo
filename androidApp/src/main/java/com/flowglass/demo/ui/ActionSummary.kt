@@ -88,6 +88,8 @@ internal object ActionSummary {
             }
             "block.break" -> "跳出循环"
             "action.toast" -> "提示「" + (field(item, "text") ?: item.parameter) + "」"
+            "action.java_code" -> "Java 代码 · " +
+                (field(item, "code")?.lineSequence()?.count() ?: 0) + " 行"
             else -> {
                 val value = parameterText(item)
                 if (value.isBlank() || value == item.name) item.name else "${item.name} $value"

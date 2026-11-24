@@ -612,6 +612,7 @@ private fun sensitiveActions(cmd: Cmd): List<String> {
         } && meta.supports.none { it.layer == com.flowglass.engine.ExecutionLayer.NORMAL }
         val dangerous = item.typeId in setOf(
             "action.root_shell", "action.http_request", "action.run_rule", "action.script",
+            "action.java_code",
         ) || rootOnly
         if (dangerous) meta.name else null
     }.distinct()
