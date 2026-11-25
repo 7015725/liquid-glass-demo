@@ -320,7 +320,7 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
         ListRow(Row1(Ic.Layers, "执行层级", layersHeadline.big,
             sub = "动作：${layersHeadline.actionLabel} · 事件：${layersHeadline.eventLabel}",
             valueColor = if (layersHeadline.ok) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Layers }, true)
-        ListRow(Row1(Ic.Lock, "权限声明管理", "$granted/${Perms.all.size} 已授权", sub = "查看每项权限的用途并授权",
+        ListRow(Row1(Ic.Lock, "权限声明管理", "$granted/${Perms.all.size} 已授权", sub = "查看每项权限的用途",
             valueColor = if (granted == Perms.all.size) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Permissions }, false)
     }
     GroupTitle("通用", k++)
