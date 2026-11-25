@@ -52,6 +52,15 @@ data class Cmd(
 private fun Cmd.withClearedGeneratedDescription(): Cmd =
     if (descriptionEdited) this else copy(desc = "")
 
+/** A brand-new command with no trigger and no action is a draft, not a list entry. */
+private fun Cmd.hasNoContent(): Boolean =
+    if (auto) triggers.isEmpty() && actions.allItems().isEmpty()
+    else actions.allItems().isEmpty()
+
+/** Default-named blank drafts left behind by older builds are removed when the list loads. */
+private fun Cmd.isBlankDefaultDraft(): Boolean =
+    hasNoContent() && title == if (auto) "未命名指令" else "未命名一键指令"
+
 data class RunLog(val id: Long, val title: String, val reason: String, val time: String, val ok: Boolean, val ic: Ic,
     val detail: String = "", val steps: List<com.flowglass.demo.system.exec.StepResult> = emptyList(),
     val skipped: Boolean = false, val at: Long = 0, val durationMs: Long = 0)
@@ -297,6 +306,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
     }
 
     var editing by mutableStateOf<Long?>(null)
+    /** The single command created by the current editor session, if it is still a blank draft. */
+    private var newCommandId: Long? = null
     /** 参数页打开中的指令 id；与 actionEditing 同时非空时显示该步骤的参数页。 */
     var actionEditingCmd by mutableStateOf<Long?>(null)
     /** 参数页正在编辑的步骤 id。 */
@@ -322,6 +333,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     fun openEditor(id: Long) {
         if (find(id) != null) {
+            if (id != newCommandId) newCommandId = null
             editing = id
             blockPath = emptyList()
         }
@@ -396,11 +408,19 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     fun closeEditor() {
         val id = editing
-        if (id != null) {
+        val cmd = id?.let(::find)
+        if (cmd != null && id == newCommandId && cmd.hasNoContent()) {
+            listFor(cmd.auto).removeAll { it.id == cmd.id }
+            ruleIdFor(cmd.id)?.let { ruleId ->
+                engineRules = engineRules.filterNot { it.id == ruleId }
+                engineUi = engineUi.copy(presentation = engineUi.presentation - ruleId)
+            }
+        } else if (id != null) {
             update(id) { cmd ->
                 if (cmd.title.isBlank()) cmd.copy(title = availableTitle("", cmd.auto)) else cmd
             }
         }
+        newCommandId = null
         editing = null
         blockPath = emptyList()
         actionEditing = null
@@ -1166,8 +1186,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
     var accessibility by mutableStateOf(true)
 
     // lists
-    val autoCmds = mutableStateListOf<Cmd>().apply { addAll(saved?.autoCmds.orEmpty().map { it.withClearedGeneratedDescription() }) }
-    val oneTaps = mutableStateListOf<Cmd>().apply { addAll(saved?.oneTaps.orEmpty().map { it.withClearedGeneratedDescription() }) }
+    val autoCmds = mutableStateListOf<Cmd>().apply { addAll(saved?.autoCmds.orEmpty().filterNot { it.isBlankDefaultDraft() }.map { it.withClearedGeneratedDescription() }) }
+    val oneTaps = mutableStateListOf<Cmd>().apply { addAll(saved?.oneTaps.orEmpty().filterNot { it.isBlankDefaultDraft() }.map { it.withClearedGeneratedDescription() }) }
     var autoFilter by mutableIntStateOf(0)
     private val executionTokens = mutableMapOf<Long, MutableSet<Any>>()
     private val executionJobs = mutableMapOf<Long, MutableList<kotlinx.coroutines.Job>>()
@@ -1452,6 +1472,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
             "",
             actions = emptyList(), enabled = !auto, descriptionEdited = false)
         listFor(auto).add(0, c)
+        newCommandId = c.id
         return c
     }
 

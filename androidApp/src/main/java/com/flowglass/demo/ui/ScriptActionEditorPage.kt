@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -118,14 +119,16 @@ internal fun ScriptActionEditorPage(
     LaunchedEffect(code) {
         snapshotFlow { code.code }.collect { text -> if (text != fields[codeKey]) update(codeKey, text) }
     }
-    // Nemo grabs focus on its first composition; the page should open without a keyboard.
+    // Nemo requests focus on its first composition. Clearing on a 150 ms timer let the IME
+    // animate in before the first clear, which showed up as a visible flash. Drop focus and
+    // hide the IME every frame for the enter animation instead.
     val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) {
-        // Nemo requests focus a few frames into the enter animation, so one early clear is not
-        // enough; keep dropping it briefly instead of letting the keyboard cover the page.
-        repeat(3) {
-            delay(150)
+        repeat(30) {
             focusManager.clearFocus(force = true)
+            keyboard?.hide()
+            delay(16)
         }
     }
 
