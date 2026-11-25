@@ -90,7 +90,7 @@ object BuiltInActions {
             supports = normalLayer),
         ComponentMeta("action.root_shell", "执行 Shell(Root)", "脚本", ComponentKind.ACTION,
             listOf(parameter("command", "命令", ParamType.MULTILINE_TEXT, "echo 流光", false,
-                hint = "格式：非空 Shell 命令，执行前需要 Root 授权。变量值会先写入 FG_Vn 再以引用形式使用；请只执行你理解其作用的命令。",
+                hint = "需要 Root · 变量写入 FG_Vn",
                 expansion = ParamExpansion.SHELL_QUOTED, editor = ParamEditor.CODE)),
             minTier = Tier.ROOT, supports = rootLayer, outputs = listOf(
                 out("shell.stdout", "Shell 标准输出", VariableType.TEXT, "Shell标准输出", "命令写入标准输出（stdout）的内容，与标准错误分开采集"),
@@ -101,14 +101,7 @@ object BuiltInActions {
             listOf(
                 ParamSpec("script", "脚本", ParamType.MULTILINE_TEXT, true,
                     JsonPrimitive("log(\"hello\");\n\"done\";"),
-                    hint = "JavaScript（Rhino）。示例：\n" +
-                        "var pm = context.getPackageManager();\n" +
-                        "pm.getPackageInfo(context.getPackageName(), 0).versionName;\n" +
-                        "可用 API：context（Android Context，可访问公开 SDK）、Packages / Java.type、get/set/log/toast/notify/http/sleep。" +
-                        "直接写 {变量} 会作为只读实时绑定（每次读取取当前值，set() 后用 get() 或再次读取）；" +
-                        "模板字符串里只有 ${'$'}{...} 内的 {变量} 会展开。" +
-                        "get/set 支持裸名与 rule./global./run./event. 前缀。" +
-                        "无沙箱：脚本以本应用权限运行，可读写文件、访问网络和 Android SDK，只运行你信任的代码。",
+                    hint = "无沙箱 · 可用 Android SDK",
                     expansion = ParamExpansion.SCRIPT,
                     editor = ParamEditor.CODE),
                 ParamSpec("timeout", "超时", ParamType.INTEGER, false, JsonPrimitive(10),
@@ -123,10 +116,7 @@ object BuiltInActions {
             listOf(
                 ParamSpec("code", "代码", ParamType.MULTILINE_TEXT, required = true,
                     defaultValue = JsonPrimitive("host.log(\"hello\");\nreturn \"done\";"),
-                    hint = "BeanShell 解释执行（Java 5 之前语法，不支持泛型/Lambda/Stream）。" +
-                        "没有沙箱：代码以本应用权限运行，可读写文件、访问网络、执行命令。" +
-                        "可用对象：context（Context）、host（getVariable/setVariable/clearVariable/log/showToast/notify/http/sleep）。" +
-                        "变量请写 host.getVariable(\"名字\")，不要写 {名字}；超时 1–120 秒。",
+                    hint = "无沙箱 · BeanShell · 默认 30 秒",
                     expansion = ParamExpansion.SCRIPT,
                     editor = ParamEditor.CODE),
                 ParamSpec("timeout", "超时", ParamType.INTEGER, required = false,

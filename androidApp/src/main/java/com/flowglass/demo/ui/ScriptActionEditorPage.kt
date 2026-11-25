@@ -96,7 +96,7 @@ internal fun ScriptActionEditorPage(
     onDone: () -> Unit,
     onBack: () -> Unit,
     onOutputs: () -> Unit,
-    onMove: () -> Unit,
+    onHelp: () -> Unit,
 ) {
     var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
     var variableMenu by remember { mutableStateOf(false) }
@@ -204,7 +204,7 @@ internal fun ScriptActionEditorPage(
         ) {
             TopBarIconButton(Ic.Back, "返回", onClick = onBack)
             Spacer(Modifier.weight(1f))
-            TopBarIconButton(Ic.UpDown, "移动到其他位置", onClick = onMove)
+            TopBarIconButton(Ic.Info, "代码帮助", onClick = onHelp)
             TopBarTextButton(
                 if (running) "运行中…" else "运行",
                 onClick = { if (!running && !needsConfirm) runNow() },
@@ -213,10 +213,6 @@ internal fun ScriptActionEditorPage(
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
             T(item.name, 18.sp, FontWeight.Bold, maxLines = 1)
-            T(
-                if (language == Language.JAVA) "Java · ${cmd.title}" else "脚本 · ${cmd.title}",
-                11.sp, color = C.Muted, maxLines = 1,
-            )
         }
         if (meta.typeId == "action.java_code" || meta.typeId == "action.script") {
             T(
@@ -319,7 +315,7 @@ internal fun ScriptActionEditorPage(
         }
         if (hint.isNotBlank()) {
             T(
-                hint, 11.sp, color = C.Muted, maxLines = 2,
+                hint, 11.sp, color = C.Muted, maxLines = 1,
                 modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 2.dp),
             )
         }
