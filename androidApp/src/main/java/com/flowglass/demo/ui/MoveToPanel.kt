@@ -86,14 +86,17 @@ internal fun MoveToPanel(
 ) {
     val source = cmd.actions.findActionNode(sourceId) ?: return
     val targets = remember(cmd.actions, sourceId) { moveTargets(cmd.actions, sourceId) }
-    T(
-        "把「${source.name}」放到…", 13.sp, color = C.OnSurfaceVar,
-        lineHeight = 19.sp, modifier = Modifier.fillMaxWidth(),
-    )
-    T(
-        "先选目标，再选开头或末尾；放到后可在列表里长按拖动微调。", 12.sp, color = C.Muted,
-        lineHeight = 18.sp, modifier = Modifier.fillMaxWidth(),
-    )
+    // Opaque strip: Android 10 / ZUI also drops this intro copy when it sits on the bare page.
+    Column(Modifier.fillMaxWidth().background(C.Bg)) {
+        T(
+            "把「${source.name}」放到…", 13.sp, color = C.OnSurfaceVar,
+            lineHeight = 19.sp, modifier = Modifier.fillMaxWidth(),
+        )
+        T(
+            "先选目标，再选开头或末尾；放到后可在列表里长按拖动微调。", 12.sp, color = C.Muted,
+            lineHeight = 18.sp, modifier = Modifier.fillMaxWidth(),
+        )
+    }
     Spacer(Modifier.height(2.dp))
     targets.forEach { target ->
         Column(
