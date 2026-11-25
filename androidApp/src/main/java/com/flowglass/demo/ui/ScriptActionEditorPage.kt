@@ -96,7 +96,7 @@ internal fun ScriptActionEditorPage(
     onDone: () -> Unit,
     onBack: () -> Unit,
     onOutputs: () -> Unit,
-    onMove: () -> Unit,
+    onHelp: () -> Unit,
 ) {
     var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
     var variableMenu by remember { mutableStateOf(false) }
@@ -204,7 +204,7 @@ internal fun ScriptActionEditorPage(
         ) {
             TopBarIconButton(Ic.Back, "返回", onClick = onBack)
             Spacer(Modifier.weight(1f))
-            TopBarIconButton(Ic.UpDown, "移动到其他位置", onClick = onMove)
+            TopBarIconButton(Ic.Info, "代码帮助", onClick = onHelp)
             TopBarTextButton(
                 if (running) "运行中…" else "运行",
                 onClick = { if (!running && !needsConfirm) runNow() },
@@ -213,17 +213,6 @@ internal fun ScriptActionEditorPage(
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
             T(item.name, 18.sp, FontWeight.Bold, maxLines = 1)
-            T(
-                if (language == Language.JAVA) "Java · ${cmd.title}" else "脚本 · ${cmd.title}",
-                11.sp, color = C.Muted, maxLines = 1,
-            )
-        }
-        if (meta.typeId == "action.java_code") {
-            T(
-                "无沙箱：代码以本应用权限运行，可读写文件、访问网络并执行命令。只运行你信任的代码。",
-                11.sp, color = C.Bad, lineHeight = 16.sp,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-            )
         }
         Row(
             Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 6.dp),
@@ -232,10 +221,10 @@ internal fun ScriptActionEditorPage(
             T(
                 when (language) {
                     Language.SHELL -> "Shell"
-                    Language.JAVA -> "Java · 无沙箱"
+                    Language.JAVA -> "Java"
                     else -> "JavaScript"
                 },
-                12.sp, color = if (language == Language.JAVA) C.Bad else C.Muted,
+                12.sp, color = C.Muted,
             )
             Spacer(Modifier.weight(1f))
             T("${code.code.lineSequence().count()} 行", 12.sp, color = C.Muted)
@@ -315,7 +304,7 @@ internal fun ScriptActionEditorPage(
         }
         if (hint.isNotBlank()) {
             T(
-                hint, 11.sp, color = C.Muted, maxLines = 2,
+                hint, 11.sp, color = C.Muted, maxLines = 1,
                 modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 2.dp),
             )
         }

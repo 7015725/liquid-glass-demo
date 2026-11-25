@@ -48,6 +48,29 @@ class ScriptTaskTest {
     )
 
     @Test
+    fun exposesAndroidContextAndSdkClasses() {
+        val item = task("context.getPackageName();")
+        val result = ScriptTask.run(
+            RuntimeEnvironment.getApplication(),
+            command(item),
+            item,
+            null,
+        )
+        assertTrue(result.detail, result.status == StepStatus.SUCCESS)
+        assertEquals("com.flowglass.demo", result.outputs["script.result"])
+
+        val sdkItem = task("String(Packages.android.os.Build.VERSION.SDK_INT);")
+        val sdkResult = ScriptTask.run(
+            RuntimeEnvironment.getApplication(),
+            command(sdkItem),
+            sdkItem,
+            null,
+        )
+        assertTrue(sdkResult.detail, sdkResult.status == StepStatus.SUCCESS)
+        assertEquals("35", sdkResult.outputs["script.result"])
+    }
+
+    @Test
     fun readsAndWritesRunAndGlobalVariables() {
         val (access, map) = variables()
         val result = ScriptTask.run(
@@ -175,6 +198,20 @@ class ScriptTaskTest {
 
         assertTrue(result.detail, result.ok)
         assertTrue(result.detail, result.detail.contains("7"))
+    }
+
+    @Test
+    fun arrayResultIsConvertedWhileRhinoContextIsCurrent() {
+        val item = task("[1,2,3];")
+        val result = ScriptTask.run(
+            RuntimeEnvironment.getApplication(),
+            command(item),
+            item,
+            null,
+        )
+
+        assertTrue(result.detail, result.status == StepStatus.SUCCESS)
+        assertEquals("1,2,3", result.outputs["script.result"])
     }
 
     @Test
