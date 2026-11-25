@@ -320,14 +320,14 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
         ListRow(Row1(Ic.Layers, "执行层级", layersHeadline.big,
             sub = "动作：${layersHeadline.actionLabel} · 事件：${layersHeadline.eventLabel}",
             valueColor = if (layersHeadline.ok) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Layers }, true)
-        ListRow(Row1(Ic.Lock, "权限声明管理", "$granted/${Perms.all.size}", sub = "查看每项权限的用途并授权",
+        ListRow(Row1(Ic.Lock, "权限声明管理", "$granted/${Perms.all.size} 已授权", sub = "查看每项权限的用途并授权",
             valueColor = if (granted == Perms.all.size) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Permissions }, false)
     }
     GroupTitle("通用", k++)
     GroupCard(k++) {
-        ListRow(Row1(Ic.Moon, "外观", themeMode.label, sub = themeMode.description) { state.settingsPage = SettingsPage.Appearance }, true)
+        ListRow(Row1(themeMode.icon(), "外观", themeMode.label, sub = themeMode.description) { state.settingsPage = SettingsPage.Appearance }, true)
         ListRow(Row1(Ic.Copy, "变量", sub = "内置、局部、全局变量与备注") { state.settingsPage = SettingsPage.Variables }, true)
-        ListRow(Row1(Ic.Copy, "备份与恢复", sub = "导入导出指令、备份全部数据") { state.settingsPage = SettingsPage.Backup }, true)
+        ListRow(Row1(Ic.Archive, "备份与恢复", sub = "导入导出指令、备份全部数据") { state.settingsPage = SettingsPage.Backup }, true)
         ListRow(Row1(Ic.Bell, "通知提醒") {}, true)
         ListRow(Row1(Ic.Gauge, "运行模式", modes[state.mode], upDown = true) { state.mode = (state.mode + 1) % 3 }, true)
         ListRow(Row1(Ic.Moon, "夜间静默", "23:00", upDown = true) {}, false)
@@ -339,6 +339,12 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
     }
 }
 
+private fun ThemeMode.icon(): Ic = when (this) {
+    ThemeMode.SYSTEM -> Ic.Phone
+    ThemeMode.LIGHT -> Ic.Sun
+    ThemeMode.DARK -> Ic.Moon
+}
+
 @Composable
 private fun AppearancePage(mode: ThemeMode, onModeChange: (ThemeMode) -> Unit) {
     var k = 0
@@ -347,11 +353,7 @@ private fun AppearancePage(mode: ThemeMode, onModeChange: (ThemeMode) -> Unit) {
         ThemeMode.entries.forEachIndexed { i, option ->
             ListRow(
                 Row1(
-                    ic = when (option) {
-                        ThemeMode.SYSTEM -> Ic.Phone
-                        ThemeMode.LIGHT -> Ic.Sun
-                        ThemeMode.DARK -> Ic.Moon
-                    },
+                    ic = option.icon(),
                     label = option.label,
                     sub = option.description,
                     onClick = { onModeChange(option) },

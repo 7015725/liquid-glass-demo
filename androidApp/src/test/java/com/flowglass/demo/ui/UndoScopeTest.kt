@@ -38,16 +38,18 @@ class UndoScopeTest {
     }
 
     @Test
-    fun undoOfADeletedStepRestoresTheGeneratedDescription() {
-        // An untouched command keeps generating its subtitle; the delete rewrites it, so the undo
-        // has to rewrite it back instead of leaving the shorter summary behind.
+    fun undoOfADeletedStepRestoresTheActionWithoutASummary() {
+        // Untouched commands no longer generate a subtitle; undo must still restore the action
+        // itself and leave the description empty.
         val s = state(command(item(10, "提示"), item(11, "延时")).copy(descriptionEdited = false))
         s.removeActionItemWithUndo(1L, 11L)
-        assertTrue("删除后副标题应只剩一个步骤", !s.find(1L)!!.desc.contains("→"))
+        assertEquals(1, s.find(1L)!!.actions.size)
+        assertTrue("删除后不应生成摘要", s.find(1L)!!.desc.isEmpty())
 
         s.undoDelete()
 
-        assertTrue("撤销后副标题应重新包含被恢复的步骤", s.find(1L)!!.desc.contains("→"))
+        assertTrue("撤销后仍不应生成摘要", s.find(1L)!!.desc.isEmpty())
+        assertEquals(listOf(10L, 11L), s.find(1L)!!.actions.map { it.id })
     }
 
     @Test

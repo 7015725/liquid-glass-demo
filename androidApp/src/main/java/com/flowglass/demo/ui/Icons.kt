@@ -30,7 +30,7 @@ enum class Ic {
     Play, Stop, Plus, Bell, Refresh, Shield, Wifi, Moon, Battery, Timer, Location,
     Leaf, Gauge, Rocket, Clock, Phone, Bluetooth, Message, Camera, Info, Search, Accessibility,
     Tap, Back, Lock, Terminal, Puzzle, Key, Pin, Edit, Share, Trash, More, Variable, Output,
-    OutputVars, TrashMin, ArrowRight, Close, Sun, Check, Layers
+    OutputVars, TrashMin, ArrowRight, Close, Sun, Check, Layers, Archive
 }
 
 @Composable
@@ -188,6 +188,15 @@ private fun DrawScope.drawIcon(ic: Ic, color: Color, filled: Boolean, strokeUnit
             }, color, style = st)
             drawPath(p { moveTo(4f, 12.2f); lineTo(12f, 16.4f); lineTo(20f, 12.2f) }, color, style = st)
             drawPath(p { moveTo(4f, 16.2f); lineTo(12f, 20.4f); lineTo(20f, 16.2f) }, color, style = st)
+        }
+        Ic.Archive -> {
+            drawPath(p {
+                moveTo(4f, 7f); lineTo(20f, 7f); lineTo(20f, 20f); lineTo(4f, 20f); close()
+            }, color, style = st)
+            drawPath(p {
+                moveTo(3f, 4f); lineTo(21f, 4f); lineTo(21f, 7f); lineTo(3f, 7f); close()
+            }, color, style = st)
+            line(9f, 11.5f, 15f, 11.5f)
         }
         Ic.Battery -> {
             drawRoundRect(color, Offset(3f, 7f), Size(16f, 10f), CornerRadius(3f), style = st)

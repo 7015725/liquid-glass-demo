@@ -45,29 +45,12 @@ data class Cmd(
         else "任务 ${actions.allItems().size} 项"
 }
 
-private fun Cmd.automaticDescription(): String {
-    fun nested(item: CommandItem) = item.conditions.size + item.children.size +
-        item.branches.sumOf { it.children.size + it.conditions.size }
-    val tasks = actions.joinToString(" → ") { ActionSummary.summarize(it, nested(it), open = true) }
-        .ifEmpty { "请添加任务" }
-    if (!auto) return tasks
-    // An untouched auto command should read as one instruction, not "请添加触发器，则 请添加任务".
-    if (triggers.isEmpty() && conditions.isEmpty() && actions.allItems().isEmpty()) {
-        return "请添加触发器和任务"
-    }
-    val trigger = triggers.joinToString(" 或 ") { ActionSummary.conditionText(it) }
-        .let { if (it.isEmpty()) "请添加触发器" else "$it 时" }
-    val condition = conditions.joinToString(" 且 ") { ActionSummary.conditionText(it) }
-        .let { if (it.isEmpty()) "" else "，若 $it" }
-    return "$trigger$condition，则 $tasks"
-}
-
-/** Rewrites a generated description after the summary wording changed; edited text is kept. */
-private fun Cmd.withRefreshedDescription(): Cmd {
-    if (descriptionEdited) return this
-    val fresh = automaticDescription()
-    return if (fresh == desc) this else copy(desc = fresh)
-}
+/**
+ * Auto summaries are gone: only text the user typed is kept. Commands saved before this change
+ * may still carry a generated description with descriptionEdited=false; clear it on load.
+ */
+private fun Cmd.withClearedGeneratedDescription(): Cmd =
+    if (descriptionEdited) this else copy(desc = "")
 
 data class RunLog(val id: Long, val title: String, val reason: String, val time: String, val ok: Boolean, val ic: Ic,
     val detail: String = "", val steps: List<com.flowglass.demo.system.exec.StepResult> = emptyList(),
@@ -487,7 +470,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     private fun editActions(cmdId: Long, change: (List<CommandItem>) -> List<CommandItem>) =
         update(cmdId) { cmd -> cmd.copy(actions = change(cmd.actions)).let { updated ->
-            if (updated.descriptionEdited) updated else updated.copy(desc = updated.automaticDescription())
+            if (updated.descriptionEdited) updated else updated.copy(desc = "")
         } }
 
     fun addItem(cmdId: Long, section: CommandSection, option: CommandOption) {
@@ -1123,7 +1106,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         if (moved == before.actions) return false
         update(cmdId) { cmd ->
             val updated = cmd.copy(actions = moved)
-            if (updated.descriptionEdited) updated else updated.copy(desc = updated.automaticDescription())
+            if (updated.descriptionEdited) updated else updated.copy(desc = "")
         }
         undo = UndoInfo(
             before, index = -1, label = source.name,
@@ -1159,7 +1142,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
                     CommandSection.CONDITIONS -> cmd.copy(conditions = items)
                     CommandSection.ACTIONS -> cmd.copy(actions = items)
                 }
-                if (updated.descriptionEdited) updated else updated.copy(desc = updated.automaticDescription())
+                if (updated.descriptionEdited) updated else updated.copy(desc = "")
             }
         }
 
@@ -1183,8 +1166,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
     var accessibility by mutableStateOf(true)
 
     // lists
-    val autoCmds = mutableStateListOf<Cmd>().apply { addAll(saved?.autoCmds.orEmpty().map { it.withRefreshedDescription() }) }
-    val oneTaps = mutableStateListOf<Cmd>().apply { addAll(saved?.oneTaps.orEmpty().map { it.withRefreshedDescription() }) }
+    val autoCmds = mutableStateListOf<Cmd>().apply { addAll(saved?.autoCmds.orEmpty().map { it.withClearedGeneratedDescription() }) }
+    val oneTaps = mutableStateListOf<Cmd>().apply { addAll(saved?.oneTaps.orEmpty().map { it.withClearedGeneratedDescription() }) }
     var autoFilter by mutableIntStateOf(0)
     private val executionTokens = mutableMapOf<Long, MutableSet<Any>>()
     private val executionJobs = mutableMapOf<Long, MutableList<kotlinx.coroutines.Job>>()
@@ -1447,7 +1430,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         val u = undo ?: return
         val patch = u.patch
         if (patch != null) {
-            update(u.cmd.id) { patch(it).withRefreshedDescription() }
+            update(u.cmd.id) { patch(it).withClearedGeneratedDescription() }
         } else if (u.restoreCommand) {
             update(u.cmd.id) { u.cmd }
         } else {
@@ -1466,7 +1449,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun create(auto: Boolean): Cmd {
         val c = Cmd(newId(), auto, if (auto) Ic.Bolt else Ic.Tap,
             availableTitle("", auto),
-            if (auto) "请添加触发器和任务" else "请添加任务",
+            "",
             actions = emptyList(), enabled = !auto, descriptionEdited = false)
         listFor(auto).add(0, c)
         return c

@@ -735,7 +735,7 @@ private val Ic.editorLabel: String
         Ic.Puzzle -> "拼图"; Ic.Key -> "钥匙"; Ic.Pin -> "置顶"; Ic.Edit -> "编辑"
         Ic.Share -> "分享"; Ic.Trash -> "删除"
         Ic.OutputVars -> "输出变量"; Ic.TrashMin -> "删除"; Ic.ArrowRight -> "向右箭头"
-        Ic.Close -> "关闭"; Ic.Sun -> "太阳"; Ic.Check -> "对勾"; Ic.Layers -> "层级"
+        Ic.Close -> "关闭"; Ic.Sun -> "太阳"; Ic.Check -> "对勾"; Ic.Layers -> "层级"; Ic.Archive -> "归档"
     }
 
 /** Original press spring, with equivalent keyboard/accessibility activation. */
@@ -797,7 +797,7 @@ private fun ValidationBanner(state: AppState, cmd: Cmd, issues: List<ValidationI
 @Composable
 private fun DescriptionPanel(state: AppState, cmd: Cmd, onDone: () -> Unit) {
     var text by remember(cmd.id) { mutableStateOf(if (cmd.descriptionEdited) cmd.desc else "") }
-    T("只显示你手写的描述；列表页仍保留自动摘要。", 12.sp, color = C.Muted, lineHeight = 17.sp)
+    T("只显示你手写的描述；留空则列表不显示说明。", 12.sp, color = C.Muted, lineHeight = 17.sp)
     BasicTextField(
         text, { text = it.take(500) },
         Modifier.fillMaxWidth().testTag("description-editor").imeAutoScroll()
