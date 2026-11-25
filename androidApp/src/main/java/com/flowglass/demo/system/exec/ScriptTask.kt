@@ -12,7 +12,6 @@ import com.flowglass.engine.PreparedLanguageScript
 import com.flowglass.engine.ScriptVariableAccess
 import kotlinx.coroutines.runBlocking
 import org.mozilla.javascript.BaseFunction
-import org.mozilla.javascript.ClassShutter
 import org.mozilla.javascript.Context as RhinoContext
 import org.mozilla.javascript.ContextFactory
 import org.mozilla.javascript.EvaluatorException
@@ -22,9 +21,9 @@ import org.mozilla.javascript.ScriptableObject
 import java.net.URL
 
 /**
- * Sandboxed JavaScript action. Rhino is interpreted (no bytecode generation), starts from the
- * safe standard objects, and exposes only the small API registered below. The class shutter
- * blocks every Java class, so scripts cannot reach reflection, files or process APIs.
+ * JavaScript action. Rhino is interpreted (no bytecode generation) and exposes the app Context
+ * plus the full Java/Android class namespace. There is no sandbox: scripts run with the app's
+ * permissions, so the editor warns before they are created.
  */
 internal object ScriptTask {
     private const val MAX_SCRIPT_CHARS = 64 * 1024
@@ -33,8 +32,6 @@ internal object ScriptTask {
     private const val MAX_INSTRUCTIONS = 2_000_000
     private const val MAX_STACK_DEPTH = 256
     private const val MAX_SLEEP_MS = 5_000L
-
-    private val ALLOWED_CLASSES = emptySet<String>()
 
     private class ScriptTimeoutException(message: String) : RuntimeException(message)
     private class ScriptMemoryException(message: String) : RuntimeException(message)
@@ -47,7 +44,6 @@ internal object ScriptTask {
             languageVersion = RhinoContext.VERSION_ES6
             maximumInterpreterStackDepth = MAX_STACK_DEPTH
             instructionObserverThreshold = 10_000
-            setClassShutter(ClassShutter { className -> className in ALLOWED_CLASSES })
         }
 
         override fun observeInstructionCount(cx: RhinoContext, instructionCount: Int) {
@@ -77,7 +73,7 @@ internal object ScriptTask {
 
         return try {
             val result = DeadlineFactory(deadline).call { cx ->
-                val scope = cx.initSafeStandardObjects()
+                val scope = cx.initStandardObjects()
                 installApi(cx, scope, context, cmd, variables, prepared, logs, deadline)
                 cx.evaluateString(scope, prepared.source, "script.js", 1, null)
             }
@@ -141,6 +137,9 @@ internal object ScriptTask {
         deadline: Long,
     ) {
         val scriptable = scope as? ScriptableObject
+        // Android Context is the entry point for public SDK services. Rhino's Java bridge also
+        // exposes Packages.* / Java.type / reflection; this is intentionally unsandboxed.
+        ScriptableObject.putProperty(scope, "context", RhinoContext.javaToJS(context, scope))
         for ((name, value) in prepared.bindings) {
             val source = prepared.bindingSources[name]
             // `{变量}` is a read-only view, but it must not be a snapshot: after set() the next

@@ -218,9 +218,13 @@ internal fun ScriptActionEditorPage(
                 11.sp, color = C.Muted, maxLines = 1,
             )
         }
-        if (meta.typeId == "action.java_code") {
+        if (meta.typeId == "action.java_code" || meta.typeId == "action.script") {
             T(
-                "无沙箱：代码以本应用权限运行，可读写文件、访问网络并执行命令。只运行你信任的代码。",
+                if (meta.typeId == "action.java_code") {
+                    "无沙箱：代码以本应用权限运行，可读写文件、访问网络并执行命令。只运行你信任的代码。"
+                } else {
+                    "无沙箱：JavaScript 可通过 context 和 Java 类访问 Android SDK，以本应用权限运行。只运行你信任的代码。"
+                },
                 11.sp, color = C.Bad, lineHeight = 16.sp,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
             )
