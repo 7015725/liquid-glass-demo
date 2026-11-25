@@ -57,7 +57,7 @@ fun HomeScreen(state: AppState, onOpenTab: (Int) -> Unit) {
     QuickOneTaps(state, onOpenTab, Modifier.staggerIn(i++))
     MetricsCard(state, Modifier.staggerIn(i++))
     RecentRuns(state, onOpenTab, Modifier.staggerIn(i++))
-    ModeCard(state, Modifier.staggerIn(i++))
+    if (UiFeatures.SHOW_RUN_MODE) ModeCard(state, Modifier.staggerIn(i++))
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -151,7 +151,9 @@ private fun HeroCard(state: AppState, modifier: Modifier) {
                     Spacer(Modifier.height(8.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         TonalChip("今日 ${stats.todayCount} 次")
-                        TonalChip(listOf("省电", "均衡", "极速")[state.mode])
+                        if (UiFeatures.SHOW_RUN_MODE) {
+                            TonalChip(listOf("省电", "均衡", "极速")[state.mode])
+                        }
                     }
                 }
                 ScallopButton(state.running, { state.setEngineRunning(!state.running) })

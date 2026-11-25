@@ -329,7 +329,9 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
         ListRow(Row1(Ic.Copy, "变量", sub = "内置、局部、全局变量与备注") { state.settingsPage = SettingsPage.Variables }, true)
         ListRow(Row1(Ic.Archive, "备份与恢复", sub = "导入导出指令、备份全部数据") { state.settingsPage = SettingsPage.Backup }, true)
         ListRow(Row1(Ic.Bell, "通知提醒") {}, true)
-        ListRow(Row1(Ic.Gauge, "运行模式", modes[state.mode], upDown = true) { state.mode = (state.mode + 1) % 3 }, true)
+        if (UiFeatures.SHOW_RUN_MODE) {
+            ListRow(Row1(Ic.Gauge, "运行模式", modes[state.mode], upDown = true) { state.mode = (state.mode + 1) % 3 }, true)
+        }
         ListRow(Row1(Ic.Moon, "夜间静默", "23:00", upDown = true) {}, false)
     }
     GroupTitle("关于", k++)
