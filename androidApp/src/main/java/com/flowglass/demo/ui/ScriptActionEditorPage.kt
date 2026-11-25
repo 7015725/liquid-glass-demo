@@ -30,8 +30,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -119,18 +121,11 @@ internal fun ScriptActionEditorPage(
     LaunchedEffect(code) {
         snapshotFlow { code.code }.collect { text -> if (text != fields[codeKey]) update(codeKey, text) }
     }
-    // Nemo requests focus on its first composition. Clearing on a 150 ms timer let the IME
-    // animate in before the first clear, which showed up as a visible flash. Drop focus and
-    // hide the IME every frame for the enter animation instead.
-    val focusManager = LocalFocusManager.current
+    var editable by remember(item.id) { mutableStateOf(false) }
+    // Nemo's editor requests focus as soon as it enters composition, which opens the IME even
+    // when the user only wanted to look at the code. Keep it read-only until the first tap;
+    // that tap is the user's explicit intent to edit, so only then does the IME appear.
     val keyboard = LocalSoftwareKeyboardController.current
-    LaunchedEffect(Unit) {
-        repeat(30) {
-            focusManager.clearFocus(force = true)
-            keyboard?.hide()
-            delay(16)
-        }
-    }
 
     // A trial run uses the text on screen, not the last saved parameter, so typing is never lost.
     val appContext = LocalContext.current.applicationContext
@@ -186,13 +181,14 @@ internal fun ScriptActionEditorPage(
     }
 
     val theme = remember(C.dark) { scriptEditorTheme() }
-    val settings = remember(theme) {
+    val settings = remember(item.id, theme) {
         EditorSettings(
             theme = theme,
             fontSize = 14,
             showLineNumbers = true,
             showIndentGuides = true,
             enableAutocomplete = false,
+            readOnly = true,
             contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 12.dp),
         )
     }
@@ -246,7 +242,31 @@ internal fun ScriptActionEditorPage(
         }
         Box(
             Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)
-                .clip(RoundedRectangle(22.dp)).background(C.Card),
+                .clip(RoundedRectangle(22.dp)).background(C.Card)
+                .pointerInput(item.id) {
+                    val slop = viewConfiguration.touchSlop
+                    awaitPointerEventScope {
+                        while (true) {
+                            val down = awaitPointerEvent(PointerEventPass.Initial)
+                            if (down.type != PointerEventType.Press) continue
+                            val first = down.changes.firstOrNull() ?: continue
+                            val pointerId = first.id
+                            val start = first.position
+                            var moved = false
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                                if ((change.position - start).getDistance() > slop) moved = true
+                                if (!change.pressed) break
+                            }
+                            if (!moved) {
+                                editable = true
+                                settings.readOnlyState.value = false
+                                keyboard?.show()
+                            }
+                        }
+                    }
+                },
         ) {
             NemoCodeEditor(
                 state = code,
