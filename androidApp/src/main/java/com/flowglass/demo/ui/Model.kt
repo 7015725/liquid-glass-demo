@@ -45,25 +45,21 @@ data class Cmd(
         else "任务 ${actions.allItems().size} 项"
 }
 
-private fun Cmd.automaticDescription(): String {
-    fun nested(item: CommandItem) = item.conditions.size + item.children.size +
-        item.branches.sumOf { it.children.size + it.conditions.size }
-    val tasks = actions.joinToString(" → ") { ActionSummary.summarize(it, nested(it), open = true) }
-        .ifEmpty { "请添加任务" }
-    if (!auto) return tasks
-    val trigger = triggers.joinToString(" 或 ") { ActionSummary.conditionText(it) }
-        .let { if (it.isEmpty()) "请添加触发器" else "$it 时" }
-    val condition = conditions.joinToString(" 且 ") { ActionSummary.conditionText(it) }
-        .let { if (it.isEmpty()) "" else "，若 $it" }
-    return "$trigger$condition，则 $tasks"
-}
+/**
+ * Auto summaries are gone: only text the user typed is kept. Commands saved before this change
+ * may still carry a generated description with descriptionEdited=false; clear it on load.
+ */
+private fun Cmd.withClearedGeneratedDescription(): Cmd =
+    if (descriptionEdited) this else copy(desc = "")
 
-/** Rewrites a generated description after the summary wording changed; edited text is kept. */
-private fun Cmd.withRefreshedDescription(): Cmd {
-    if (descriptionEdited) return this
-    val fresh = automaticDescription()
-    return if (fresh == desc) this else copy(desc = fresh)
-}
+/** A brand-new command with no trigger and no action is a draft, not a list entry. */
+private fun Cmd.hasNoContent(): Boolean =
+    if (auto) triggers.isEmpty() && actions.allItems().isEmpty()
+    else actions.allItems().isEmpty()
+
+/** Default-named blank drafts left behind by older builds are removed when the list loads. */
+private fun Cmd.isBlankDefaultDraft(): Boolean =
+    hasNoContent() && title == if (auto) "未命名指令" else "未命名一键指令"
 
 data class RunLog(val id: Long, val title: String, val reason: String, val time: String, val ok: Boolean, val ic: Ic,
     val detail: String = "", val steps: List<com.flowglass.demo.system.exec.StepResult> = emptyList(),
@@ -310,6 +306,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
     }
 
     var editing by mutableStateOf<Long?>(null)
+    /** The single command created by the current editor session, if it is still a blank draft. */
+    private var newCommandId: Long? = null
     /** 参数页打开中的指令 id；与 actionEditing 同时非空时显示该步骤的参数页。 */
     var actionEditingCmd by mutableStateOf<Long?>(null)
     /** 参数页正在编辑的步骤 id。 */
@@ -335,6 +333,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     fun openEditor(id: Long) {
         if (find(id) != null) {
+            if (id != newCommandId) newCommandId = null
             editing = id
             blockPath = emptyList()
         }
@@ -409,11 +408,19 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     fun closeEditor() {
         val id = editing
-        if (id != null) {
+        val cmd = id?.let(::find)
+        if (cmd != null && id == newCommandId && cmd.hasNoContent()) {
+            listFor(cmd.auto).removeAll { it.id == cmd.id }
+            ruleIdFor(cmd.id)?.let { ruleId ->
+                engineRules = engineRules.filterNot { it.id == ruleId }
+                engineUi = engineUi.copy(presentation = engineUi.presentation - ruleId)
+            }
+        } else if (id != null) {
             update(id) { cmd ->
                 if (cmd.title.isBlank()) cmd.copy(title = availableTitle("", cmd.auto)) else cmd
             }
         }
+        newCommandId = null
         editing = null
         blockPath = emptyList()
         actionEditing = null
@@ -483,7 +490,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
 
     private fun editActions(cmdId: Long, change: (List<CommandItem>) -> List<CommandItem>) =
         update(cmdId) { cmd -> cmd.copy(actions = change(cmd.actions)).let { updated ->
-            if (updated.descriptionEdited) updated else updated.copy(desc = updated.automaticDescription())
+            if (updated.descriptionEdited) updated else updated.copy(desc = "")
         } }
 
     fun addItem(cmdId: Long, section: CommandSection, option: CommandOption) {
@@ -1119,7 +1126,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         if (moved == before.actions) return false
         update(cmdId) { cmd ->
             val updated = cmd.copy(actions = moved)
-            if (updated.descriptionEdited) updated else updated.copy(desc = updated.automaticDescription())
+            if (updated.descriptionEdited) updated else updated.copy(desc = "")
         }
         undo = UndoInfo(
             before, index = -1, label = source.name,
@@ -1155,7 +1162,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
                     CommandSection.CONDITIONS -> cmd.copy(conditions = items)
                     CommandSection.ACTIONS -> cmd.copy(actions = items)
                 }
-                if (updated.descriptionEdited) updated else updated.copy(desc = updated.automaticDescription())
+                if (updated.descriptionEdited) updated else updated.copy(desc = "")
             }
         }
 
@@ -1179,8 +1186,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
     var accessibility by mutableStateOf(true)
 
     // lists
-    val autoCmds = mutableStateListOf<Cmd>().apply { addAll(saved?.autoCmds.orEmpty().map { it.withRefreshedDescription() }) }
-    val oneTaps = mutableStateListOf<Cmd>().apply { addAll(saved?.oneTaps.orEmpty().map { it.withRefreshedDescription() }) }
+    val autoCmds = mutableStateListOf<Cmd>().apply { addAll(saved?.autoCmds.orEmpty().filterNot { it.isBlankDefaultDraft() }.map { it.withClearedGeneratedDescription() }) }
+    val oneTaps = mutableStateListOf<Cmd>().apply { addAll(saved?.oneTaps.orEmpty().filterNot { it.isBlankDefaultDraft() }.map { it.withClearedGeneratedDescription() }) }
     var autoFilter by mutableIntStateOf(0)
     private val executionTokens = mutableMapOf<Long, MutableSet<Any>>()
     private val executionJobs = mutableMapOf<Long, MutableList<kotlinx.coroutines.Job>>()
@@ -1443,7 +1450,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         val u = undo ?: return
         val patch = u.patch
         if (patch != null) {
-            update(u.cmd.id) { patch(it).withRefreshedDescription() }
+            update(u.cmd.id) { patch(it).withClearedGeneratedDescription() }
         } else if (u.restoreCommand) {
             update(u.cmd.id) { u.cmd }
         } else {
@@ -1462,9 +1469,10 @@ class AppState internal constructor(saved: PersistedAppState?) {
     fun create(auto: Boolean): Cmd {
         val c = Cmd(newId(), auto, if (auto) Ic.Bolt else Ic.Tap,
             availableTitle("", auto),
-            if (auto) "请添加触发器和任务" else "请添加任务",
+            "",
             actions = emptyList(), enabled = !auto, descriptionEdited = false)
         listFor(auto).add(0, c)
+        newCommandId = c.id
         return c
     }
 

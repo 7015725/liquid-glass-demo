@@ -217,16 +217,15 @@ class Alpha8BlockPagesTest {
     }
 
     @Test
-    fun generatedDescriptionIsHiddenButManualDescriptionIsShown() {
+    fun automaticSummaryIsNotCreatedButManualDescriptionIsShown() {
         val state = AppState()
         val cmd = state.create(auto = true)
         state.openEditor(cmd.id)
         val generated = requireNotNull(state.find(cmd.id)).desc
+        assertTrue("新建指令不应生成自动摘要", generated.isEmpty())
         withActivity(state) { activity ->
             activity.setContent { Box(Modifier.fillMaxSize()) { CommandEditorHost(state) } }
             pump(activity)
-            assertTrue("自动生成的描述不应显示在编辑页", texts(activity).none { it == generated })
-
             state.setDescription(cmd.id, "我手写的说明")
             pump(activity)
             assertTrue(texts(activity).any { it == "我手写的说明" })

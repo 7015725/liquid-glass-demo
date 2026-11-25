@@ -30,7 +30,7 @@ enum class Ic {
     Play, Stop, Plus, Bell, Refresh, Shield, Wifi, Moon, Battery, Timer, Location,
     Leaf, Gauge, Rocket, Clock, Phone, Bluetooth, Message, Camera, Info, Search, Accessibility,
     Tap, Back, Lock, Terminal, Puzzle, Key, Pin, Edit, Share, Trash, More, Variable, Output,
-    OutputVars, TrashMin, ArrowRight, Close
+    OutputVars, TrashMin, ArrowRight, Close, Sun, Check, Layers, Archive
 }
 
 @Composable
@@ -172,6 +172,32 @@ private fun DrawScope.drawIcon(ic: Ic, color: Color, filled: Boolean, strokeUnit
             moveTo(19.5f, 14.5f); cubicTo(16f, 16f, 11f, 14.5f, 9.5f, 10.5f); cubicTo(8.5f, 8f, 9f, 5.5f, 10.5f, 4f)
             cubicTo(6.5f, 4.5f, 4f, 8f, 4f, 12f); cubicTo(4f, 16.5f, 7.5f, 20f, 12f, 20f); cubicTo(15.5f, 20f, 18.5f, 17.8f, 19.5f, 14.5f); close()
         }, color, style = style)
+        Ic.Sun -> {
+            drawCircle(color, 4f, Offset(12f, 12f), style = st)
+            line(12f, 3f, 12f, 5.2f); line(12f, 18.8f, 12f, 21f)
+            line(3f, 12f, 5.2f, 12f); line(18.8f, 12f, 21f, 12f)
+            line(5.6f, 5.6f, 7.2f, 7.2f); line(16.8f, 16.8f, 18.4f, 18.4f)
+            line(5.6f, 18.4f, 7.2f, 16.8f); line(16.8f, 7.2f, 18.4f, 5.6f)
+        }
+        Ic.Check -> drawPath(p {
+            moveTo(5f, 12.5f); lineTo(9.8f, 17.3f); lineTo(19f, 7.2f)
+        }, color, style = st)
+        Ic.Layers -> {
+            drawPath(p {
+                moveTo(12f, 3.2f); lineTo(20.8f, 8f); lineTo(12f, 12.8f); lineTo(3.2f, 8f); close()
+            }, color, style = st)
+            drawPath(p { moveTo(4f, 12.2f); lineTo(12f, 16.4f); lineTo(20f, 12.2f) }, color, style = st)
+            drawPath(p { moveTo(4f, 16.2f); lineTo(12f, 20.4f); lineTo(20f, 16.2f) }, color, style = st)
+        }
+        Ic.Archive -> {
+            drawPath(p {
+                moveTo(4f, 7f); lineTo(20f, 7f); lineTo(20f, 20f); lineTo(4f, 20f); close()
+            }, color, style = st)
+            drawPath(p {
+                moveTo(3f, 4f); lineTo(21f, 4f); lineTo(21f, 7f); lineTo(3f, 7f); close()
+            }, color, style = st)
+            line(9f, 11.5f, 15f, 11.5f)
+        }
         Ic.Battery -> {
             drawRoundRect(color, Offset(3f, 7f), Size(16f, 10f), CornerRadius(3f), style = st)
             line(21.5f, 10.5f, 21.5f, 13.5f)

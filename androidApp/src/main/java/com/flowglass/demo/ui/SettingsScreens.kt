@@ -307,7 +307,7 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
     var k = 0
     GroupTitle("运行与激活", k++)
     GroupCard(k++) {
-        ListRow(Row1(Ic.Shield, "App 保活", "$keepReady/5 就绪", sub = "前台服务、自启动、电池白名单",
+        ListRow(Row1(Ic.Shield, "App 保活", "$keepReady/5 项就绪", sub = "前台服务、自启动、电池",
             valueColor = if (keepReady >= 4) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.KeepAlive }, true)
         ListRow(Row1(Ic.Key, "Root 激活",
             when { root?.granted == true -> "已授权"; root?.suFound == true -> "待授权"; else -> "未检测到" },
@@ -317,17 +317,17 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
             valueColor = if (lsposed) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.LSPosed }, true)
         val layers = LayerStatus.current()
         val layersHeadline = LayerHeadline.of(layers)
-        ListRow(Row1(Ic.Shield, "执行层级", layersHeadline.big,
-            sub = "动作：${layersHeadline.actionLabel} · 事件：${layersHeadline.eventLabel} · Root：${layers.stateOf(ExecutionLayer.ROOT).label()} · LSPosed：${layers.stateOf(ExecutionLayer.XPOSED).label()}",
-            valueColor = C.GoodText) { state.settingsPage = SettingsPage.Layers }, true)
-        ListRow(Row1(Ic.Lock, "权限声明管理", "$granted/${Perms.all.size}", sub = "查看每项权限的用途并授权",
+        ListRow(Row1(Ic.Layers, "执行层级", layersHeadline.big,
+            sub = "动作：${layersHeadline.actionLabel} · 事件：${layersHeadline.eventLabel}",
+            valueColor = if (layersHeadline.ok) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Layers }, true)
+        ListRow(Row1(Ic.Lock, "权限声明管理", "$granted/${Perms.all.size} 已授权", sub = "查看每项权限的用途",
             valueColor = if (granted == Perms.all.size) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Permissions }, false)
     }
     GroupTitle("通用", k++)
     GroupCard(k++) {
-        ListRow(Row1(Ic.Moon, "外观", themeMode.label, sub = themeMode.description) { state.settingsPage = SettingsPage.Appearance }, true)
+        ListRow(Row1(themeMode.icon(), "外观", themeMode.label, sub = themeMode.description) { state.settingsPage = SettingsPage.Appearance }, true)
         ListRow(Row1(Ic.Copy, "变量", sub = "内置、局部、全局变量与备注") { state.settingsPage = SettingsPage.Variables }, true)
-        ListRow(Row1(Ic.Copy, "备份与恢复", sub = "导入导出指令、备份全部数据") { state.settingsPage = SettingsPage.Backup }, true)
+        ListRow(Row1(Ic.Archive, "备份与恢复", sub = "导入导出指令、备份全部数据") { state.settingsPage = SettingsPage.Backup }, true)
         ListRow(Row1(Ic.Bell, "通知提醒") {}, true)
         ListRow(Row1(Ic.Gauge, "运行模式", modes[state.mode], upDown = true) { state.mode = (state.mode + 1) % 3 }, true)
         ListRow(Row1(Ic.Moon, "夜间静默", "23:00", upDown = true) {}, false)
@@ -339,6 +339,12 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
     }
 }
 
+private fun ThemeMode.icon(): Ic = when (this) {
+    ThemeMode.SYSTEM -> Ic.Phone
+    ThemeMode.LIGHT -> Ic.Sun
+    ThemeMode.DARK -> Ic.Moon
+}
+
 @Composable
 private fun AppearancePage(mode: ThemeMode, onModeChange: (ThemeMode) -> Unit) {
     var k = 0
@@ -347,18 +353,14 @@ private fun AppearancePage(mode: ThemeMode, onModeChange: (ThemeMode) -> Unit) {
         ThemeMode.entries.forEachIndexed { i, option ->
             ListRow(
                 Row1(
-                    ic = when (option) {
-                        ThemeMode.SYSTEM -> Ic.Settings
-                        ThemeMode.LIGHT -> Ic.Info
-                        ThemeMode.DARK -> Ic.Moon
-                    },
+                    ic = option.icon(),
                     label = option.label,
                     sub = option.description,
                     onClick = { onModeChange(option) },
                 ),
                 divider = i < ThemeMode.entries.lastIndex,
             ) {
-                if (option == mode) LineIcon(Ic.Bolt, C.Primary, 20.dp)
+                if (option == mode) LineIcon(Ic.Check, C.Primary, 20.dp)
             }
         }
     }
@@ -749,19 +751,14 @@ private fun LayersPage() {
     }
     var k = 0
     StatusCard(
-        k++, Ic.Shield, "执行层级",
+        k++, Ic.Layers, "当前层级",
         headline.pill,
         headline.ok,
         headline.big, headline.unit,
-        listOf(
-            "动作：${headline.actionLabel}",
-            "事件：${headline.eventLabel}",
-            "Root ${snapshot.stateOf(ExecutionLayer.ROOT).label()}",
-            "LSPosed ${snapshot.stateOf(ExecutionLayer.XPOSED).label()}",
-        ),
+        emptyList(),
         busy = busy,
         action = {
-            PrimaryButton("刷新状态", Ic.Refresh, {
+            EditorPill("刷新状态", "重新检测各层状态") {
                 if (!busy) {
                     SystemHookSettings.broadcastState(ctx)
                     scope.launch {
@@ -770,7 +767,7 @@ private fun LayersPage() {
                         busy = false
                     }
                 }
-            }, Modifier.fillMaxWidth())
+            }
         },
     )
     GroupTitle("各层状态", k++)

@@ -112,9 +112,9 @@ fun AutoCommandsScreen(state: AppState) {
     ListNotice(state)
     FilterChips(filters, f, { state.autoFilter = it }, Modifier.staggerIn(0))
     ListHeader(
-        "已开启 $enabled / ${state.autoCmds.size} 条", "新建",
+        "已启用 $enabled / ${state.autoCmds.size} 条",
         Modifier.staggerIn(1)
-    ) { state.openEditor(state.create(auto = true).id) }
+    )
     if (!state.running) EnginePausedBanner(state, Modifier.staggerIn(2))
     CommandColumn(list, state, auto = true, groupKey = f)
     if (list.isEmpty()) {
@@ -143,9 +143,9 @@ fun OneTapCommandsScreen(state: AppState) {
     val list = state.sorted(auto = false).filter(state::matches)
     ListNotice(state)
     ListHeader(
-        "共 ${list.size} 条 · 置顶 ${list.count { it.pinned }}", "新建",
+        "共 ${list.size} 条 · 置顶 ${list.count { it.pinned }}",
         Modifier.staggerIn(0)
-    ) { state.openEditor(state.create(auto = false).id) }
+    )
     CommandColumn(list, state, auto = false, groupKey = 0)
     if (list.isEmpty()) {
         if (!state.query.isNullOrBlank()) {
@@ -165,18 +165,9 @@ fun OneTapCommandsScreen(state: AppState) {
 }
 
 @Composable
-private fun ListHeader(text: String, action: String, modifier: Modifier, onAction: () -> Unit) {
+private fun ListHeader(text: String, modifier: Modifier) {
     Row(modifier.fillMaxWidth().padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         T(text, 14.sp, FontWeight.Medium, C.OnSurfaceVar, Modifier.weight(1f))
-        Row(
-            Modifier.clip(Capsule()).background(C.Card).pressable { onAction() }
-                .padding(horizontal = 14.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            LineIcon(Ic.Plus, C.Primary, 18.dp)
-            Spacer(Modifier.width(6.dp))
-            T(action, 14.sp, FontWeight.SemiBold, C.Primary)
-        }
     }
 }
 
@@ -222,7 +213,10 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
     val listen = cmd.listenState(state.running, context)
     val cardBackdrop = rememberLayerBackdrop()
     val dim by animateFloatAsState(
-        if (cmd.auto && (!cmd.enabled || !state.running)) 0.55f else 1f, effect(), label = "dim"
+        if (cmd.auto && !cmd.enabled) 0.55f else 1f, effect(), label = "dim"
+    )
+    val textDim by animateFloatAsState(
+        if (cmd.auto && !state.running) 0.8f else 1f, effect(), label = "textDim"
     )
     val menuOpen = state.menu?.cmdId == cmd.id
     val lift by animateFloatAsState(if (menuOpen) 1f else 0f, spatial(), label = "lift")
@@ -255,7 +249,7 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
                 LineIcon(cmd.ic, if (cmd.auto && cmd.enabled) C.Primary else C.OnSurfaceVar, 22.dp)
             }
             Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f).graphicsLayer { alpha = dim }) {
+            Column(Modifier.weight(1f).graphicsLayer { alpha = textDim }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (cmd.pinned) {
                         LineIcon(Ic.Pin, C.Primary, 14.dp, filled = true)
@@ -263,9 +257,13 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
                     }
                     T(cmd.title, 16.sp, FontWeight.Bold, maxLines = 1)
                 }
-                Spacer(Modifier.height(3.dp))
-                T(cmd.desc, 13.sp, color = C.OnSurfaceVar, maxLines = 2, lineHeight = 18.sp)
-                Spacer(Modifier.height(6.dp))
+                if (cmd.desc.isNotBlank()) {
+                    Spacer(Modifier.height(3.dp))
+                    T(cmd.desc, 13.sp, color = C.OnSurfaceVar, maxLines = 2, lineHeight = 18.sp)
+                    Spacer(Modifier.height(6.dp))
+                } else {
+                    Spacer(Modifier.height(8.dp))
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     T(cmd.meta, 11.sp, FontWeight.Medium, C.Muted)
                     if (!cmd.auto) {

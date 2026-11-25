@@ -76,15 +76,15 @@ internal fun DetailTopBar(
             TopBarIconButton(Ic.Back, "返回", onClick = onBack)
             Spacer(Modifier.width(8.dp))
         }
-        // A plain weighted Column instead of a filling Box: on some devices the Box measured
-        // zero height inside the Row, which silently dropped the title and subtitle.
+        // Android 10 / ZUI drops text drawn on a transparent strip above the first glass card;
+        // an opaque background behind the title column keeps the title and subtitle composited.
         Column(
-            Modifier.weight(1f),
+            Modifier.weight(1f).fillMaxHeight().fillMaxWidth().background(C.Bg),
             verticalArrangement = Arrangement.Center,
         ) {
-            title()
+            Box(Modifier.fillMaxWidth()) { title() }
             if (subtitle != null) {
-                T(subtitle, 12.sp, color = C.Muted, maxLines = 1)
+                T(subtitle, 12.sp, color = C.Muted, maxLines = 1, modifier = Modifier.fillMaxWidth())
             }
         }
         trailing()

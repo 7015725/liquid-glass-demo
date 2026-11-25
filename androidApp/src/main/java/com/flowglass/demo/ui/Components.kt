@@ -406,6 +406,7 @@ fun ScallopButton(running: Boolean, onToggle: () -> Unit, size: Dp = 120.dp) {
     Box(
         Modifier
             .size(size)
+            .semantics { contentDescription = if (running) "暂停自动指令引擎" else "启动自动指令引擎" }
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = { pressed = true; tryAwaitRelease(); pressed = false },
