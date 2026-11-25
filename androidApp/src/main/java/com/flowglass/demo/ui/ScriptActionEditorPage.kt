@@ -214,17 +214,6 @@ internal fun ScriptActionEditorPage(
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
             T(item.name, 18.sp, FontWeight.Bold, maxLines = 1)
         }
-        if (meta.typeId == "action.java_code" || meta.typeId == "action.script") {
-            T(
-                if (meta.typeId == "action.java_code") {
-                    "无沙箱：代码以本应用权限运行，可读写文件、访问网络并执行命令。只运行你信任的代码。"
-                } else {
-                    "无沙箱：JavaScript 可通过 context 和 Java 类访问 Android SDK，以本应用权限运行。只运行你信任的代码。"
-                },
-                11.sp, color = C.Bad, lineHeight = 16.sp,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-            )
-        }
         Row(
             Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -232,10 +221,10 @@ internal fun ScriptActionEditorPage(
             T(
                 when (language) {
                     Language.SHELL -> "Shell"
-                    Language.JAVA -> "Java · 无沙箱"
+                    Language.JAVA -> "Java"
                     else -> "JavaScript"
                 },
-                12.sp, color = if (language == Language.JAVA) C.Bad else C.Muted,
+                12.sp, color = C.Muted,
             )
             Spacer(Modifier.weight(1f))
             T("${code.code.lineSequence().count()} 行", 12.sp, color = C.Muted)
