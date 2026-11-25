@@ -201,6 +201,20 @@ class ScriptTaskTest {
     }
 
     @Test
+    fun arrayResultIsConvertedWhileRhinoContextIsCurrent() {
+        val item = task("[1,2,3];")
+        val result = ScriptTask.run(
+            RuntimeEnvironment.getApplication(),
+            command(item),
+            item,
+            null,
+        )
+
+        assertTrue(result.detail, result.status == StepStatus.SUCCESS)
+        assertEquals("1,2,3", result.outputs["script.result"])
+    }
+
+    @Test
     fun scriptExceptionReturnsAReadableMessage() {
         val result = ScriptTask.run(
             RuntimeEnvironment.getApplication(),

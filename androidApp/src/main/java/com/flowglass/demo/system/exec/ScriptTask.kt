@@ -72,12 +72,15 @@ internal object ScriptTask {
         val prepared = JavaScriptLanguage.prepare(script, bindings)
 
         return try {
-            val result = DeadlineFactory(deadline).call { cx ->
+            val text = DeadlineFactory(deadline).call { cx ->
                 val scope = cx.initStandardObjects()
                 installApi(cx, scope, context, cmd, variables, prepared, logs, deadline)
-                cx.evaluateString(scope, prepared.source, "script.js", 1, null)
+                val result = cx.evaluateString(scope, prepared.source, "script.js", 1, null)
+                // Convert while Rhino's Context is still current. NativeArray.toString()
+                // and other wrapped values need the active context; doing this after call()
+                // throws "No Context associated with current Thread".
+                RhinoContext.toString(result)
             }
-            val text = RhinoContext.toString(result)
             val logText = logs.toString().take(MAX_LOG_CHARS)
             val output = text.take(MAX_RESULT_CHARS)
             val detail = buildString {
