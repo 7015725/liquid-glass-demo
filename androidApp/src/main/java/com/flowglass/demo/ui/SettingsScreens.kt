@@ -307,7 +307,7 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
     var k = 0
     GroupTitle("运行与激活", k++)
     GroupCard(k++) {
-        ListRow(Row1(Ic.Shield, "App 保活", "$keepReady/5 就绪", sub = "前台服务、自启动、电池白名单",
+        ListRow(Row1(Ic.Shield, "App 保活", "$keepReady/5 项就绪", sub = "前台服务、自启动、电池",
             valueColor = if (keepReady >= 4) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.KeepAlive }, true)
         ListRow(Row1(Ic.Key, "Root 激活",
             when { root?.granted == true -> "已授权"; root?.suFound == true -> "待授权"; else -> "未检测到" },
@@ -317,9 +317,9 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
             valueColor = if (lsposed) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.LSPosed }, true)
         val layers = LayerStatus.current()
         val layersHeadline = LayerHeadline.of(layers)
-        ListRow(Row1(Ic.Shield, "执行层级", layersHeadline.big,
-            sub = "动作：${layersHeadline.actionLabel} · 事件：${layersHeadline.eventLabel} · Root：${layers.stateOf(ExecutionLayer.ROOT).label()} · LSPosed：${layers.stateOf(ExecutionLayer.XPOSED).label()}",
-            valueColor = C.GoodText) { state.settingsPage = SettingsPage.Layers }, true)
+        ListRow(Row1(Ic.Layers, "执行层级", layersHeadline.big,
+            sub = "动作：${layersHeadline.actionLabel} · 事件：${layersHeadline.eventLabel}",
+            valueColor = if (layersHeadline.ok) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Layers }, true)
         ListRow(Row1(Ic.Lock, "权限声明管理", "$granted/${Perms.all.size}", sub = "查看每项权限的用途并授权",
             valueColor = if (granted == Perms.all.size) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Permissions }, false)
     }
@@ -348,8 +348,8 @@ private fun AppearancePage(mode: ThemeMode, onModeChange: (ThemeMode) -> Unit) {
             ListRow(
                 Row1(
                     ic = when (option) {
-                        ThemeMode.SYSTEM -> Ic.Settings
-                        ThemeMode.LIGHT -> Ic.Info
+                        ThemeMode.SYSTEM -> Ic.Phone
+                        ThemeMode.LIGHT -> Ic.Sun
                         ThemeMode.DARK -> Ic.Moon
                     },
                     label = option.label,
@@ -358,7 +358,7 @@ private fun AppearancePage(mode: ThemeMode, onModeChange: (ThemeMode) -> Unit) {
                 ),
                 divider = i < ThemeMode.entries.lastIndex,
             ) {
-                if (option == mode) LineIcon(Ic.Bolt, C.Primary, 20.dp)
+                if (option == mode) LineIcon(Ic.Check, C.Primary, 20.dp)
             }
         }
     }
@@ -749,19 +749,14 @@ private fun LayersPage() {
     }
     var k = 0
     StatusCard(
-        k++, Ic.Shield, "执行层级",
+        k++, Ic.Layers, "当前层级",
         headline.pill,
         headline.ok,
         headline.big, headline.unit,
-        listOf(
-            "动作：${headline.actionLabel}",
-            "事件：${headline.eventLabel}",
-            "Root ${snapshot.stateOf(ExecutionLayer.ROOT).label()}",
-            "LSPosed ${snapshot.stateOf(ExecutionLayer.XPOSED).label()}",
-        ),
+        emptyList(),
         busy = busy,
         action = {
-            PrimaryButton("刷新状态", Ic.Refresh, {
+            EditorPill("刷新状态", "重新检测各层状态") {
                 if (!busy) {
                     SystemHookSettings.broadcastState(ctx)
                     scope.launch {
@@ -770,7 +765,7 @@ private fun LayersPage() {
                         busy = false
                     }
                 }
-            }, Modifier.fillMaxWidth())
+            }
         },
     )
     GroupTitle("各层状态", k++)

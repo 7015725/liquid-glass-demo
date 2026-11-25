@@ -251,7 +251,7 @@ fun FlowGlassApp() {
         }
 
         // ---------------- top-right glass capsule with two actions
-        if (state.query == null) {
+        if (state.query == null && tab != 3) {
             LiquidButton(
                 onClick = null,
                 backdrop = backdrop,
@@ -317,7 +317,7 @@ fun FlowGlassApp() {
                 Dests.forEachIndexed { i, d ->
                     LiquidBottomTab({ setTab(i) }) {
                         NavIcon(d.ic, selected = tab == i)
-                        T(d.label, 11.sp, FontWeight.Medium, C.OnSurfaceVar)
+                        T(d.label, 12.sp, FontWeight.Medium, C.OnSurfaceVar)
                     }
                 }
             }

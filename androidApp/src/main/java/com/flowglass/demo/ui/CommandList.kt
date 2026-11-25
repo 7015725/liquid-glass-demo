@@ -222,7 +222,10 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
     val listen = cmd.listenState(state.running, context)
     val cardBackdrop = rememberLayerBackdrop()
     val dim by animateFloatAsState(
-        if (cmd.auto && (!cmd.enabled || !state.running)) 0.55f else 1f, effect(), label = "dim"
+        if (cmd.auto && !cmd.enabled) 0.55f else 1f, effect(), label = "dim"
+    )
+    val textDim by animateFloatAsState(
+        if (cmd.auto && !state.running) 0.8f else 1f, effect(), label = "textDim"
     )
     val menuOpen = state.menu?.cmdId == cmd.id
     val lift by animateFloatAsState(if (menuOpen) 1f else 0f, spatial(), label = "lift")
@@ -255,7 +258,7 @@ fun CommandCard(cmd: Cmd, state: AppState, modifier: Modifier) {
                 LineIcon(cmd.ic, if (cmd.auto && cmd.enabled) C.Primary else C.OnSurfaceVar, 22.dp)
             }
             Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f).graphicsLayer { alpha = dim }) {
+            Column(Modifier.weight(1f).graphicsLayer { alpha = textDim }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (cmd.pinned) {
                         LineIcon(Ic.Pin, C.Primary, 14.dp, filled = true)

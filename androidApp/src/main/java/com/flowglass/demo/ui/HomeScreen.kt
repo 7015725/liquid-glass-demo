@@ -80,9 +80,10 @@ private fun HeroCard(state: AppState, modifier: Modifier) {
             val days = mins / (24 * 60)
             val hours = (mins / 60) % 24
             when {
-                days > 0 -> "已运行 $days 天 $hours 小时"
-                mins >= 60 -> "已运行 $hours 小时 ${mins % 60} 分钟"
-                else -> "已运行 ${mins} 分钟"
+                days > 0 && hours == 0L -> "$days 天"
+                days > 0 -> "$days 天 $hours 小时"
+                mins >= 60 -> "$hours 小时 ${mins % 60} 分钟"
+                else -> "${mins} 分钟"
             }
         }
     }
@@ -143,7 +144,9 @@ private fun HeroCard(state: AppState, modifier: Modifier) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         RollingText("$listening", 44.sp, FontWeight.Bold, if (state.running) C.OnSurface else C.Muted)
                         Spacer(Modifier.width(4.dp))
-                        T("/ ${state.autoCmds.size} 条", 14.sp, color = C.Muted, modifier = Modifier.padding(bottom = 8.dp))
+                        T("/ ${state.autoCmds.size}", 20.sp, color = C.Muted, modifier = Modifier.padding(bottom = 8.dp))
+                        Spacer(Modifier.width(6.dp))
+                        T("已启用", 12.sp, color = C.Muted, modifier = Modifier.padding(bottom = 9.dp))
                     }
                     Spacer(Modifier.height(8.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -292,7 +295,7 @@ private fun RecentRuns(state: AppState, onOpenTab: (Int) -> Unit, modifier: Modi
 
 @Composable
 private fun Meta(label: String, value: String, modifier: Modifier) {
-    Column(modifier) {
+    Column(modifier, horizontalAlignment = Alignment.End) {
         T(label, 13.sp, color = C.Muted)
         Spacer(Modifier.height(2.dp))
         T(value, 17.sp, FontWeight.Bold, maxLines = 1)

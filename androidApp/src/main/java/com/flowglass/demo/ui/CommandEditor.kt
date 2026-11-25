@@ -235,7 +235,7 @@ private fun CommandEditor(state: AppState, cmd: Cmd, scope: CoroutineScope, onAu
                 } else {
                     ConfigItemList(state, cmd, section, cmd.items(section))
                 }
-                if (section == CommandSection.CONDITIONS) {
+                if (section == CommandSection.CONDITIONS && cmd.items(section).isNotEmpty()) {
                     T("多个条件需要全部满足才会执行。", 11.sp, color = C.Muted, lineHeight = 16.sp)
                 }
             }
@@ -735,7 +735,7 @@ private val Ic.editorLabel: String
         Ic.Puzzle -> "拼图"; Ic.Key -> "钥匙"; Ic.Pin -> "置顶"; Ic.Edit -> "编辑"
         Ic.Share -> "分享"; Ic.Trash -> "删除"
         Ic.OutputVars -> "输出变量"; Ic.TrashMin -> "删除"; Ic.ArrowRight -> "向右箭头"
-        Ic.Close -> "关闭"
+        Ic.Close -> "关闭"; Ic.Sun -> "太阳"; Ic.Check -> "对勾"; Ic.Layers -> "层级"
     }
 
 /** Original press spring, with equivalent keyboard/accessibility activation. */

@@ -51,6 +51,10 @@ private fun Cmd.automaticDescription(): String {
     val tasks = actions.joinToString(" → ") { ActionSummary.summarize(it, nested(it), open = true) }
         .ifEmpty { "请添加任务" }
     if (!auto) return tasks
+    // An untouched auto command should read as one instruction, not "请添加触发器，则 请添加任务".
+    if (triggers.isEmpty() && conditions.isEmpty() && actions.allItems().isEmpty()) {
+        return "请添加触发器和任务"
+    }
     val trigger = triggers.joinToString(" 或 ") { ActionSummary.conditionText(it) }
         .let { if (it.isEmpty()) "请添加触发器" else "$it 时" }
     val condition = conditions.joinToString(" 且 ") { ActionSummary.conditionText(it) }

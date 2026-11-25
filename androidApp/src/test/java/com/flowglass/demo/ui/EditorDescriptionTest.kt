@@ -33,6 +33,14 @@ class EditorDescriptionTest {
     }
 
     @Test
+    fun untouchedAutoCommandReadsAsOneInstruction() {
+        val state = AppState()
+        state.create(auto = true)
+        val loaded = AppState(AppStateJson.decode(AppStateJson.encode(state.snapshot())))
+        assertEquals("请添加触发器和任务", loaded.autoCmds.single().desc)
+    }
+
+    @Test
     fun loadingRefreshesOnlyGeneratedDescriptions() {
         val state = AppState()
         val cmd = state.create(auto = true)
