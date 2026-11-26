@@ -25,6 +25,7 @@ import com.flowglass.demo.liquid.LiquidToggle
 import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.a11y.A11yKeepAliveSettings
 import com.flowglass.demo.system.a11y.A11yKsuModule
+import com.flowglass.demo.system.a11y.A11yKsuModuleRunner
 import com.flowglass.demo.system.a11y.A11ySelfService
 import com.flowglass.demo.system.a11y.productionRunner
 import com.flowglass.demo.system.a11y.A11yRowModel
@@ -152,10 +153,24 @@ internal fun A11yManagerPage() {
                                 selfNote = "未获得 Root 权限"
                                 return@launch
                             }
-                            selfNote = when (val r = A11ySelfService.enable(productionRunner(info))) {
+                            var verdict = A11ySelfService.enable(productionRunner(info))
+                            if (verdict is A11ySelfService.Result.Failed) {
+                                // The shared root shell can refuse `settings`; a one-shot
+                                // `su -c` (exactly what a terminal uses) often still writes.
+                                verdict = A11ySelfService.enable(
+                                    A11yKsuModuleRunner { script ->
+                                        Root.runProcess(
+                                            listOf(info.suPath, "-c", script),
+                                            timeoutMs = 30_000,
+                                            outputLimit = 8_000,
+                                        )
+                                    },
+                                )
+                            }
+                            selfNote = when (verdict) {
                                 A11ySelfService.Result.Enabled -> "已启用，回列表可勾选保活"
                                 A11ySelfService.Result.Already -> "系统里已经是启用状态"
-                                is A11ySelfService.Result.Failed -> "失败：${r.detail}"
+                                is A11ySelfService.Result.Failed -> "失败：${verdict.detail}"
                             }
                             revision++
                         }.onFailure { selfNote = "失败：${it.javaClass.simpleName}" }
