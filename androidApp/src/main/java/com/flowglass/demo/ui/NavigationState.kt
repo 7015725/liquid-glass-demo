@@ -82,7 +82,7 @@ internal fun restoreNavigation(state: AppState, saved: NavSnapshot): NavSnapshot
         state.editorNotice = "未保存的组件草稿已丢失，已恢复上次保存的版本"
     }
 
-    val savedPage = saved.settingsPage.takeIf { it in SettingsPage.KeepAlive..SettingsPage.Variables }
+    val savedPage = saved.settingsPage.takeIf { it in SettingsPage.KeepAlive..SettingsPage.A11yManager }
     if (state.settingsPage == SettingsPage.Main && savedPage != null) state.settingsPage = savedPage
 
     return saved.copy(
