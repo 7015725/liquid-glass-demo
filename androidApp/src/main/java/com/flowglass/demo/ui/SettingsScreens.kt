@@ -92,6 +92,7 @@ object SettingsPage {
     const val Layers = 6
     const val Backup = 7
     const val Variables = 8
+    const val A11yManager = 9
     fun title(p: Int) = when (p) {
         KeepAlive -> "App 保活"
         Root -> "Root 激活"
@@ -101,6 +102,7 @@ object SettingsPage {
         Layers -> "执行层级"
         Backup -> "备份与恢复"
         Variables -> "变量"
+        A11yManager -> "无障碍管理"
         else -> "设置"
     }
 }
@@ -121,13 +123,14 @@ fun SettingsHost(
         SettingsPage.Layers -> LayersPage()
         SettingsPage.Backup -> BackupRestorePage(state, themeMode, onThemeModeChange)
         SettingsPage.Variables -> VariableManagerPage(state)
+        SettingsPage.A11yManager -> A11yManagerPage()
         else -> SettingsMain(state, themeMode)
     }
 }
 
 // ================================================================ shared bits
 
-private data class Row1(
+internal data class Row1(
     val ic: Ic,
     val label: String,
     val value: String? = null,
@@ -138,13 +141,13 @@ private data class Row1(
 )
 
 @Composable
-private fun GroupTitle(text: String, index: Int) {
+internal fun GroupTitle(text: String, index: Int) {
     T(text, 13.sp, FontWeight.Bold, C.Muted, Modifier.padding(start = 8.dp, top = 6.dp).staggerIn(index))
 }
 
 /** A grouped card; its background doubles as a backdrop so glass toggles inside can refract it. */
 @Composable
-private fun GroupCard(index: Int, content: @Composable ColumnScope.(Backdrop) -> Unit) {
+internal fun GroupCard(index: Int, content: @Composable ColumnScope.(Backdrop) -> Unit) {
     val bd = rememberLayerBackdrop()
     Box(Modifier.fillMaxWidth().staggerIn(index).clip(RoundedRectangle(28.dp))) {
         Box(Modifier.matchParentSize().layerBackdrop(bd).background(C.Card))
@@ -158,7 +161,7 @@ private fun Divider() {
 }
 
 @Composable
-private fun ListRow(row: Row1, divider: Boolean, trailing: (@Composable () -> Unit)? = null) {
+internal fun ListRow(row: Row1, divider: Boolean, trailing: (@Composable () -> Unit)? = null) {
     Column {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 72.dp)
@@ -202,7 +205,7 @@ private fun StatusPillButton(text: String, primary: Boolean, onClick: () -> Unit
 }
 
 @Composable
-private fun PrimaryButton(text: String, ic: Ic, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun PrimaryButton(text: String, ic: Ic, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Row(
         modifier.clip(Capsule()).background(C.Primary).pressable { onClick() }
             .padding(horizontal = 20.dp, vertical = 13.dp),
@@ -218,7 +221,7 @@ private fun PrimaryButton(text: String, ic: Ic, onClick: () -> Unit, modifier: M
 /** Hero-style status card used by every sub page. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun StatusCard(
+internal fun StatusCard(
     index: Int,
     ic: Ic,
     title: String,
@@ -272,7 +275,7 @@ private fun StatusCard(
 }
 
 @Composable
-private fun NoteCard(index: Int, text: String) {
+internal fun NoteCard(index: Int, text: String) {
     Row(
         Modifier.fillMaxWidth().staggerIn(index).clip(RoundedRectangle(24.dp)).background(C.Tonal).padding(16.dp)
     ) {
@@ -294,6 +297,7 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
     val keepReady = remember(t) { keepAliveReady(ctx) }
     val granted = remember(t) { Perms.all.count { it.check(ctx) } }
     val lsposed = remember(t) { ModuleStatus.isActive() }
+    val masterA11y = remember(t) { com.flowglass.demo.system.a11y.A11yServiceCatalog.masterEnabled(ctx) }
     LaunchedEffect(t) {
         val info = Root.check(request = false)
         state.root = if (state.root?.granted == true) state.root else info
@@ -315,6 +319,10 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
             valueColor = if (root?.granted == true) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.Root }, true)
         ListRow(Row1(Ic.Puzzle, "LSPosed 激活", if (lsposed) "已激活" else "未激活", sub = "Xposed 模块增强",
             valueColor = if (lsposed) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.LSPosed }, true)
+        ListRow(Row1(Ic.Accessibility, "无障碍管理",
+            if (masterA11y) "系统已开启" else "系统未开启",
+            sub = "选择要保活的无障碍服务",
+            valueColor = if (masterA11y) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.A11yManager }, true)
         val layers = LayerStatus.current()
         val layersHeadline = LayerHeadline.of(layers)
         ListRow(Row1(Ic.Layers, "执行层级", layersHeadline.big,
