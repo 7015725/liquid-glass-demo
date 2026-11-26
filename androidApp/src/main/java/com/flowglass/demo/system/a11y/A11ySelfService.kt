@@ -29,8 +29,8 @@ internal object A11ySelfService {
         case ":${'$'}cur:" in
           *":${'$'}C:"*) echo 'already'; exit 0 ;;
         esac
-        ${'$'}S put secure enabled_accessibility_services "${'$'}{cur:+${'$'}cur:}${'$'}C" || { echo 'put_failed'; exit 4; }
-        ${'$'}S put secure accessibility_enabled 1 || { echo 'master_failed'; exit 5; }
+        out=${'$'}(${'$'}S put secure enabled_accessibility_services "${'$'}{cur:+${'$'}cur:}${'$'}C" 2>&1) || { echo "put_failed:${'$'}{out:-no_output}"; exit 4; }
+        mout=${'$'}(${'$'}S put secure accessibility_enabled 1 2>&1) || { echo "master_failed:${'$'}{mout:-no_output}"; exit 5; }
         after=${'$'}(${'$'}S get secure enabled_accessibility_services 2>&1)
         case ":${'$'}after:" in
           *":${'$'}C:"*) echo 'enabled' ;;

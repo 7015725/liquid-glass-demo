@@ -27,6 +27,8 @@ class A11ySelfServiceTest {
         assertTrue(script.contains("echo 'already'"))
         assertTrue(script.contains("after=\$(\$S get secure enabled_accessibility_services"))
         assertTrue(script.contains("verify_failed"))
+        // The write error must be carried out, otherwise the UI can only say "put_failed".
+        assertTrue(script.contains("put_failed:\${out:-no_output}"))
     }
 
     @Test
