@@ -28,14 +28,29 @@ object A11yServiceCatalog {
     private val COMPONENT = Regex("""^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)+/[A-Za-z0-9_.$]+$""")
 
     fun masterEnabled(context: Context): Boolean =
-        Settings.Secure.getInt(context.contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0) == 1
+        readSecure(context, Settings.Secure.ACCESSIBILITY_ENABLED) == "1"
 
     fun enabledComponents(context: Context): Set<String> = parseEnabledComponents(
-        Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-        ),
+        readSecure(context, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES),
     )
+
+    /**
+     * Reads the provider directly instead of going through [Settings.Secure]'s per-process cache.
+     * On ROMs that freeze background apps the cache can lag behind a change the user just made in
+     * system settings, which showed up as an enabled service still listing as disabled.
+     */
+    private fun readSecure(context: Context, key: String): String? {
+        val fromProvider = runCatching {
+            context.contentResolver.query(
+                Settings.Secure.CONTENT_URI,
+                arrayOf(Settings.Secure.VALUE),
+                "${Settings.Secure.NAME} = ?",
+                arrayOf(key),
+                null,
+            )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        }.getOrNull()
+        return fromProvider ?: Settings.Secure.getString(context.contentResolver, key)
+    }
 
     /** `com.a/.A` is normalised to `com.a/com.a.A`; malformed entries are dropped, never thrown. */
     internal fun parseEnabledComponents(raw: String?): Set<String> {
