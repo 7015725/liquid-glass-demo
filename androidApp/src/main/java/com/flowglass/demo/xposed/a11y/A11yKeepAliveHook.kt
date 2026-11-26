@@ -9,6 +9,7 @@ import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import com.flowglass.demo.system.a11y.A11yKeepAlivePolicy
@@ -78,18 +79,40 @@ internal object A11yKeepAliveHook {
                 onStatus = ::sendStatus,
             )
             hookBridge.log("a11y keepalive hooks=$hookCount")
-            runCatching {
-                val activityThread = hookBridge.findClass("android.app.ActivityThread", classLoader)
-                hookBridge.hookAllMethods(activityThread, "systemMain", HookCallback { _, _, _ ->
-                    HookFailureGuard.run("a11y system context", hookBridge::log) {
-                        ensureContext()?.let(::sendLoaded)
-                    }
-                })
-            }
+            bootstrapContext(hookBridge, classLoader)
         }
     }
 
     fun supported(): Boolean = hookCount > 0
+
+    /**
+     * LSPosed can load a module after `ActivityThread.systemMain()` has already run (observed on
+     * Android 14 + KernelSU), so a systemMain hook alone never yields a Context and the state
+     * broadcast never leaves system_server. Try immediately, then retry from every late but
+     * guaranteed system_server callback.
+     */
+    private fun bootstrapContext(b: HookBridge, classLoader: ClassLoader) {
+        val retry = {
+            HookFailureGuard.post(
+                handler = Handler(Looper.getMainLooper()),
+                where = "a11y system context",
+                log = b::log,
+            ) { ensureContext()?.let(::sendLoaded) }
+        }
+        retry()
+        for ((className, method) in listOf(
+            "android.app.ActivityThread" to "systemMain",
+            "com.android.server.SystemServer" to "startBootstrapServices",
+            "com.android.server.am.ActivityManagerService" to "systemReady",
+        )) {
+            runCatching {
+                val clazz = b.findClass(className, classLoader)
+                b.hookAllMethods(clazz, method, HookCallback { _, _, _ -> retry() })
+            }.onFailure {
+                b.log("a11y bootstrap $className#$method unavailable: ${it.javaClass.simpleName}")
+            }
+        }
+    }
 
     private fun onConnected(connection: Any?, component: ComponentName) {
         HookFailureGuard.run("a11y connected", ::log) {
