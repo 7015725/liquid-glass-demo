@@ -54,6 +54,34 @@ class A11yServiceCatalogTest {
     }
 
     @Test
+    fun `installed entry matches an enabled value written in short form`() {
+        val merged = A11yServiceCatalog.merge(
+            installed = listOf(raw("com.a", "com.a.A", "服务", "应用")),
+            enabled = A11yServiceCatalog.parseEnabledComponents("com.a/.A"),
+            selfPackage = "com.flowglass.demo",
+        )
+        assertTrue(merged.single().enabled)
+        assertEquals("com.a/com.a.A", merged.single().component)
+    }
+
+    @Test
+    fun `installed entry with a relative class name still matches`() {
+        // The manifest declares ".system.FlowAccessibilityService"; the framework may persist
+        // either spelling, and both must resolve to the same key.
+        val merged = A11yServiceCatalog.merge(
+            installed = listOf(
+                raw("com.flowglass.demo", ".system.FlowAccessibilityService", "流光", "流光自动化"),
+            ),
+            enabled = A11yServiceCatalog.parseEnabledComponents(
+                "com.flowglass.demo/com.flowglass.demo.system.FlowAccessibilityService",
+            ),
+            selfPackage = "com.flowglass.demo",
+        )
+        assertEquals("com.flowglass.demo/com.flowglass.demo.system.FlowAccessibilityService", merged.single().component)
+        assertTrue(merged.single().enabled)
+    }
+
+    @Test
     fun `settings reader returns enabled components and master switch`() {
         val app = RuntimeEnvironment.getApplication()
         Settings.Secure.putString(

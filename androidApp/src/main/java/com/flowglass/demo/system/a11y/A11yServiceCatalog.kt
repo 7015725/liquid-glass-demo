@@ -41,9 +41,24 @@ object A11yServiceCatalog {
     internal fun parseEnabledComponents(raw: String?): Set<String> {
         if (raw.isNullOrBlank()) return emptySet()
         return raw.split(':')
-            .mapNotNull { ComponentName.unflattenFromString(it)?.flattenToString() }
+            .mapNotNull(::canonicalComponent)
             .filter { COMPONENT.matches(it) }
             .toSet()
+    }
+
+    /**
+     * The same service reaches us in two spellings: the framework persists the short form
+     * (`pkg/.Class`) while a declared component name may already be fully qualified. Comparing
+     * the raw strings therefore reports an enabled service as disabled.
+     */
+    internal fun canonicalComponent(component: String): String? {
+        val parsed = ComponentName.unflattenFromString(component) ?: return null
+        val className = if (parsed.className.startsWith(".")) {
+            parsed.packageName + parsed.className
+        } else {
+            parsed.className
+        }
+        return ComponentName(parsed.packageName, className).flattenToString()
     }
 
     fun load(context: Context, selfPackage: String = context.packageName): List<A11yServiceEntry> = merge(
@@ -59,7 +74,9 @@ object A11yServiceCatalog {
     ): List<A11yServiceEntry> {
         val byComponent = LinkedHashMap<String, A11yServiceEntry>()
         for (raw in installed) {
-            val component = ComponentName(raw.packageName, raw.className).flattenToString()
+            val component = canonicalComponent(
+                ComponentName(raw.packageName, raw.className).flattenToString(),
+            ) ?: continue
             byComponent[component] = A11yServiceEntry(
                 component = component,
                 packageName = raw.packageName,
@@ -75,8 +92,9 @@ object A11yServiceCatalog {
         for (component in enabled) {
             if (component in byComponent) continue
             val parsed = ComponentName.unflattenFromString(component) ?: continue
-            byComponent[component] = A11yServiceEntry(
-                component = component,
+            val canonical = canonicalComponent(component) ?: continue
+            byComponent[canonical] = A11yServiceEntry(
+                component = canonical,
                 packageName = parsed.packageName,
                 className = parsed.className,
                 serviceLabel = parsed.className.substringAfterLast('.'),
