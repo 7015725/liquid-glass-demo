@@ -39,6 +39,14 @@ class A11yKsuModuleTest {
     }
 
     @Test
+    fun `install script keeps heredoc terminators at column zero`() {
+        val script = A11yKsuModule.installScript("#!/system/bin/sh\necho hi\n")
+        assertEquals("set -e", script.lines().first())
+        assertTrue(script.lines().contains("FLOWGLASS_MODULE"))
+        assertTrue(script.lines().contains("FLOWGLASS_SERVICE"))
+    }
+
+    @Test
     fun `install stops when the module write fails`() = runBlocking {
         val runner = FakeRunner(ArrayDeque(listOf(fail())))
         assertEquals(1, A11yKsuModule.install(runner, "x", setOf("a/a.A")).exitCode)

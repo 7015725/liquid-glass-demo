@@ -25,22 +25,28 @@ internal object A11yKsuModule {
     fun configText(targets: Set<String>): String =
         targets.sorted().joinToString(separator = "\n", postfix = "\n")
 
-    fun installScript(serviceSh: String): String = """
-        set -e
-        mkdir -p '$DIR' '$STATE_DIR'
-        cat > '$DIR/module.prop' <<'FLOWGLASS_MODULE'
-        id=flowglass_a11y_keepalive
-        name=流光无障碍保活
-        version=v1
-        versionCode=1
-        author=Flowglass
-        description=在无障碍服务进程消失后按 $CONF 逐项重新启用。仅对用户勾选的服务生效。
-        FLOWGLASS_MODULE
-        cat > '$SERVICE' <<'FLOWGLASS_SERVICE'
-        $serviceSh
-        FLOWGLASS_SERVICE
-        chmod 0755 '$SERVICE'
-    """.trimIndent()
+    /**
+     * Built line by line on purpose: a raw string with a multi-line interpolation defeats
+     * trimIndent(), which would leave the heredoc terminators indented and silently break the
+     * generated script.
+     */
+    fun installScript(serviceSh: String): String = buildString {
+        appendLine("set -e")
+        appendLine("mkdir -p '$DIR' '$STATE_DIR'")
+        appendLine("cat > '$DIR/module.prop' <<'FLOWGLASS_MODULE'")
+        appendLine("id=flowglass_a11y_keepalive")
+        appendLine("name=流光无障碍保活")
+        appendLine("version=v1")
+        appendLine("versionCode=1")
+        appendLine("author=Flowglass")
+        appendLine("description=在无障碍服务进程消失后按 $CONF 逐项重新启用。仅对用户勾选的服务生效。")
+        appendLine("FLOWGLASS_MODULE")
+        appendLine("cat > '$SERVICE' <<'FLOWGLASS_SERVICE'")
+        append(serviceSh)
+        if (!serviceSh.endsWith("\n")) appendLine()
+        appendLine("FLOWGLASS_SERVICE")
+        appendLine("chmod 0755 '$SERVICE'")
+    }
 
     suspend fun install(
         runner: A11yKsuModuleRunner,
