@@ -170,7 +170,13 @@ internal fun A11yManagerPage() {
                             selfNote = when (verdict) {
                                 A11ySelfService.Result.Enabled -> "已启用，回列表可勾选保活"
                                 A11ySelfService.Result.Already -> "系统里已经是启用状态"
-                                is A11ySelfService.Result.Failed -> "失败：${verdict.detail}"
+                                is A11ySelfService.Result.Failed -> when {
+                                    // Observed on ColorOS: the write lands but ECM drops the
+                                    // component, so the value reads back unchanged.
+                                    verdict.detail.startsWith("verify_failed") ->
+                                        "系统拒绝了这次写入（受限制的设置）：请到 应用信息 → 右上角 ⋮ → 允许受限制的设置，授权后再到系统无障碍里打开"
+                                    else -> "失败：${verdict.detail}"
+                                }
                             }
                             revision++
                         }.onFailure { selfNote = "失败：${it.javaClass.simpleName}" }
