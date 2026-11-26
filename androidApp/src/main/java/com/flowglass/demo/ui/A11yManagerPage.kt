@@ -152,10 +152,10 @@ internal fun A11yManagerPage() {
                                 selfNote = "未获得 Root 权限"
                                 return@launch
                             }
-                            selfNote = when (A11ySelfService.enable(productionRunner(info))) {
-                                "enabled" -> "已启用，回列表可勾选保活"
-                                "already" -> "系统里已经是启用状态"
-                                else -> "写入失败，请检查 Root 授权"
+                            selfNote = when (val r = A11ySelfService.enable(productionRunner(info))) {
+                                A11ySelfService.Result.Enabled -> "已启用，回列表可勾选保活"
+                                A11ySelfService.Result.Already -> "系统里已经是启用状态"
+                                is A11ySelfService.Result.Failed -> "失败：${r.detail}"
                             }
                             revision++
                         }.onFailure { selfNote = "失败：${it.javaClass.simpleName}" }
