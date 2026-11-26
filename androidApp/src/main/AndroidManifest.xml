@@ -39,6 +39,10 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.HOME" />
         </intent>
+        <!-- 需要列出所有无障碍服务并在「无障碍管理」里显示应用名。 -->
+        <intent>
+            <action android:name="android.accessibilityservice.AccessibilityService" />
+        </intent>
         <package android:name="org.lsposed.manager" />
         <package android:name="com.topjohnwu.magisk" />
         <package android:name="me.weishu.kernelsu" />
