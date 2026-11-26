@@ -25,6 +25,7 @@ import com.flowglass.demo.liquid.LiquidToggle
 import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.a11y.A11yKeepAliveSettings
 import com.flowglass.demo.system.a11y.A11yKsuModule
+import com.flowglass.demo.system.a11y.A11yKsuModuleRunner
 import com.flowglass.demo.system.a11y.A11ySelfService
 import com.flowglass.demo.system.a11y.productionRunner
 import com.flowglass.demo.system.a11y.A11yRowModel
@@ -152,10 +153,30 @@ internal fun A11yManagerPage() {
                                 selfNote = "未获得 Root 权限"
                                 return@launch
                             }
-                            selfNote = when (A11ySelfService.enable(productionRunner(info))) {
-                                "enabled" -> "已启用，回列表可勾选保活"
-                                "already" -> "系统里已经是启用状态"
-                                else -> "写入失败，请检查 Root 授权"
+                            var verdict = A11ySelfService.enable(productionRunner(info))
+                            if (verdict is A11ySelfService.Result.Failed) {
+                                // The shared root shell can refuse `settings`; a one-shot
+                                // `su -c` (exactly what a terminal uses) often still writes.
+                                verdict = A11ySelfService.enable(
+                                    A11yKsuModuleRunner { script ->
+                                        Root.runProcess(
+                                            listOf(info.suPath, "-c", script),
+                                            timeoutMs = 30_000,
+                                            outputLimit = 8_000,
+                                        )
+                                    },
+                                )
+                            }
+                            selfNote = when (verdict) {
+                                A11ySelfService.Result.Enabled -> "已启用，回列表可勾选保活"
+                                A11ySelfService.Result.Already -> "系统里已经是启用状态"
+                                is A11ySelfService.Result.Failed -> when {
+                                    // Observed on ColorOS: the write lands but ECM drops the
+                                    // component, so the value reads back unchanged.
+                                    verdict.detail.startsWith("verify_failed") ->
+                                        "系统拒绝了这次写入（受限制的设置）：请到 应用信息 → 右上角 ⋮ → 允许受限制的设置，授权后再到系统无障碍里打开"
+                                    else -> "失败：${verdict.detail}"
+                                }
                             }
                             revision++
                         }.onFailure { selfNote = "失败：${it.javaClass.simpleName}" }

@@ -44,6 +44,23 @@
 - 对应应用被强行停止（`FLAG_STOPPED` / `stopped=true`）。
 - 10 分钟内已尝试 3 次（等待窗口过期后重新计数）。
 
+## 为什么有时无法用 Root 开启本应用自己的无障碍服务
+
+部分 ROM（实测 ColorOS/一加，Android 14）启用了「增强确认模式」（ECM）。系统接受写入
+`enabled_accessibility_services`，但 `AccessibilityManagerService` 会把来源不可信的组件立刻剔除：
+
+```
+[isAccessibilityTargetAllowed]False, ecmEnabled = true ,mode = 2, packageName = com.flowglass.demo
+Skipping enabling service disallowed by device admin policy
+```
+
+表现是：`settings put` 返回 0，紧接着 `settings get` 仍是旧值，页面显示 `verify_failed`。
+把安装来源改成 `com.android.shell` 或 `com.android.vending` 都不解除，说明该 ROM 不看 installer 字段。
+
+可行路径：应用信息 → 右上角 ⋮ → 允许受限制的设置 → 身份验证；之后在系统无障碍里打开本应用的
+服务即可。页面上的「用 Root 启用无障碍」在未解除 ECM 前会失败并给出该提示；它适用于没有 ECM
+的 ROM，不是 ECM 的绕过手段。
+
 ## 验证
 
 - 钩子加载：LSPosed 日志中出现 `a11y keepalive hooks=N`（N 为安装的检测点数量）。

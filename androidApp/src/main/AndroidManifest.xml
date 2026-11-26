@@ -126,9 +126,13 @@
             </intent-filter>
         </receiver>
 
+        <!-- Must stay exported: the framework binds this service from system_server, and
+             AccessibilityManagerService drops a component it cannot bind from
+             enabled_accessibility_services. BIND_ACCESSIBILITY_SERVICE (signature|privileged)
+             is what actually keeps other apps out. -->
         <service
             android:name=".system.FlowAccessibilityService"
-            android:exported="false"
+            android:exported="true"
             android:label="@string/app_name"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
