@@ -14,6 +14,8 @@ class XposedEntry : IXposedHookLoadPackage {
             // Defensive and read-only: every callback catches its own failures and the hook is
             // disabled until the app sends the explicit state broadcast.
             SystemHook.install(LegacyHookBridge(), lpparam.classLoader)
+            com.flowglass.demo.xposed.a11y.A11yKeepAliveHook
+                .install(LegacyHookBridge(), lpparam.classLoader)
             return
         }
         if (lpparam.packageName == "com.flowglass.demo") {
