@@ -11,6 +11,7 @@ import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.ui.Cmd
 import com.flowglass.engine.BuiltInComponents
 import com.flowglass.engine.trigger.TriggerRule
+import com.flowglass.engine.trigger.TriggerSource
 import com.flowglass.engine.trigger.TriggerTypes
 
 enum class RuleListenState(val label: String) {
@@ -36,6 +37,16 @@ object TriggerStatus {
     /** Events dropped by a full queue; Compose state so the home banner refreshes at once. */
     var droppedEvents by mutableIntStateOf(0)
 
+    /** Drop counts per listener family; keeps a noisy sensor from masking a starved broadcast. */
+    var droppedBySource by mutableStateOf<Map<String, Int>>(emptyMap())
+        private set
+
+    fun recordDrop(source: TriggerSource?, count: Int = 1) {
+        if (count <= 0) return
+        val key = source?.name ?: "UNKNOWN"
+        droppedBySource = droppedBySource + (key to ((droppedBySource[key] ?: 0) + count))
+    }
+
     fun reset() {
         serviceActive = false
         listeningRules = 0
@@ -44,6 +55,7 @@ object TriggerStatus {
         locationRulesActive = false
         locationNeedsForeground = false
         droppedEvents = 0
+        droppedBySource = emptyMap()
     }
 }
 

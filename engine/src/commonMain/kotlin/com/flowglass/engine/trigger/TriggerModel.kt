@@ -15,7 +15,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 /** One installable listener family. Several trigger types can share a source. */
-enum class TriggerSource { TIME, SCREEN, POWER, BATTERY, BOOT, WIFI, BLUETOOTH, NOTIFICATION, APP, HEADSET, LOCATION, SYSTEM, METHOD_HOOK }
+enum class TriggerSource { TIME, SCREEN, POWER, BATTERY, BOOT, WIFI, BLUETOOTH, NOTIFICATION, APP, HEADSET, LOCATION, SYSTEM, METHOD_HOOK, BROADCAST }
 
 object TriggerTypes {
     const val TIME = "trigger.time"
@@ -41,6 +41,19 @@ object TriggerTypes {
     const val LOCATION_ENTER = "trigger.location_enter"
     const val LOCATION_EXIT = "trigger.location_exit"
     const val APP_METHOD_CALL = "trigger.app_method_call"
+    const val SYSTEM_TIME_CHANGED = "trigger.system_time_changed"
+    const val NEXT_ALARM_CHANGED = "trigger.next_alarm_changed"
+    const val STORAGE_MEDIA = "trigger.storage_media"
+    const val BATTERY_FULL = "trigger.battery_full"
+    const val BATTERY_OVERHEAT = "trigger.battery_overheat"
+    const val SHUTDOWN = "trigger.shutdown"
+    const val STORAGE_LOW = "trigger.storage_low"
+    const val LOCALE_CHANGED = "trigger.locale_changed"
+    const val PACKAGE_CHANGE = "trigger.package_change"
+    const val WALLPAPER_CHANGED = "trigger.wallpaper_changed"
+    const val SETTING_CHANGED = "trigger.setting_changed"
+    const val TICK = "trigger.tick"
+    const val ACCESSIBILITY_CHANGED = "trigger.accessibility_changed"
 
     /** Old rules keep their type id; only these two are mapped onto the new listeners. */
     fun sourceOf(typeId: String): TriggerSource? = when (typeId) {
@@ -60,6 +73,10 @@ object TriggerTypes {
         HEADSET -> TriggerSource.HEADSET
         LOCATION_ENTER, LOCATION_EXIT -> TriggerSource.LOCATION
         APP_METHOD_CALL -> TriggerSource.METHOD_HOOK
+        BATTERY_FULL, BATTERY_OVERHEAT -> TriggerSource.BATTERY
+        SYSTEM_TIME_CHANGED, NEXT_ALARM_CHANGED, STORAGE_MEDIA, SHUTDOWN, STORAGE_LOW,
+        LOCALE_CHANGED, PACKAGE_CHANGE, WALLPAPER_CHANGED, SETTING_CHANGED, TICK,
+        ACCESSIBILITY_CHANGED -> TriggerSource.BROADCAST
         else -> null
     }
 
@@ -164,6 +181,19 @@ object TriggerKinds {
     const val HEADSET = "headset"
     const val LOCATION = "location"
     const val METHOD_CALL = "method_call"
+    const val SYSTEM_TIME_CHANGED = "system_time_changed"
+    const val NEXT_ALARM_CHANGED = "next_alarm_changed"
+    const val STORAGE_MEDIA = "storage_media"
+    const val BATTERY_FULL = "battery_full"
+    const val BATTERY_OVERHEAT = "battery_overheat"
+    const val SHUTDOWN = "shutdown"
+    const val STORAGE_LOW = "storage_low"
+    const val LOCALE_CHANGED = "locale_changed"
+    const val PACKAGE_CHANGE = "package_change"
+    const val WALLPAPER_CHANGED = "wallpaper_changed"
+    const val SETTING_CHANGED = "setting_changed"
+    const val TICK = "tick"
+    const val ACCESSIBILITY_CHANGED = "accessibility_changed"
 }
 
 /** Recomputes the listener set and reports the delta; the host installs/removes only changes. */
@@ -198,6 +228,7 @@ data class SourceDiff(val added: Set<TriggerSource>, val removed: Set<TriggerSou
 class TriggerStateStore {
     private val values = mutableMapOf<String, Boolean>()
     private val texts = mutableMapOf<String, String>()
+    private val times = mutableMapOf<String, Long>()
 
     fun has(key: String): Boolean = values.containsKey(key)
     fun put(key: String, value: Boolean) { values[key] = value }
@@ -206,10 +237,12 @@ class TriggerStateStore {
     fun removeMissing(keys: Set<String>) {
         values.keys.retainAll(keys)
         texts.keys.retainAll(keys)
+        times.keys.retainAll(keys)
     }
     fun clear() {
         values.clear()
         texts.clear()
+        times.clear()
     }
 
     /** Returns true only when the value changed from false to true. */
@@ -222,6 +255,17 @@ class TriggerStateStore {
     fun changed(key: String, current: Boolean): Boolean {
         val previous = values.put(key, current)
         return previous != null && previous != current
+    }
+
+    /**
+     * Time-based gate for event-shaped triggers that have no natural edge. Returns true at most
+     * once per [windowMs]; the first call passes so a listener that just started is not silent.
+     */
+    fun cooldown(key: String, nowEpochMs: Long, windowMs: Long): Boolean {
+        val previous = times[key]
+        if (previous != null && nowEpochMs - previous < windowMs) return false
+        times[key] = nowEpochMs
+        return true
     }
 }
 
@@ -265,6 +309,26 @@ object TriggerMatcher {
             TriggerKinds.HEADSET -> matchesHeadset(binding, event, states)
             TriggerKinds.LOCATION -> matchesLocation(binding, event, states)
             TriggerKinds.METHOD_CALL -> matchesMethodHook(binding, event)
+            TriggerKinds.SYSTEM_TIME_CHANGED -> matchesFamily(
+                binding, TriggerTypes.SYSTEM_TIME_CHANGED, event, "event",
+            )
+            TriggerKinds.NEXT_ALARM_CHANGED -> matchesNextAlarm(binding, event)
+            TriggerKinds.STORAGE_MEDIA -> matchesFamily(
+                binding, TriggerTypes.STORAGE_MEDIA, event, "event",
+            )
+            TriggerKinds.BATTERY_FULL -> matchesBatteryFull(binding, event, states)
+            TriggerKinds.BATTERY_OVERHEAT -> matchesBatteryOverheat(binding, event, states)
+            TriggerKinds.SHUTDOWN -> binding.component.typeId == TriggerTypes.SHUTDOWN
+            TriggerKinds.STORAGE_LOW -> matchesStorageLow(binding, event, states)
+            TriggerKinds.LOCALE_CHANGED -> binding.component.typeId == TriggerTypes.LOCALE_CHANGED
+            TriggerKinds.PACKAGE_CHANGE -> matchesFamily(
+                binding, TriggerTypes.PACKAGE_CHANGE, event, "event",
+            )
+            TriggerKinds.WALLPAPER_CHANGED -> binding.component.typeId == TriggerTypes.WALLPAPER_CHANGED
+            TriggerKinds.SETTING_CHANGED -> matchesSetting(binding, event)
+            TriggerKinds.TICK -> matchesTick(binding, event)
+            TriggerKinds.ACCESSIBILITY_CHANGED ->
+                binding.component.typeId == TriggerTypes.ACCESSIBILITY_CHANGED
             else -> false
         }
     }
@@ -275,9 +339,10 @@ object TriggerMatcher {
         TriggerTypes.CHARGING_LEGACY,
         TriggerTypes.POWER_CONNECTED,
         TriggerTypes.POWER_DISCONNECTED,
-        TriggerTypes.BATTERY_LEVEL,
         TriggerTypes.BATTERY_LOW_LEGACY,
         -> true
+        TriggerTypes.BATTERY_LEVEL ->
+            binding.component.params["direction"]?.stringValue() != BATTERY_ANY
         else -> false
     }
 
@@ -315,6 +380,7 @@ object TriggerMatcher {
             TriggerTypes.SCREEN_ON -> environment.isScreenOn()
             TriggerTypes.SCREEN_OFF -> !environment.isScreenOn()
             TriggerTypes.BATTERY_LEVEL, TriggerTypes.BATTERY_LOW_LEGACY -> {
+                if (binding.component.params["direction"]?.stringValue() == BATTERY_ANY) return false
                 val level = environment.batteryPercent() ?: return false
                 val threshold = binding.component.params["threshold"]?.intValueOrNull() ?: return false
                 val below = binding.component.typeId == TriggerTypes.BATTERY_LOW_LEGACY ||
@@ -535,6 +601,11 @@ object TriggerMatcher {
         val type = binding.component.typeId
         if (type != TriggerTypes.BATTERY_LEVEL && type != TriggerTypes.BATTERY_LOW_LEGACY) return false
         val level = event.data["battery"]?.toIntOrNull() ?: fallback ?: return false
+        if (type == TriggerTypes.BATTERY_LEVEL &&
+            binding.component.params["direction"]?.stringValue() == BATTERY_ANY
+        ) {
+            return states.cooldown(binding.key, event.atEpochMs, BATTERY_ANY_WINDOW_MS)
+        }
         val threshold = binding.component.params["threshold"]?.intValueOrNull() ?: return false
         val below = when (type) {
             TriggerTypes.BATTERY_LOW_LEGACY -> true
@@ -545,6 +616,73 @@ object TriggerMatcher {
         }
         val satisfied = if (below) level < threshold else level > threshold
         return states.crossed(binding.key, satisfied)
+    }
+
+    /** Family triggers share one type id and differ only by the `event` parameter. */
+    private fun matchesFamily(
+        binding: TriggerBinding,
+        typeId: String,
+        event: TriggerEvent,
+        eventKey: String,
+    ): Boolean {
+        if (binding.component.typeId != typeId) return false
+        val expected = binding.component.params[eventKey]?.stringValue()?.trim().orEmpty()
+        if (expected.isEmpty() || expected == "any") return true
+        return expected == event.data[eventKey]
+    }
+
+    private fun matchesNextAlarm(binding: TriggerBinding, event: TriggerEvent): Boolean {
+        if (binding.component.typeId != TriggerTypes.NEXT_ALARM_CHANGED) return false
+        val wanted = binding.component.params["package"]?.stringValue()?.trim().orEmpty()
+        if (wanted.isEmpty()) return true
+        return wanted == event.data["alarm.package"].orEmpty()
+    }
+
+    private fun matchesBatteryFull(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        states: TriggerStateStore,
+    ): Boolean {
+        if (binding.component.typeId != TriggerTypes.BATTERY_FULL) return false
+        return states.crossed(binding.key, event.data["full"] == "true")
+    }
+
+    private fun matchesBatteryOverheat(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        states: TriggerStateStore,
+    ): Boolean {
+        if (binding.component.typeId != TriggerTypes.BATTERY_OVERHEAT) return false
+        val temperature = event.data["battery.temperature"]?.toIntOrNull() ?: return false
+        val threshold = binding.component.params["temperature"]?.intValueOrNull() ?: return false
+        return states.crossed(binding.key, temperature >= threshold)
+    }
+
+    private fun matchesStorageLow(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        states: TriggerStateStore,
+    ): Boolean {
+        if (binding.component.typeId != TriggerTypes.STORAGE_LOW) return false
+        val free = event.data["storage.freePercent"]?.toIntOrNull() ?: return false
+        val threshold = binding.component.params["threshold"]?.intValueOrNull() ?: return false
+        // The periodic host check re-samples a level, so a cooldown is more useful than an edge:
+        // a device that is already low when automation starts still gets one alert.
+        return free < threshold && states.cooldown(binding.key, event.atEpochMs, STORAGE_LOW_WINDOW_MS)
+    }
+
+    private fun matchesSetting(binding: TriggerBinding, event: TriggerEvent): Boolean {
+        if (binding.component.typeId != TriggerTypes.SETTING_CHANGED) return false
+        val namespace = binding.component.params["namespace"]?.stringValue()?.trim().orEmpty()
+        if (namespace != event.data["setting.namespace"]) return false
+        val key = binding.component.params["key"]?.stringValue()?.trim().orEmpty()
+        return key.isNotEmpty() && key == event.data["setting.key"]
+    }
+
+    private fun matchesTick(binding: TriggerBinding, event: TriggerEvent): Boolean {
+        if (binding.component.typeId != TriggerTypes.TICK) return false
+        if (event.targetRuleId != binding.rule.id) return false
+        return event.targetTriggerIndex == null || event.targetTriggerIndex == binding.triggerIndex
     }
 
     private fun matchesTime(binding: TriggerBinding, event: TriggerEvent): Boolean {
@@ -573,6 +711,9 @@ object TriggerMatcher {
     }
 
     private const val DAY_MS = 86_400_000L
+    private const val BATTERY_ANY = "any"
+    private const val BATTERY_ANY_WINDOW_MS = 30_000L
+    private const val STORAGE_LOW_WINDOW_MS = 30 * 60_000L
 }
 
 object TriggerSchedule {

@@ -397,6 +397,42 @@ class TriggerDispatcher(
                 putText("trigger.method.signature", event.methodHookVariables[MethodHookVariables.SIGNATURE])
                 putText("trigger.method.hookId", data["hook.id"])
             }
+            TriggerTypes.SYSTEM_TIME_CHANGED ->
+                putText("trigger.system_time.kind", data["event"])
+            TriggerTypes.NEXT_ALARM_CHANGED -> {
+                putText("trigger.alarm.time", data["alarm.time"])
+                putText("trigger.alarm.package", data["alarm.package"])
+            }
+            TriggerTypes.STORAGE_MEDIA -> {
+                putText("trigger.storage.path", data["storage.path"])
+                putText("trigger.storage.event", data["event"])
+            }
+            TriggerTypes.BATTERY_FULL ->
+                data["battery"]?.toIntOrNull()?.let { values["trigger.battery.level"] = it }
+            TriggerTypes.BATTERY_OVERHEAT ->
+                data["battery.temperature"]?.toIntOrNull()
+                    ?.let { values["trigger.battery.temperature"] = it }
+            TriggerTypes.STORAGE_LOW ->
+                data["storage.freePercent"]?.toIntOrNull()
+                    ?.let { values["trigger.storage.freePercent"] = it }
+            TriggerTypes.LOCALE_CHANGED -> putText("trigger.locale.tag", data["locale.tag"])
+            TriggerTypes.PACKAGE_CHANGE -> {
+                putText("trigger.package.name", data["package.name"])
+                putText("trigger.package.label", data["package.label"])
+                putText("trigger.package.event", data["event"])
+            }
+            TriggerTypes.SETTING_CHANGED -> {
+                putText("trigger.setting.namespace", data["setting.namespace"])
+                putText("trigger.setting.key", data["setting.key"])
+                putText("trigger.setting.value", data["setting.value"])
+            }
+            TriggerTypes.TICK ->
+                data["tick.interval"]?.toIntOrNull()?.let { values["trigger.tick.interval"] = it }
+            TriggerTypes.ACCESSIBILITY_CHANGED -> {
+                data["accessibility.count"]?.toIntOrNull()
+                    ?.let { values["trigger.accessibility.count"] = it }
+                putText("trigger.accessibility.services", data["accessibility.services"])
+            }
         }
         return values
     }

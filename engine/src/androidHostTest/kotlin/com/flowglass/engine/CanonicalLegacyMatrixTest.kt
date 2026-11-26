@@ -62,6 +62,11 @@ class CanonicalLegacyMatrixTest {
                     "trigger.media", // alpha9
                     "trigger.foreground_service", // alpha10
                     "trigger.app_method_call", // alpha21, no v0.5 form
+                    "trigger.system_time_changed", "trigger.next_alarm_changed",
+                    "trigger.storage_media", "trigger.battery_full", "trigger.battery_overheat",
+                    "trigger.shutdown", "trigger.storage_low", "trigger.locale_changed",
+                    "trigger.package_change", "trigger.wallpaper_changed", "trigger.setting_changed",
+                    "trigger.tick", "trigger.accessibility_changed", // added after v0.5
                 )
         }
         assertEquals(expected.keys, legacyComponents.map { it.typeId }.toSet())

@@ -10,6 +10,7 @@ import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
@@ -182,6 +183,7 @@ internal class TriggerHost(
     private val locationWatcher = LocationWatcher(context, ::emitEvent)
     private val appWatcher = AppForegroundWatcher(context, scope, ::emitEvent)
     private val rootAppWatcher = RootForegroundWatcher(context, scope, ::emitEvent)
+    private val systemBroadcastSource = SystemBroadcastSource(context, scope, ::emit) { lastRules }
     private val notificationListener: (String, String, String, Int) -> Unit = { app, title, text, userId ->
         // A clone and the main app share a package; the persisted app identity includes the
         // profile so a "收到通知" rule cannot fire for the wrong clone.
@@ -258,7 +260,9 @@ internal class TriggerHost(
             events.collect { event ->
                 if (event.seq > 0L) {
                     if (lastSeq > 0L && event.seq > lastSeq + 1) {
-                        TriggerStatus.droppedEvents += (event.seq - lastSeq - 1).toInt()
+                        val dropped = (event.seq - lastSeq - 1).toInt()
+                        TriggerStatus.droppedEvents += dropped
+                        TriggerStatus.recordDrop(event.source, dropped)
                     }
                     lastSeq = event.seq
                 }
@@ -309,13 +313,19 @@ internal class TriggerHost(
             // Keep an event that arrives between stopSelf and the queued restart; the start
             // path drains this queue. Bound it so an engine-off period cannot grow forever.
             if (pendingEvents.size < 16) pendingEvents.addLast(event)
-            else TriggerStatus.droppedEvents += 1
+            else {
+                TriggerStatus.droppedEvents += 1
+                TriggerStatus.recordDrop(event.source)
+            }
             return
         }
         // Both windows share one bound: a start-up burst must not grow the queue without limit.
         if (!collectorReady) {
             if (pendingEvents.size < 16) pendingEvents.addLast(event)
-            else TriggerStatus.droppedEvents += 1
+            else {
+                TriggerStatus.droppedEvents += 1
+                TriggerStatus.recordDrop(event.source)
+            }
         } else {
             events.tryEmit(event.copy(seq = eventSeq.incrementAndGet()))
         }
@@ -393,6 +403,9 @@ internal class TriggerHost(
         }
         val required = TriggerPlan.requiredSources(eligible)
         sourceRegistry.update(required)
+        if (TriggerSource.BROADCAST in sourceRegistry.registered) {
+            systemBroadcastSource.sync(eligible)
+        }
         val exact = canScheduleExactAlarms(context)
         TriggerStatus.exactAlarmAllowed = exact
         syncAlarms(eligible, exact)
@@ -459,6 +472,7 @@ internal class TriggerHost(
             }
             TriggerSource.HEADSET -> headsetWatcher.start()
             TriggerSource.LOCATION -> locationWatcher.start()
+            TriggerSource.BROADCAST -> systemBroadcastSource.start()
             // TIME is an AlarmManager schedule, BOOT is a manifest receiver; SYSTEM events are
             // emitted by the already-installed LSPosed hook and need no dynamic receiver.
             TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM, TriggerSource.METHOD_HOOK -> Unit
@@ -479,6 +493,7 @@ internal class TriggerHost(
             }
             TriggerSource.HEADSET -> headsetWatcher.stop()
             TriggerSource.LOCATION -> locationWatcher.stop()
+            TriggerSource.BROADCAST -> systemBroadcastSource.stop()
             TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM, TriggerSource.METHOD_HOOK -> Unit
         }
     }
@@ -537,6 +552,22 @@ internal class TriggerHost(
                 TriggerKinds.BATTERY, TriggerSource.BATTERY,
                 mapOf("battery" to percent.toString()),
             )
+            val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+            val full = status == BatteryManager.BATTERY_STATUS_FULL
+            emitSimple(
+                TriggerKinds.BATTERY_FULL, TriggerSource.BATTERY,
+                mapOf("battery" to percent.toString(), "full" to full.toString()),
+            )
+            val temperature = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1)
+            if (temperature > 0) {
+                emitSimple(
+                    TriggerKinds.BATTERY_OVERHEAT, TriggerSource.BATTERY,
+                    mapOf(
+                        "battery" to percent.toString(),
+                        "battery.temperature" to (temperature / 10).toString(),
+                    ),
+                )
+            }
         }
     }
 }
