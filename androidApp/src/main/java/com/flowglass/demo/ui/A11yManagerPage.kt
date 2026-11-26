@@ -2,8 +2,11 @@ package com.flowglass.demo.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.flowglass.demo.liquid.LiquidToggle
 import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.a11y.A11yKeepAliveSettings
@@ -86,7 +90,8 @@ internal fun A11yManagerPage() {
             when {
                 A11yKeepAliveSettings.isHookLoaded(ctx) && !A11yKeepAliveSettings.isHookSupported(ctx) ->
                     "钩子已加载，但本 ROM 找不到连接点"
-                A11yKeepAliveSettings.isHookLoaded(ctx) -> "钩子已加载"
+                A11yKeepAliveSettings.isHookLoaded(ctx) ->
+                    "钩子已加载 · ${A11yKeepAliveSettings.hookCount(ctx).coerceAtLeast(0)} 个检测点"
                 else -> "钩子未加载"
             },
         ),
@@ -139,7 +144,22 @@ internal fun A11yManagerPage() {
                     },
                 ),
                 divider = index < rows.lastIndex,
-            ) { SelectionMark(row.selected) }
+            ) {
+                // ListRow hides `value` whenever a trailing slot is supplied, so the state text has
+                // to live in the slot; otherwise 已恢复/运行中/已断开 never render.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (row.stateText.isNotEmpty()) {
+                        T(
+                            row.stateText,
+                            13.sp,
+                            color = if (row.ok) C.GoodText else C.Muted,
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    SelectionMark(row.selected)
+                }
+            }
         }
     }
     GroupTitle("Root 模块（KernelSU / Magisk）", k++)
