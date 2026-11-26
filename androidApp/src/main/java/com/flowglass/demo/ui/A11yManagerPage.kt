@@ -25,6 +25,7 @@ import com.flowglass.demo.liquid.LiquidToggle
 import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.a11y.A11yKeepAliveSettings
 import com.flowglass.demo.system.a11y.A11yKsuModule
+import com.flowglass.demo.system.a11y.A11ySelfService
 import com.flowglass.demo.system.a11y.productionRunner
 import com.flowglass.demo.system.a11y.A11yRowModel
 import com.flowglass.demo.system.a11y.A11yServiceCatalog
@@ -52,6 +53,8 @@ internal fun A11yManagerPage() {
     var ksu by remember { mutableStateOf(A11yKeepAliveSettings.isKsuInstalled(ctx)) }
     var rootNote by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var selfBusy by remember { mutableStateOf(false) }
+    var selfNote by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
     suspend fun syncRootConfig() {
@@ -116,6 +119,51 @@ internal fun A11yManagerPage() {
                 targets = A11yKeepAliveSettings.targets(ctx)
                 scope.launch { runCatching { syncRootConfig() } }
             }, bd)
+        }
+    }
+    // Sideloaded builds cannot flip this switch in Settings ("restricted settings") and every
+    // update reinstates the block, so offer the root write right where the problem shows up.
+    val selfOn = entries.firstOrNull { it.isSelf }?.enabled == true
+    if (entries.isNotEmpty() && !selfOn) {
+        GroupTitle("本应用的无障碍服务", k++)
+        GroupCard(k++) {
+            ListRow(
+                Row1(
+                    Ic.Accessibility,
+                    "流光自动化的无障碍服务未开启",
+                    sub = selfNote.ifEmpty { "侧载安装被系统限制，可用 Root 直接写入系统设置" },
+                    value = if (selfBusy) "处理中…" else "未开启",
+                    valueColor = C.Muted,
+                ),
+                false,
+            )
+        }
+        GroupCard(k++) {
+            PrimaryButton(
+                "用 Root 启用无障碍",
+                Ic.Shield,
+                {
+                    if (selfBusy) return@PrimaryButton
+                    selfBusy = true
+                    scope.launch {
+                        runCatching {
+                            val info = Root.check(request = true)
+                            if (!info.granted) {
+                                selfNote = "未获得 Root 权限"
+                                return@launch
+                            }
+                            selfNote = when (A11ySelfService.enable(productionRunner(info))) {
+                                "enabled" -> "已启用，回列表可勾选保活"
+                                "already" -> "系统里已经是启用状态"
+                                else -> "写入失败，请检查 Root 授权"
+                            }
+                            revision++
+                        }.onFailure { selfNote = "失败：${it.javaClass.simpleName}" }
+                        selfBusy = false
+                    }
+                },
+                Modifier.fillMaxWidth(),
+            )
         }
     }
     GroupTitle("已安装的无障碍服务", k++)
