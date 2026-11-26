@@ -5,8 +5,14 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.SystemClock
+import android.provider.Settings
+import com.flowglass.demo.system.a11y.A11yKeepAlivePolicy
+import com.flowglass.demo.system.a11y.A11yServiceCatalog
 import com.flowglass.demo.xposed.BroadcastRateLimiter
 import com.flowglass.demo.xposed.ContentGate
 import com.flowglass.demo.xposed.HookBridge
@@ -16,14 +22,17 @@ import com.flowglass.demo.xposed.HookFailureGuard
 /**
  * system_server side of the multi-target keep-alive.
  *
- * It only observes disconnect callbacks and (in a later PR) calls the framework's own
- * `bindLocked()`. Every callback and posted task is wrapped in [HookFailureGuard]; nothing here
+ * It observes disconnect callbacks and calls the framework's own `bindLocked()` on a dedicated
+ * worker thread. Every callback and posted task is wrapped in [HookFailureGuard]; nothing here
  * touches the hook's read-only event bus.
  */
 internal object A11yKeepAliveHook {
     private const val CONNECTION = "com.android.server.accessibility.AccessibilityServiceConnection"
     private const val ABSTRACT_CONNECTION = "com.android.server.accessibility.AbstractAccessibilityServiceConnection"
     private const val FIELD_COMPONENT = "mComponentName"
+    private const val FIELD_LOCK = "mLock"
+    private const val FIELD_SERVICE = "mService"
+    private const val FIELD_BOUND = "mBound"
     private const val MAX_TARGETS = 64
     private val COMPONENT = Regex("""^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)+/[A-Za-z0-9_.$]+$""")
 
@@ -39,6 +48,7 @@ internal object A11yKeepAliveHook {
     @Volatile private var enabled = false
     @Volatile private var targets: Set<String> = emptySet()
     @Volatile private var hookCount = 0
+    @Volatile private var worker: A11yRepairWorker? = null
 
     fun install(hookBridge: HookBridge, classLoader: ClassLoader) {
         HookFailureGuard.run("a11y keepalive install", hookBridge::log) {
@@ -57,6 +67,16 @@ internal object A11yKeepAliveHook {
                     (args.firstOrNull() as? ComponentName)?.let { onConnected(conn, it) }
                 })
             }
+            val handler = Handler(
+                HandlerThread("flowglass-a11y-keepalive").apply { start() }.looper,
+            )
+            worker = A11yRepairWorker(
+                ops = connectionOps(hookBridge),
+                schedule = { delayMs, task -> handler.postDelayed(task, delayMs) },
+                now = SystemClock::elapsedRealtime,
+                log = ::log,
+                onStatus = ::sendStatus,
+            )
             hookBridge.log("a11y keepalive hooks=$hookCount")
             runCatching {
                 val activityThread = hookBridge.findClass("android.app.ActivityThread", classLoader)
@@ -85,13 +105,64 @@ internal object A11yKeepAliveHook {
             if (!disconnectLimiter.allow(key, SystemClock.elapsedRealtime())) return@run
             if (key !in targets) return@run
             sendStatus(key, "disconnected", "")
-            // PR 4 replaces this line with worker.onDisconnected(key, connection).
+            val target = connection ?: return@run
+            worker?.onDisconnected(key, target)
         }
     }
 
     private fun readComponent(connection: Any?): ComponentName? = runCatching {
         bridge?.getObjectField(connection, FIELD_COMPONENT) as? ComponentName
     }.getOrNull()
+
+    private fun connectionOps(b: HookBridge): A11yConnectionOps = object : A11yConnectionOps {
+        override fun componentOf(connection: Any): String? = readComponent(connection)?.flattenToString()
+
+        override fun isAlive(connection: Any): Boolean = isAliveWith(b, connection)
+
+        override fun decide(component: String, connection: Any, attempts: Int): A11yKeepAlivePolicy.Result {
+            val ctx = ensureContext()
+                ?: return A11yKeepAlivePolicy.Result(false, "no_context")
+            val pkg = component.substringBefore('/')
+            val master = runCatching {
+                Settings.Secure.getInt(ctx.contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0) == 1
+            }.getOrDefault(false)
+            val stillEnabled = component in A11yServiceCatalog.enabledComponents(ctx)
+            val stopped = runCatching {
+                (ctx.packageManager.getApplicationInfo(pkg, 0).flags and ApplicationInfo.FLAG_STOPPED) != 0
+            }.getOrDefault(true)
+            return A11yKeepAlivePolicy.decide(
+                isTarget = component in targets,
+                keepAliveEnabled = enabled,
+                a11yMasterEnabled = master,
+                componentEnabled = stillEnabled,
+                appStopped = stopped,
+                alreadyBound = isAliveWith(b, connection),
+                attempts = attempts,
+            )
+        }
+
+        override fun bind(connection: Any): Boolean = bindLocked(b, connection)
+
+        override fun onRepaired(component: String) = sendStatus(component, "repaired", "")
+    }
+
+    /**
+     * Calls the framework's own binding path. `bindLocked` expects the connection lock to be held;
+     * when the framework still thinks it is bound to a dead binder, drop that stale binding first.
+     */
+    private fun bindLocked(b: HookBridge, connection: Any): Boolean {
+        val lock = runCatching { b.getObjectField(connection, FIELD_LOCK) }.getOrNull() ?: return false
+        synchronized(lock) {
+            if (isAliveWith(b, connection)) return true
+            val stillBound = runCatching { b.getObjectField(connection, FIELD_BOUND) as? Boolean ?: false }
+                .getOrDefault(false)
+            if (stillBound) runCatching { b.callMethod(connection, "unbindLocked") }
+            return runCatching { b.callMethod(connection, "bindLocked") != false }.getOrDefault(false)
+        }
+    }
+
+    private fun isAliveWith(b: HookBridge, connection: Any): Boolean =
+        runCatching { b.getObjectField(connection, FIELD_SERVICE) }.getOrNull() != null
 
     private fun ensureContext(): Context? {
         context?.let { return it }
