@@ -65,7 +65,15 @@ internal fun A11yManagerPage() {
         k++, Ic.Accessibility, "无障碍保活",
         backend, backend != "未启用",
         "${targets.size}", "个服务已选",
-        listOf(if (master) "系统无障碍已开启" else "系统无障碍已关闭"),
+        listOf(
+            if (master) "系统无障碍已开启" else "系统无障碍已关闭",
+            when {
+                A11yKeepAliveSettings.isHookLoaded(ctx) && !A11yKeepAliveSettings.isHookSupported(ctx) ->
+                    "钩子已加载，但本 ROM 找不到连接点"
+                A11yKeepAliveSettings.isHookLoaded(ctx) -> "钩子已加载"
+                else -> "钩子未加载"
+            },
+        ),
         action = {
             PrimaryButton("刷新列表", Ic.Refresh, { revision++ }, Modifier.fillMaxWidth())
         },
