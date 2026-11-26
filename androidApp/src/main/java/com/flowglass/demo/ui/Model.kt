@@ -308,6 +308,8 @@ class AppState internal constructor(saved: PersistedAppState?) {
     var editing by mutableStateOf<Long?>(null)
     /** The single command created by the current editor session, if it is still a blank draft. */
     private var newCommandId: Long? = null
+    /** 编辑页标题输入框的原始文本；null 表示显示已保存标题。空草稿不写回指令。 */
+    var editorTitleDraft by mutableStateOf<String?>(null)
     /** 参数页打开中的指令 id；与 actionEditing 同时非空时显示该步骤的参数页。 */
     var actionEditingCmd by mutableStateOf<Long?>(null)
     /** 参数页正在编辑的步骤 id。 */
@@ -335,6 +337,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         if (find(id) != null) {
             if (id != newCommandId) newCommandId = null
             editing = id
+            editorTitleDraft = null
             blockPath = emptyList()
         }
     }
@@ -422,6 +425,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         }
         newCommandId = null
         editing = null
+        editorTitleDraft = null
         blockPath = emptyList()
         actionEditing = null
         actionEditingCmd = null
@@ -435,11 +439,11 @@ class AppState internal constructor(saved: PersistedAppState?) {
      */
     fun setTitle(id: Long, text: String) {
         val current = find(id) ?: return
+        // Keep the raw text even when it is blank: the field must be clearable while the user
+        // types a replacement. Only a non-blank title is written back to the command.
+        editorTitleDraft = text
         val title = text.trim()
-        if (title.isEmpty()) {
-            editorNotice = "指令名称不能为空"
-            return
-        }
+        if (title.isEmpty()) return
         if (title == current.title) return
         if ((autoCmds + oneTaps).any { it.id != id && it.title.trim().equals(title, ignoreCase = true) }) {
             editorNotice = "已有同名指令「$title」，请换一个名称"
@@ -448,6 +452,11 @@ class AppState internal constructor(saved: PersistedAppState?) {
         update(id) { it.copy(title = title) }
         rewriteCallTargets(current.title.trim(), title)
     }
+
+    fun clearTitleDraft() {
+        editorTitleDraft = null
+    }
+
     fun setDescription(id: Long, text: String) = update(id) { it.copy(desc = text, descriptionEdited = true) }
     fun setIcon(id: Long, ic: Ic) = update(id) { it.copy(ic = ic) }
     /** Appends a step inside a container (if then / loop body / branch body). */
