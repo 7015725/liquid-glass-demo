@@ -86,7 +86,8 @@ internal fun A11yManagerPage() {
             when {
                 A11yKeepAliveSettings.isHookLoaded(ctx) && !A11yKeepAliveSettings.isHookSupported(ctx) ->
                     "钩子已加载，但本 ROM 找不到连接点"
-                A11yKeepAliveSettings.isHookLoaded(ctx) -> "钩子已加载"
+                A11yKeepAliveSettings.isHookLoaded(ctx) ->
+                    "钩子已加载 · ${A11yKeepAliveSettings.hookCount(ctx).coerceAtLeast(0)} 个检测点"
                 else -> "钩子未加载"
             },
         ),
