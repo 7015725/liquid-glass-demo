@@ -32,6 +32,13 @@ class Api101Entry : XposedModule() {
                 log(Log.ERROR, TAG, "system hook install failed: ${failure.javaClass.simpleName}: ${failure.message}")
             }
         }
+        // Independent and failure-isolated: a broken keep-alive must not disable the read-only hook.
+        runCatching {
+            com.flowglass.demo.xposed.a11y.A11yKeepAliveHook
+                .install(Api101HookBridge(this, param.classLoader), param.classLoader)
+        }.onFailure { failure ->
+            runCatching { log(Log.WARN, TAG, "a11y keepalive install failed: ${failure.javaClass.simpleName}") }
+        }
     }
 
     override fun onPackageReady(param: PackageReadyParam) {

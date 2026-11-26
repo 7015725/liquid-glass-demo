@@ -161,6 +161,16 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".system.trigger.A11yKeepAliveReceiver"
+            android:exported="true"
+            android:permission="com.flowglass.demo.permission.SYSTEM_HOOK">
+            <intent-filter>
+                <action android:name="com.flowglass.demo.A11Y_KEEPALIVE_LOADED" />
+                <action android:name="com.flowglass.demo.A11Y_KEEPALIVE_STATUS" />
+            </intent-filter>
+        </receiver>
+
         <!-- LSPosed / Xposed module declaration -->
         <meta-data android:name="xposedmodule" android:value="true" />
         <meta-data android:name="xposeddescription" android:value="流光自动化：增强自动指令能力（Demo）" />
