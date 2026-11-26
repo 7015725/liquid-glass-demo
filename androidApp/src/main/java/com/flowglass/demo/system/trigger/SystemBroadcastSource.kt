@@ -45,6 +45,7 @@ internal class SystemBroadcastSource(
     private val rules: () -> List<TriggerRule>,
 ) {
     private var receiver: BroadcastReceiver? = null
+    private var packageReceiver: BroadcastReceiver? = null
     private val observers = linkedMapOf<Uri, ContentObserver>()
     private var periodicJob: Job? = null
     private var periodicShape: String = ""
@@ -65,9 +66,6 @@ internal class SystemBroadcastSource(
             addAction(Intent.ACTION_MEDIA_UNMOUNTED)
             addAction(Intent.ACTION_MEDIA_REMOVED)
             addAction(Intent.ACTION_DEVICE_STORAGE_LOW)
-            addAction(Intent.ACTION_PACKAGE_ADDED)
-            addAction(Intent.ACTION_PACKAGE_REMOVED)
-            addAction(Intent.ACTION_PACKAGE_REPLACED)
             addAction(AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED)
         }
         val next = object : BroadcastReceiver() {
@@ -77,6 +75,22 @@ internal class SystemBroadcastSource(
         }
         register(context, next, filter)
         receiver = next
+
+        // Package broadcasts carry a package: data URI. An IntentFilter without a matching data
+        // scheme silently fails to match them, so they need their own filter.
+        val packageFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_ADDED)
+            addAction(Intent.ACTION_PACKAGE_REMOVED)
+            addAction(Intent.ACTION_PACKAGE_REPLACED)
+            addDataScheme("package")
+        }
+        val packages = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                onBroadcast(intent)
+            }
+        }
+        register(context, packages, packageFilter)
+        packageReceiver = packages
     }
 
     fun sync(currentRules: List<TriggerRule>) {
@@ -88,6 +102,8 @@ internal class SystemBroadcastSource(
     fun stop() {
         receiver?.let { runCatching { context.unregisterReceiver(it) } }
         receiver = null
+        packageReceiver?.let { runCatching { context.unregisterReceiver(it) } }
+        packageReceiver = null
         observers.keys.toList().forEach(::unobserve)
         periodicJob?.cancel()
         periodicJob = null
@@ -156,7 +172,7 @@ internal class SystemBroadcastSource(
         // An update is delivered as REMOVED(replacing) -> ADDED(replacing) -> REPLACED. Only
         // REPLACED is surfaced, otherwise one update would run the rule two or three times.
         val replacing = intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)
-        if (replacing) return
+        if (intent.action != Intent.ACTION_PACKAGE_REPLACED && replacing) return
         val packageName = intent.data?.schemeSpecificPart?.takeIf { it.isNotBlank() } ?: return
         emit(
             TriggerEvent(
