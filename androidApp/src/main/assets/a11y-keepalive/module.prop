@@ -1,0 +1,6 @@
+id=flowglass_a11y_keepalive
+name=流光无障碍保活
+version=v1
+versionCode=1
+author=Flowglass
+description=在无障碍服务进程消失后，按 /data/adb/flowglass/a11y_keepalive.conf 逐项重新启用。仅对用户勾选的服务生效。
