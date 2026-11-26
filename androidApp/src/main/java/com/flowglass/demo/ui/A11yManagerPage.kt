@@ -16,10 +16,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.flowglass.demo.liquid.LiquidToggle
+import com.flowglass.demo.system.a11y.A11yKeepAliveSettings
+import com.flowglass.demo.system.a11y.A11yRowModel
 import com.flowglass.demo.system.a11y.A11yServiceCatalog
 import com.flowglass.demo.system.a11y.A11yServiceEntry
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
@@ -32,43 +36,90 @@ internal fun A11yManagerPage() {
     var revision by remember { mutableIntStateOf(0) }
     var entries by remember { mutableStateOf<List<A11yServiceEntry>>(emptyList()) }
     var master by remember { mutableStateOf(false) }
+    var enabled by remember { mutableStateOf(A11yKeepAliveSettings.isEnabled(ctx)) }
+    var targets by remember { mutableStateOf(A11yKeepAliveSettings.targets(ctx)) }
+    var statuses by remember { mutableStateOf(A11yKeepAliveSettings.statuses(ctx)) }
+    var backend by remember { mutableStateOf(A11yKeepAliveSettings.backendLabel(ctx)) }
 
     LaunchedEffect(revision) {
         entries = withContext(Dispatchers.IO) { A11yServiceCatalog.load(ctx, ctx.packageName) }
         master = A11yServiceCatalog.masterEnabled(ctx)
+        enabled = A11yKeepAliveSettings.isEnabled(ctx)
+        targets = A11yKeepAliveSettings.targets(ctx)
+    }
+    // The page polls while it is composed: the hook reports asynchronously and there is no push
+    // channel into Compose. Leaving the page cancels the loop.
+    LaunchedEffect(Unit) {
+        A11yKeepAliveSettings.broadcastConfig(ctx)
+        while (true) {
+            delay(2_000)
+            targets = A11yKeepAliveSettings.targets(ctx)
+            statuses = A11yKeepAliveSettings.statuses(ctx)
+            backend = A11yKeepAliveSettings.backendLabel(ctx)
+        }
     }
 
+    val rows = remember(entries, targets, statuses) { A11yRowModel.build(entries, targets, statuses) }
     var k = 0
     StatusCard(
-        k++, Ic.Accessibility, "无障碍服务",
-        if (master) "已开启" else "已关闭", master,
-        "${entries.size}", "个服务",
-        listOf("Android ${android.os.Build.VERSION.RELEASE}"),
+        k++, Ic.Accessibility, "无障碍保活",
+        backend, backend != "未启用",
+        "${targets.size}", "个服务已选",
+        listOf(if (master) "系统无障碍已开启" else "系统无障碍已关闭"),
         action = {
             PrimaryButton("刷新列表", Ic.Refresh, { revision++ }, Modifier.fillMaxWidth())
         },
     )
+    GroupTitle("总开关", k++)
+    GroupCard(k++) { bd ->
+        ListRow(
+            Row1(
+                Ic.Shield,
+                "启用无障碍保活",
+                if (enabled) "已开启" else "默认关闭",
+                sub = "只在你仍开启系统无障碍时恢复断开的绑定",
+            ),
+            true,
+        ) {
+            LiquidToggle({ enabled }, { on ->
+                enabled = on
+                A11yKeepAliveSettings.setEnabled(ctx, on)
+                targets = A11yKeepAliveSettings.targets(ctx)
+            }, bd)
+        }
+    }
     GroupTitle("已安装的无障碍服务", k++)
     GroupCard(k++) {
-        if (entries.isEmpty()) {
+        if (rows.isEmpty()) {
             ListRow(Row1(Ic.Info, "没有找到无障碍服务", sub = "请先在系统设置里开启至少一个无障碍服务"), false)
         }
-        entries.forEachIndexed { index, entry ->
+        rows.forEachIndexed { index, row ->
             ListRow(
                 Row1(
                     Ic.Accessibility,
-                    if (entry.isSelf) "流光自动化" else entry.appLabel,
-                    sub = "${entry.serviceLabel} · ${entry.packageName}",
-                    value = if (entry.enabled) "已启用" else "未启用",
-                    valueColor = if (entry.enabled) C.GoodText else C.Muted,
+                    row.title,
+                    sub = row.subtitle,
+                    value = row.stateText,
+                    valueColor = if (row.ok) C.GoodText else C.Muted,
+                    onClick = {
+                        // Toggle first: when the switch is still off, seeding the self target in
+                        // setEnabled() would cancel the tap for the self row (seed + toggle).
+                        A11yKeepAliveSettings.toggleTarget(ctx, row.component)
+                        if (!enabled) {
+                            enabled = true
+                            A11yKeepAliveSettings.setEnabled(ctx, true, seed = false)
+                        }
+                        targets = A11yKeepAliveSettings.targets(ctx)
+                    },
                 ),
-                divider = index < entries.lastIndex,
-            )
+                divider = index < rows.lastIndex,
+            ) { SelectionMark(row.selected) }
         }
     }
     NoteCard(
         k,
-        "只读取系统已安装的无障碍服务，不需要额外权限。默认不对任何服务做保活。",
+        "只读取系统已安装的无障碍服务，不需要额外权限。保活默认关闭；勾选后，仅在系统把该服务的连接断开时尝试恢复，" +
+            "你手动关闭系统无障碍、从系统设置移除服务或强行停止对应应用后不会自动打开。",
     )
 }
 
