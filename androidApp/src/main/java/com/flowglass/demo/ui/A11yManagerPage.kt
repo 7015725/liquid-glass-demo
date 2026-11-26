@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -17,13 +18,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.flowglass.demo.liquid.LiquidToggle
+import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.a11y.A11yKeepAliveSettings
+import com.flowglass.demo.system.a11y.A11yKsuModule
+import com.flowglass.demo.system.a11y.productionRunner
 import com.flowglass.demo.system.a11y.A11yRowModel
 import com.flowglass.demo.system.a11y.A11yServiceCatalog
 import com.flowglass.demo.system.a11y.A11yServiceEntry
 import com.kyant.shapes.RoundedRectangle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -40,6 +45,17 @@ internal fun A11yManagerPage() {
     var targets by remember { mutableStateOf(A11yKeepAliveSettings.targets(ctx)) }
     var statuses by remember { mutableStateOf(A11yKeepAliveSettings.statuses(ctx)) }
     var backend by remember { mutableStateOf(A11yKeepAliveSettings.backendLabel(ctx)) }
+    var ksu by remember { mutableStateOf(A11yKeepAliveSettings.isKsuInstalled(ctx)) }
+    var rootNote by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    suspend fun syncRootConfig() {
+        if (!ksu) return
+        val info = Root.check(request = false)
+        if (!info.granted) return
+        A11yKsuModule.refresh(productionRunner(info), A11yKeepAliveSettings.targets(ctx))
+    }
 
     LaunchedEffect(revision) {
         entries = withContext(Dispatchers.IO) { A11yServiceCatalog.load(ctx, ctx.packageName) }
@@ -93,6 +109,7 @@ internal fun A11yManagerPage() {
                 enabled = on
                 A11yKeepAliveSettings.setEnabled(ctx, on)
                 targets = A11yKeepAliveSettings.targets(ctx)
+                scope.launch { runCatching { syncRootConfig() } }
             }, bd)
         }
     }
@@ -118,15 +135,86 @@ internal fun A11yManagerPage() {
                             A11yKeepAliveSettings.setEnabled(ctx, true, seed = false)
                         }
                         targets = A11yKeepAliveSettings.targets(ctx)
+                        scope.launch { runCatching { syncRootConfig() } }
                     },
                 ),
                 divider = index < rows.lastIndex,
             ) { SelectionMark(row.selected) }
         }
     }
+    GroupTitle("Root 模块（KernelSU / Magisk）", k++)
+    GroupCard(k++) { bd ->
+        ListRow(
+            Row1(
+                Ic.Shield,
+                if (ksu) "Root 模块已安装" else "Root 模块未安装",
+                sub = rootNote.ifEmpty {
+                    "LSPosed 钩子不可用时的兜底：service.sh 每 30 秒巡检一次"
+                },
+                value = if (ksu) "已安装" else "未安装",
+                valueColor = if (ksu) C.GoodText else C.Muted,
+            ),
+            false,
+        )
+    }
+    GroupCard(k++) {
+        PrimaryButton(
+            when {
+                busy -> "处理中…"
+                ksu -> "卸载 Root 模块"
+                else -> "安装 Root 模块"
+            },
+            Ic.Shield,
+            {
+                if (busy) return@PrimaryButton
+                busy = true
+                rootNote = "正在获取 Root…"
+                scope.launch {
+                    runCatching {
+                        val info = Root.check(request = true)
+                        if (!info.granted) {
+                            rootNote = "未获得 Root 权限"
+                            return@launch
+                        }
+                        val runner = productionRunner(info)
+                        if (ksu) {
+                            val result = A11yKsuModule.uninstall(runner)
+                            if (result.exitCode == 0) {
+                                A11yKeepAliveSettings.setKsuInstalled(ctx, false)
+                                ksu = false
+                                rootNote = "已卸载 Root 模块"
+                            } else {
+                                rootNote = "卸载失败（${result.exitCode}）"
+                            }
+                        } else {
+                            val script = withContext(Dispatchers.IO) {
+                                ctx.assets.open("a11y-keepalive/service.sh")
+                                    .bufferedReader().use { it.readText() }
+                            }
+                            val result = A11yKsuModule.install(
+                                runner, script, A11yKeepAliveSettings.targets(ctx),
+                            )
+                            if (result.exitCode == 0) {
+                                A11yKsuModule.ensureRunning(runner)
+                                A11yKeepAliveSettings.setKsuInstalled(ctx, true)
+                                ksu = true
+                                backend = A11yKeepAliveSettings.backendLabel(ctx)
+                                rootNote = "已安装，开机自动运行"
+                            } else {
+                                rootNote = "安装失败（${result.exitCode}）"
+                            }
+                        }
+                    }.onFailure { rootNote = "失败：${it.javaClass.simpleName}" }
+                    busy = false
+                }
+            },
+            Modifier.fillMaxWidth(),
+        )
+    }
     NoteCard(
         k,
-        "只读取系统已安装的无障碍服务，不需要额外权限。保活默认关闭；勾选后，仅在系统把该服务的连接断开时尝试恢复，" +
+        "列表只读取系统已安装的无障碍服务。保活默认关闭；LSPosed 钩子只在你仍开启系统无障碍时恢复断开的绑定，" +
+            "不会新增你没启用的服务。安装 Root 模块后，service.sh 会在服务进程消失时按勾选列表重新启用；" +
             "你手动关闭系统无障碍、从系统设置移除服务或强行停止对应应用后不会自动打开。",
     )
 }
