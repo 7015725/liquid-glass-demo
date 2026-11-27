@@ -16,13 +16,34 @@ class ClipboardHookPayloadTest {
     fun readsClipAndPackageFromArguments() {
         val clip = ClipData.newPlainText("标签", "内容")
         val payload = ClipboardHookPayloadReader.read(
-            arrayOf<Any?>(clip, "attribution", "com.android.chrome", 10, 0),
+            arrayOf<Any?>(clip, "com.android.chrome", "attribution", 10, 0),
         )
         assertNotNull(payload)
         assertEquals("内容", payload!!.text)
         assertEquals("com.android.chrome", payload.packageName)
         assertEquals(10, payload.userId)
         assertEquals("text/plain", payload.mimeType)
+    }
+
+    @Test
+    fun attributionTagNeverOverridesTheCallingPackage() {
+        val clip = ClipData.newPlainText("新版", "hello")
+        val payload = ClipboardHookPayloadReader.read(
+            arrayOf<Any?>(clip, "com.android.chrome", "my.attribution", 10, 0),
+        )
+        assertNotNull(payload)
+        assertEquals("com.android.chrome", payload!!.packageName)
+    }
+
+    @Test
+    fun readsAndroid10ThreeArgumentSignature() {
+        val clip = ClipData.newPlainText("旧版", "hello")
+        val payload = ClipboardHookPayloadReader.read(
+            arrayOf<Any?>(clip, "com.android.chrome", 10),
+        )
+        assertNotNull(payload)
+        assertEquals("com.android.chrome", payload!!.packageName)
+        assertEquals(10, payload.userId)
     }
 
     @Test
@@ -45,6 +66,6 @@ class ClipboardHookPayloadTest {
         val candidate = SystemHookCandidates.clipboard.single()
         assertEquals(SystemHookFamily.CLIPBOARD, candidate.family)
         assertEquals(SystemHookProtocol.EVENT_CLIPBOARD_CHANGED, candidate.kind)
-        assertEquals("com.android.server.clipboard.ClipboardService", candidate.className)
+        assertEquals("com.android.server.clipboard.ClipboardService\$ClipboardImpl", candidate.className)
     }
 }

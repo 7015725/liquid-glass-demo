@@ -27,9 +27,11 @@ internal object ClipboardHookPayloadReader {
         }
         if (raw.isBlank()) return null
 
+        // Calling package is always the first valid package argument: Android 14/15 also pass
+        // an attribution tag after it, which must not win.
         val packageName = arguments
             .filterIsInstance<String>()
-            .lastOrNull { HookIdentityReader.isValidPackage(it) }
+            .firstOrNull { HookIdentityReader.isValidPackage(it) }
             .orEmpty()
         val userId = arguments
             .filterIsInstance<Int>()

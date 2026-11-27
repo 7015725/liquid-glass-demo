@@ -26,7 +26,7 @@ class ClipboardArchiveTest {
             mimeType = "text/plain",
             label = "标签",
             source = ClipboardCaptureSource.SYSTEM_HOOK,
-            atEpochMs = 1_700_000_000_000,
+            atEpochMs = System.currentTimeMillis(),
             truncated = false,
         )
 
@@ -47,7 +47,7 @@ class ClipboardArchiveTest {
             packageName = "com.flowglass.demo", userId = 0,
             mimeType = "text/plain", label = "",
             source = ClipboardCaptureSource.FOREGROUND,
-            atEpochMs = 1_700_000_000_000, truncated = false,
+            atEpochMs = System.currentTimeMillis(), truncated = false,
         )
         ClipboardArchive.suppressNextForTest("来自浮窗的复制")
         assertFalse(ClipboardArchive.recordForTest(payload, store))

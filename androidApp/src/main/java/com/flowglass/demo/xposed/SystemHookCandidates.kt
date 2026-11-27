@@ -188,7 +188,9 @@ internal object SystemHookCandidates {
     val clipboard = listOf(
         HookCandidate(
             label = "clipboard.setPrimaryClip",
-            className = "com.android.server.clipboard.ClipboardService",
+            // setPrimaryClip is declared on the private ClipboardImpl binder, not on the
+            // ClipboardService wrapper (AOSP android-10 through android-15).
+            className = "com.android.server.clipboard.ClipboardService\$ClipboardImpl",
             methodName = "setPrimaryClip",
             source = HookEventSource.FIRST_ARGUMENT_CLIP,
             family = SystemHookFamily.CLIPBOARD,

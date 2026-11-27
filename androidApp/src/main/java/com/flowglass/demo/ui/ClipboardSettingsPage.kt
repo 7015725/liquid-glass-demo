@@ -12,6 +12,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -23,6 +26,7 @@ import com.flowglass.demo.system.clipboard.ClipboardArchive
 import com.flowglass.demo.system.clipboard.ClipboardHistoryStore
 import com.flowglass.demo.system.clipboard.ClipboardOverlay
 import com.flowglass.demo.system.clipboard.ClipboardSettings
+import com.flowglass.demo.xposed.ModuleStatus
 
 @Composable
 internal fun ClipboardSettingsPage() {
@@ -38,11 +42,19 @@ internal fun ClipboardSettingsPage() {
         onDispose { store.close() }
     }
     LaunchedEffect(enabled, retention) {
-        store.trim(
-            retentionDays = retention,
-            maxEntries = settings.maxEntries,
-        )
-        count = store.count()
+        withContext(Dispatchers.IO) {
+            store.trim(
+                retentionDays = retention,
+                maxEntries = settings.maxEntries,
+            )
+        }
+        count = withContext(Dispatchers.IO) { store.count() }
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(2_000)
+            count = withContext(Dispatchers.IO) { runCatching { store.count() }.getOrDefault(count) }
+        }
     }
 
     Column(
@@ -155,11 +167,12 @@ internal fun ClipboardSettingsPage() {
                     sub = "全局后台记录依赖系统钩子 · 点击打开管理器",
                     valueColor = if (lsposedReady) C.GoodText else C.Muted,
                     onClick = {
-                        val intent = ctx.packageManager.getLaunchIntentForPackage("org.lsposed.manager")
+                        val manager = ModuleStatus.managerPackage(ctx)
+                        val intent = manager?.let { ctx.packageManager.getLaunchIntentForPackage(it) }
                         if (intent != null) Perms.open(ctx, intent)
                         else android.widget.Toast.makeText(
                             ctx,
-                            "未找到 LSPosed 管理器",
+                            "未找到 LSPosed / Vector 管理器",
                             android.widget.Toast.LENGTH_SHORT,
                         ).show()
                     },
@@ -169,7 +182,7 @@ internal fun ClipboardSettingsPage() {
             ListRow(
                 Row1(
                     Ic.Copy,
-                    "预览全局剪贴板",
+                    "预览浮窗",
                     sub = "立即打开浮窗，检查布局与搜索",
                 ),
                 false,

@@ -620,9 +620,7 @@ private fun LSPosedPage() {
         SystemHookSettings.Status.FAMILY_UNAVAILABLE -> "已加载，但已订阅的事件族缺少检测点"
         SystemHookSettings.Status.READY -> "已加载且开启；系统钩子心跳正常"
     }
-    val managerInstalled = remember(t) {
-        runCatching { ctx.packageManager.getPackageInfo("org.lsposed.manager", 0); true }.getOrDefault(false)
-    }
+    val managerInstalled = remember(t) { ModuleStatus.managerPackage(ctx) != null }
     var k = 0
     StatusCard(
         k++, Ic.Puzzle, "模块状态",
@@ -636,7 +634,8 @@ private fun LSPosedPage() {
         } else listOf("需要 LSPosed 框架"),
         action = {
             PrimaryButton("打开 LSPosed 管理器", Ic.Puzzle, {
-                val i = ctx.packageManager.getLaunchIntentForPackage("org.lsposed.manager")
+                val manager = ModuleStatus.managerPackage(ctx)
+                val i = manager?.let { ctx.packageManager.getLaunchIntentForPackage(it) }
                 if (i != null) Perms.open(ctx, i) else state_toast(ctx)
             }, Modifier.fillMaxWidth())
         }

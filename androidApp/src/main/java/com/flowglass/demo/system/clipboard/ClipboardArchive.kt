@@ -38,7 +38,7 @@ internal object ClipboardArchive {
 
     private fun recordAndDispatch(context: Context, payload: ClipboardPayload) {
         scope.launch {
-            val recorded = recordForTest(payload, store(context))
+            val recorded = runCatching { recordForTest(payload, store(context)) }.getOrDefault(false)
             if (recorded) {
                 kotlinx.coroutines.withContext(Dispatchers.Main.immediate) {
                     ClipboardTriggerDispatch.deliver(context, payload)
@@ -67,10 +67,14 @@ internal object ClipboardArchive {
             true,
         )
         val settings = ClipboardSettings(context)
-        store(context).trim(
-            retentionDays = settings.retentionDays,
-            maxEntries = settings.maxEntries,
-        )
+        scope.launch {
+            runCatching {
+                store(context).trim(
+                    retentionDays = settings.retentionDays,
+                    maxEntries = settings.maxEntries,
+                )
+            }
+        }
     }
 
     private fun uninstall(context: Context) {
@@ -98,7 +102,7 @@ internal object ClipboardArchive {
             return
         }
         scope.launch {
-            val recorded = recordForTest(payload, store(app))
+            val recorded = runCatching { recordForTest(payload, store(app)) }.getOrDefault(false)
             kotlinx.coroutines.withContext(Dispatchers.Main.immediate) {
                 onDone(recorded)
             }

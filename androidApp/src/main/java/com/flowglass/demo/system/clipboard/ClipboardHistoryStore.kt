@@ -17,7 +17,7 @@ internal class ClipboardDatabase(
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
-            CREATE TABLE clipboard_entries (
+            CREATE TABLE IF NOT EXISTS clipboard_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 changed_at INTEGER NOT NULL,
                 changed_at_text TEXT NOT NULL,
@@ -33,10 +33,10 @@ internal class ClipboardDatabase(
             )
             """.trimIndent(),
         )
-        db.execSQL("CREATE INDEX idx_clipboard_changed ON clipboard_entries(changed_at DESC, id DESC)")
-        db.execSQL("CREATE INDEX idx_clipboard_hash ON clipboard_entries(content_hash)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_clipboard_changed ON clipboard_entries(changed_at DESC, id DESC)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_clipboard_hash ON clipboard_entries(content_hash)")
         db.execSQL(
-            "CREATE INDEX idx_clipboard_package ON clipboard_entries(package_name, changed_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_clipboard_package ON clipboard_entries(package_name, changed_at DESC)",
         )
     }
 
