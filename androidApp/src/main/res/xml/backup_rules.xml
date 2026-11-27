@@ -5,6 +5,9 @@
 -->
 <full-backup-content>
     <exclude domain="sharedpref" path="method_hook_secrets.xml" />
+    <exclude domain="database" path="flowglass-clipboard.db" />
+    <exclude domain="database" path="flowglass-clipboard.db-wal" />
+    <exclude domain="database" path="flowglass-clipboard.db-shm" />
     <exclude domain="sharedpref" path="flowglass_method_hooks.xml" />
     <exclude domain="sharedpref" path="root_state.xml" />
     <exclude domain="sharedpref" path="system_hook.xml" />

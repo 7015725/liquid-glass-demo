@@ -23,6 +23,7 @@ internal object ClipboardTriggerDispatch {
             data = mapOf(
                 "clipboard.text" to payload.content,
                 "clipboard.package" to payload.packageName,
+                "clipboard.user" to payload.userId.toString(),
                 "clipboard.time" to SimpleDateFormat(
                     "yyyy-MM-dd HH:mm:ss",
                     Locale.getDefault(),

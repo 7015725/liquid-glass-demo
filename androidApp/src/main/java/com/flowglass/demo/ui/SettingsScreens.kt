@@ -94,6 +94,7 @@ object SettingsPage {
     const val Variables = 8
     const val A11yManager = 9
     const val Logs = 10
+    const val Clipboard = 11
     fun title(p: Int) = when (p) {
         KeepAlive -> "App 保活"
         Root -> "Root 激活"
@@ -105,6 +106,7 @@ object SettingsPage {
         Variables -> "变量"
         A11yManager -> "无障碍管理"
         Logs -> "日志记录"
+        Clipboard -> "全局剪贴板"
         else -> "设置"
     }
 }
@@ -127,6 +129,7 @@ fun SettingsHost(
         SettingsPage.Variables -> VariableManagerPage(state)
         SettingsPage.A11yManager -> A11yManagerPage()
         SettingsPage.Logs -> LogCenterPage(AppRuntime.of(LocalContext.current).logStore, state)
+        SettingsPage.Clipboard -> ClipboardSettingsPage()
         else -> SettingsMain(state, themeMode)
     }
 }
@@ -339,6 +342,9 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
         ListRow(Row1(themeMode.icon(), "外观", themeMode.label, sub = themeMode.description) { state.settingsPage = SettingsPage.Appearance }, true)
         ListRow(Row1(Ic.Copy, "变量", sub = "内置、局部、全局变量与备注") { state.settingsPage = SettingsPage.Variables }, true)
         ListRow(Row1(Ic.Timer, "日志记录", sub = "查看、筛选、导出完整日志") { state.settingsPage = SettingsPage.Logs }, true)
+        ListRow(Row1(Ic.Copy, "全局剪贴板", sub = "记录剪贴板历史 · 全局浮窗查看") {
+            state.settingsPage = SettingsPage.Clipboard
+        }, true)
         ListRow(Row1(Ic.Archive, "备份与恢复", sub = "导入导出指令、备份全部数据") { state.settingsPage = SettingsPage.Backup }, true)
         ListRow(Row1(Ic.Bell, "通知提醒") {}, true)
         if (UiFeatures.SHOW_RUN_MODE) {
@@ -720,6 +726,15 @@ private fun LSPosedPage() {
                 "前台服务",
                 familyValue(SystemHookFamily.FOREGROUND_SERVICE),
                 sub = "trigger.foreground_service · 只观察进入/退出，不读取通知",
+            ),
+            true,
+        )
+        ListRow(
+            Row1(
+                Ic.Copy,
+                "全局剪贴板",
+                familyValue(SystemHookFamily.CLIPBOARD),
+                sub = "trigger.clipboard_changed · 全局记录剪贴板，不依赖规则",
             ),
             true,
         )
