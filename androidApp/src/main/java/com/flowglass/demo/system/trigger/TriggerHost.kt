@@ -562,7 +562,8 @@ internal class TriggerHost(
             // are emitted by the already-installed LSPosed hook. INTENT/TILE/SHARE arrive through
             // manifest components and need no dynamic listener.
             TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM, TriggerSource.METHOD_HOOK,
-            TriggerSource.INTENT, TriggerSource.TILE, TriggerSource.SHARE, TriggerSource.SMS -> Unit
+            TriggerSource.INTENT, TriggerSource.TILE, TriggerSource.SHARE, TriggerSource.SMS,
+            TriggerSource.CLIPBOARD -> Unit
         }
             traceSource(source, TraceStatus.STARTED, "触发器源已启动")
         } catch (t: Throwable) {
@@ -592,7 +593,8 @@ internal class TriggerHost(
             TriggerSource.CALENDAR -> calendarWatcher.stop()
             TriggerSource.MEDIA -> mediaTrackSource.stop()
             TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM, TriggerSource.METHOD_HOOK,
-            TriggerSource.INTENT, TriggerSource.TILE, TriggerSource.SHARE, TriggerSource.SMS -> Unit
+            TriggerSource.INTENT, TriggerSource.TILE, TriggerSource.SHARE, TriggerSource.SMS,
+            TriggerSource.CLIPBOARD -> Unit
         }
             traceSource(source, TraceStatus.INFO, "触发器源已停止")
         } catch (t: Throwable) {
