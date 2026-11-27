@@ -115,6 +115,22 @@ class TriggerExternalTest {
     }
 
     @Test
+    fun intentAndHttpWithoutTokenAreOpenEntries() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, executor)
+        val intent = rule("open-intent", trigger(TriggerTypes.INTENT_RECEIVED, "token" to ""))
+        val http = rule("open-http", trigger(TriggerTypes.HTTP_REQUEST, "token" to "",
+            "method" to "POST", "path" to "/hook"))
+
+        assertEquals(1, d.dispatch(event(TriggerKinds.INTENT_RECEIVED, 0, TriggerSource.INTENT,
+            "intent.token" to "", "intent.action" to "com.example.RUN"), listOf(intent)).executions.size)
+        clock.now = 3_000
+        assertEquals(1, d.dispatch(event(TriggerKinds.HTTP_REQUEST, 3_000, TriggerSource.HTTP,
+            "http.token" to "", "http.method" to "POST", "http.path" to "/hook"), listOf(http)).executions.size)
+    }
+
+    @Test
     fun shareKindAndTileOnlyFireTheirOwnBinding() {
         val clock = FakeClock(0)
         val executor = RecordingExecutor()

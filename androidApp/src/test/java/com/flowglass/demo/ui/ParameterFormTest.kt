@@ -120,13 +120,11 @@ class ParameterFormTest {
         assertEquals("正则表达式", reopened["matchMode"])
     }
 
-    @Test fun triggerValidationRejectsValuesThatCanNeverMatch() {
+    @Test fun triggerValidationAllowsOpenTokenButRejectsBrokenToken() {
         val intent = requireNotNull(registry.find("trigger.intent_received"))
         val intentFields = ParameterForm.fields(intent, "")
-        assertTrue(
-            ParameterForm.triggerProblem(intent, intentFields)
-                .orEmpty().contains("令牌"),
-        )
+        // Empty token is the explicit open mode, not an invalid configuration.
+        assertEquals(null, ParameterForm.triggerProblem(intent, intentFields))
         assertTrue(
             ParameterForm.triggerProblem(intent, intentFields + ("token" to "short"))
                 .orEmpty().contains("16"),

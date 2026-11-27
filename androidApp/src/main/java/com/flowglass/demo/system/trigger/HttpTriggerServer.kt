@@ -53,7 +53,8 @@ internal class HttpTriggerServer(
             for (trigger in rule.triggers) {
                 if (trigger.typeId != TriggerTypes.HTTP_REQUEST) continue
                 val token = trigger.params["token"]?.toString()?.trim('"')?.trim().orEmpty()
-                if (token.isEmpty()) continue
+                // An empty token is an explicit open listener; a non-empty token keeps the
+                // per-rule shared-secret behaviour. Do not silently drop an open rule.
                 val port = trigger.params["port"]?.toString()?.toIntOrNull()
                     ?.takeIf { it in 1024..65535 } ?: DEFAULT_PORT
                 val lan = trigger.params["bind"]?.toString()?.trim('"') == "lan"
@@ -159,7 +160,7 @@ internal class HttpTriggerServer(
             respond(output, 503, "listener stopped")
             return
         }
-        if (request.token.isEmpty() || request.token !in running.tokens) {
+        if ("" !in running.tokens && request.token !in running.tokens) {
             respond(output, 401, "unauthorized")
             return
         }

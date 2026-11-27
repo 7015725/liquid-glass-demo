@@ -8,15 +8,19 @@ import com.flowglass.engine.trigger.TriggerKinds
 import com.flowglass.engine.trigger.TriggerSource
 
 /**
- * Explicit external entry point. A caller must target this component and carry the rule's token;
- * there is no implicit action filter, so unrelated broadcasts never reach the trigger engine.
+ * Explicit external entry point. A caller targets this component directly; the receiver has no
+ * implicit action filter, so unrelated broadcasts never reach the trigger engine. A rule with an
+ * empty token is deliberately open; a non-empty token is enforced by the trigger matcher.
  */
 class IntentTriggerReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        // An empty token is an explicit "open" mode: any app/adb that targets this exported
+        // receiver may trigger the rule. Keeping the event token empty lets token-protected
+        // rules on the same install remain closed.
         val token = intent.getStringExtra(EXTRA_TOKEN)?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?: intent.getStringExtra(EXTRA_TOKEN_ALT)?.trim()?.takeIf { it.isNotEmpty() }
-            ?: return
+            ?: ""
         val event = TriggerEvent(
             kind = TriggerKinds.INTENT_RECEIVED,
             source = TriggerSource.INTENT,

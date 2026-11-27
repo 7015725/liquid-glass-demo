@@ -154,6 +154,14 @@ private fun TokenField(current: String, tag: String, onValue: (String) -> Unit) 
                     message = "令牌已复制到剪贴板"
                 }
             }
+            EditorPill("清空", "清空令牌（开放入口）") {
+                revealed = false
+                message = "已清空：入口不再校验令牌"
+                onValue("")
+            }
+        }
+        if (current.isBlank()) {
+            T("当前完全开放：任何应用或请求都能触发。", 12.sp, color = C.Bad, lineHeight = 18.sp)
         }
         message?.let { T(it, 12.sp, color = C.OnSurfaceVar) }
     }

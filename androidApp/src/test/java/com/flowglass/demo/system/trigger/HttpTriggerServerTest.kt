@@ -62,6 +62,32 @@ class HttpTriggerServerTest {
     }
 
     @Test
+    fun emptyTokenIsAnOpenListener() {
+        val port = freePort()
+        val events = CopyOnWriteArrayList<TriggerEvent>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val server = HttpTriggerServer(
+            context = RuntimeEnvironment.getApplication(),
+            scope = scope,
+            emit = { events += it },
+            rules = { listOf(rule(port, "")) },
+        )
+        try {
+            server.sync()
+            val accepted = request(port, "", "open")
+            assertTrue(accepted.startsWith("HTTP/1.1 202"))
+            val deadline = System.currentTimeMillis() + 2_000
+            while (events.isEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(10)
+            assertEquals(1, events.size)
+            assertEquals("", events.single().data["http.token"])
+            assertEquals("open", events.single().data["http.body"])
+        } finally {
+            server.stop()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun tokenIsRequiredAndPayloadIsForwarded() {
         val port = freePort()
         val events = CopyOnWriteArrayList<TriggerEvent>()

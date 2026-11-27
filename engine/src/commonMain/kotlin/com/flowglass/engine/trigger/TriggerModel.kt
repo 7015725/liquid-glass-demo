@@ -712,7 +712,8 @@ object TriggerMatcher {
     private fun matchesIntent(binding: TriggerBinding, event: TriggerEvent): Boolean {
         if (binding.component.typeId != TriggerTypes.INTENT_RECEIVED) return false
         val token = binding.component.params["token"]?.stringValue()?.trim().orEmpty()
-        if (token.isEmpty() || token != event.data["intent.token"]) return false
+        // Empty token is an explicit open entry; non-empty tokens stay rule-scoped.
+        if (token.isNotEmpty() && token != event.data["intent.token"]) return false
         val action = binding.component.params["action"]?.stringValue()?.trim().orEmpty()
         return action.isEmpty() || action == event.data["intent.action"]
     }
@@ -720,7 +721,7 @@ object TriggerMatcher {
     private fun matchesHttp(binding: TriggerBinding, event: TriggerEvent): Boolean {
         if (binding.component.typeId != TriggerTypes.HTTP_REQUEST) return false
         val token = binding.component.params["token"]?.stringValue()?.trim().orEmpty()
-        if (token.isEmpty() || token != event.data["http.token"]) return false
+        if (token.isNotEmpty() && token != event.data["http.token"]) return false
         val method = binding.component.params["method"]?.stringValue()?.trim().orEmpty()
         if (method.isNotEmpty() && method != "any" && !method.equals(event.data["http.method"], true)) {
             return false

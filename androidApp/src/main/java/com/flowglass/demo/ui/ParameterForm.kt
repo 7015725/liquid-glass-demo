@@ -54,9 +54,11 @@ internal object ParameterForm {
         val tokenSpec = meta.params.firstOrNull { it.key == "token" }
         if (tokenSpec != null) {
             val token = value("token")
-            if (token.isEmpty()) return "令牌不能为空；留空不会触发。"
-            if (token.length < 16) return "令牌至少需要 16 个字符。"
-            if (token.any { it.isWhitespace() }) return "令牌不能包含空白字符。"
+            // Empty token is the explicit open mode. Only validate a token the user opted into.
+            if (token.isNotEmpty()) {
+                if (token.length < 16) return "令牌至少需要 16 个字符，或者留空开放入口。"
+                if (token.any { it.isWhitespace() }) return "令牌不能包含空白字符。"
+            }
         }
         if (meta.typeId.startsWith("trigger.location_")) {
             val raw = value("location")
