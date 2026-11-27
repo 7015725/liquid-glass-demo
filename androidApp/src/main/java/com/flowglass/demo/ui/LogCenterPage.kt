@@ -122,17 +122,22 @@ internal fun LogCenterPage(
             }, bd)
         }
         ListRow(
-            Row1(Ic.Timer, "保留天数", "${settings.retentionDays} 天",
-                sub = "到期后自动清理；点按切换 7 / 14 / 30 天"),
+            Row1(
+                Ic.Timer,
+                "保留天数",
+                "${settings.retentionDays} 天",
+                sub = "到期后自动清理；点按切换 7 / 14 / 30 天",
+                onClick = {
+                    settings.retentionDays = when (settings.retentionDays) {
+                        7 -> 14
+                        14 -> 30
+                        else -> 7
+                    }
+                    refresh++
+                },
+            ),
             true,
-        ) {
-            settings.retentionDays = when (settings.retentionDays) {
-                7 -> 14
-                14 -> 30
-                else -> 7
-            }
-            refresh++
-        }
+        )
         ListRow(
             Row1(Ic.Message, "记录事件正文",
                 sub = "通知、短信、HTTP 等原文；token/密码仍会脱敏"),
