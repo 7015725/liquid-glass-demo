@@ -304,12 +304,17 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
     val granted = remember(t) { Perms.all.count { it.check(ctx) } }
     val lsposed = remember(t) { ModuleStatus.isActive() }
     val masterA11y = remember(t) { com.flowglass.demo.system.a11y.A11yServiceCatalog.masterEnabled(ctx) }
+    // LayerStatus is a plain process-wide snapshot, not Compose state. Keep a local state copy so
+    // the row updates as soon as the passive probe below finishes instead of showing "普通" until
+    // the user opens the execution-layer page and comes back.
+    var layers by remember { mutableStateOf(LayerStatus.current()) }
     LaunchedEffect(t) {
         val info = Root.check(request = false)
         state.root = if (state.root?.granted == true) state.root else info
         LayerStatus.updateRoot(info)
         val active = runCatching { ModuleStatus.isActive() }.getOrDefault(false)
         LayerStatus.updateLsposed(active, systemHookReady = SystemHookSettings.isAlive(ctx))
+        layers = LayerStatus.current()
     }
     val root = state.root
     val modes = listOf("省电", "均衡", "极速")
@@ -329,7 +334,6 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
             if (masterA11y) "系统已开启" else "系统未开启",
             sub = "选择要保活的无障碍服务",
             valueColor = if (masterA11y) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.A11yManager }, true)
-        val layers = LayerStatus.current()
         val layersHeadline = LayerHeadline.of(layers)
         ListRow(Row1(Ic.Layers, "执行层级", layersHeadline.big,
             sub = "动作：${layersHeadline.actionLabel} · 事件：${layersHeadline.eventLabel}",
