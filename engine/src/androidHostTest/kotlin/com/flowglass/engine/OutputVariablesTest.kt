@@ -58,7 +58,7 @@ class OutputVariablesTest {
         val triggers = registry.byKind(ComponentKind.TRIGGER)
         val conditions = registry.byKind(ComponentKind.CONDITION)
         val actions = registry.byKind(ComponentKind.ACTION)
-        assertEquals(36, triggers.size)
+        assertEquals(46, triggers.size)
         assertEquals(9, conditions.size)
         assertEquals(33, actions.size)
         assertTrue(triggers.all { OutputCatalog.allOutputs(it).isNotEmpty() })

@@ -184,16 +184,28 @@ internal class TriggerHost(
     private val appWatcher = AppForegroundWatcher(context, scope, ::emitEvent)
     private val rootAppWatcher = RootForegroundWatcher(context, scope, ::emitEvent)
     private val systemBroadcastSource = SystemBroadcastSource(context, scope, ::emit) { lastRules }
-    private val notificationListener: (String, String, String, Int) -> Unit = { app, title, text, userId ->
+    private val httpTriggerServer = HttpTriggerServer(context, scope, ::emit) { lastRules }
+    private val phoneStateSource = PhoneStateSource(context, ::emit)
+    private val calendarWatcher = CalendarWatcher(context, ::emit)
+    private val mediaTrackSource = MediaTrackSource(context, ::emit)
+    private val notificationListener: (NotificationInfo) -> Unit = { info ->
         // A clone and the main app share a package; the persisted app identity includes the
-        // profile so a "收到通知" rule cannot fire for the wrong clone.
-        val identity = if (userId == 0) app else "$app@$userId"
-        emitEvent(TriggerKinds.NOTIFICATION, TriggerSource.NOTIFICATION, mapOf(
-            "notification.app" to identity,
-            "notification.user" to userId.toString(),
-            "notification.title" to title,
-            "notification.text" to text,
-        ))
+        // profile so a notification rule cannot fire for the wrong clone.
+        val identity = if (info.userId == 0) info.app else "${info.app}@${info.userId}"
+        emitEvent(
+            if (info.removed) TriggerKinds.NOTIFICATION_REMOVED else TriggerKinds.NOTIFICATION,
+            TriggerSource.NOTIFICATION,
+            mapOf(
+                "notification.app" to identity,
+                "notification.user" to info.userId.toString(),
+                "notification.title" to info.title,
+                "notification.text" to info.text,
+                "notification.subtext" to info.subtext,
+                "notification.category" to info.category,
+                "notification.channel" to info.channel,
+                "notification.ongoing" to info.ongoing.toString(),
+            ),
+        )
     }
     private var collectJob: Job? = null
     private var snapshotJob: Job? = null
@@ -406,6 +418,9 @@ internal class TriggerHost(
         if (TriggerSource.BROADCAST in sourceRegistry.registered) {
             systemBroadcastSource.sync(eligible)
         }
+        if (TriggerSource.HTTP in sourceRegistry.registered) {
+            httpTriggerServer.sync()
+        }
         val exact = canScheduleExactAlarms(context)
         TriggerStatus.exactAlarmAllowed = exact
         syncAlarms(eligible, exact)
@@ -473,9 +488,15 @@ internal class TriggerHost(
             TriggerSource.HEADSET -> headsetWatcher.start()
             TriggerSource.LOCATION -> locationWatcher.start()
             TriggerSource.BROADCAST -> systemBroadcastSource.start()
-            // TIME is an AlarmManager schedule, BOOT is a manifest receiver; SYSTEM events are
-            // emitted by the already-installed LSPosed hook and need no dynamic receiver.
-            TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM, TriggerSource.METHOD_HOOK -> Unit
+            TriggerSource.HTTP -> httpTriggerServer.sync()
+            TriggerSource.PHONE -> phoneStateSource.start()
+            TriggerSource.CALENDAR -> calendarWatcher.start()
+            TriggerSource.MEDIA -> mediaTrackSource.start()
+            // TIME is an AlarmManager schedule, BOOT and SMS are manifest receivers; SYSTEM events
+            // are emitted by the already-installed LSPosed hook. INTENT/TILE/SHARE arrive through
+            // manifest components and need no dynamic listener.
+            TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM, TriggerSource.METHOD_HOOK,
+            TriggerSource.INTENT, TriggerSource.TILE, TriggerSource.SHARE, TriggerSource.SMS -> Unit
         }
     }
 
@@ -494,7 +515,12 @@ internal class TriggerHost(
             TriggerSource.HEADSET -> headsetWatcher.stop()
             TriggerSource.LOCATION -> locationWatcher.stop()
             TriggerSource.BROADCAST -> systemBroadcastSource.stop()
-            TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM, TriggerSource.METHOD_HOOK -> Unit
+            TriggerSource.HTTP -> httpTriggerServer.stop()
+            TriggerSource.PHONE -> phoneStateSource.stop()
+            TriggerSource.CALENDAR -> calendarWatcher.stop()
+            TriggerSource.MEDIA -> mediaTrackSource.stop()
+            TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM, TriggerSource.METHOD_HOOK,
+            TriggerSource.INTENT, TriggerSource.TILE, TriggerSource.SHARE, TriggerSource.SMS -> Unit
         }
     }
 

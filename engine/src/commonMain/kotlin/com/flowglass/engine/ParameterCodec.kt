@@ -202,6 +202,14 @@ object ParameterCodec {
             return mapOf("location" to JsonPrimitive(text), "radius" to JsonPrimitive(500))
         }
         if (meta.params.isEmpty()) { require(text.isEmpty()) { "无参数组件包含未识别文字" }; return emptyMap() }
+        if (meta.typeId == "trigger.notification" && text.split('|').size == 3 && '\n' !in text) {
+            // v0.5 stored only app|title|text. The extra M3 fields are appended with defaults so
+            // opening an old rule never turns it into an unknown component.
+            val parts = text.split('|')
+            return meta.params.mapIndexed { index, spec ->
+                spec.key to if (index < parts.size) parse(spec, parts[index]) else spec.defaultValue
+            }.toMap()
+        }
         if (meta.params.size > 1) {
             val parts = text.split('|')
             require(parts.size == meta.params.size) { "参数需用 | 分隔为 ${meta.params.size} 项" }

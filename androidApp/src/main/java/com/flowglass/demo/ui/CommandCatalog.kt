@@ -54,6 +54,12 @@ data class CommandItem(
             "trigger.app_foreground", "trigger.app_process", "trigger.app_crash", "trigger.keyguard",
             "trigger.media", "trigger.foreground_service", "trigger.headset", "trigger.app_method_call" ->
                 parameter.split('|').filter { it.isNotEmpty() }.joinToString(" · ")
+            "trigger.intent_received" -> parameter.split('|').drop(1).filter { it.isNotEmpty() }
+                .joinToString(" · ")
+            "trigger.http_request" -> parameter.split('|').drop(1).filter { it.isNotEmpty() }
+                .joinToString(" · ")
+            "trigger.share_received", "trigger.sms_received", "trigger.notification_removed",
+            "trigger.media_track" -> parameter.split('|').filter { it.isNotEmpty() }.joinToString(" · ")
             "condition.app_process_state" -> parameter.split('|').joinToString(" · ")
             "condition.variable" -> ActionSummary.conditionText(this)
             else -> parameter
@@ -219,6 +225,13 @@ object CommandCatalog {
         "trigger.charging", "action.wifi_switch", "trigger.wifi", "trigger.wifi_changed",
         "condition.network_type" -> Ic.Wifi
         "trigger.bluetooth_connected", "trigger.bluetooth", "trigger.headset", "action.bluetooth_switch" -> Ic.Bluetooth
+        "trigger.http_request", "trigger.intent_received", "trigger.share_received" -> Ic.Share
+        "trigger.quick_setting" -> Ic.Tap
+        "trigger.call_state", "trigger.missed_call" -> Ic.Phone
+        "trigger.sms_received" -> Ic.Message
+        "trigger.notification_removed" -> Ic.Bell
+        "trigger.media_track" -> Ic.Play
+        "trigger.calendar_changed" -> Ic.Clock
         "trigger.application_started", "trigger.app_foreground", "action.launch_app",
         "action.force_stop", "trigger.app_method_call" -> Ic.Grid
         "condition.dnd_state", "action.dnd_switch", "action.ringer_mode" -> Ic.Moon

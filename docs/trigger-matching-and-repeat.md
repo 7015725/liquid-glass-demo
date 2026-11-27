@@ -57,3 +57,9 @@
 地点触发器在宿主存活期间监听 `LocationManager.PROVIDERS_CHANGED_ACTION`。启动时系统定位关闭、或在运行中
 被关闭时，watcher 不会留下「已监听」的假象；用户重新打开定位后会恢复请求。每次恢复仍按网络定位优先、
 GPS 次之，采样间隔两分钟，不申请后台定位权限。
+
+
+外部入口（显式 Intent、本机 HTTP、快速设置磁贴、系统分享）的令牌和边界见 [external-entry-triggers.md](external-entry-triggers.md)。
+
+
+电话、短信、日历、媒体与通知移除触发器的权限和边界见 [phone-sms-calendar-media-triggers.md](phone-sms-calendar-media-triggers.md)。

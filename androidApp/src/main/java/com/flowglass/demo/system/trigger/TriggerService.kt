@@ -172,6 +172,10 @@ class TriggerService : Service() {
         const val ACTION_SYSTEM_EVENT = "com.flowglass.demo.trigger.SYSTEM_EVENT"
         const val ACTION_SYSTEM_HOOK_READY = "com.flowglass.demo.trigger.SYSTEM_HOOK_READY"
         const val ACTION_BOOT = "com.flowglass.demo.trigger.BOOT"
+        const val ACTION_INTENT = "com.flowglass.demo.trigger.INTENT"
+        const val ACTION_TILE = "com.flowglass.demo.trigger.TILE"
+        const val ACTION_SHARE = "com.flowglass.demo.trigger.SHARE"
+        const val ACTION_SMS = "com.flowglass.demo.trigger.SMS"
         const val ACTION_STOP = "com.flowglass.demo.trigger.STOP"
         internal const val ACTION_REPLAY_PENDING = "com.flowglass.demo.action.REPLAY_PENDING"
         private const val EXTRA_ALLOW_LOCATION_UPGRADE = "allow_location_upgrade"
@@ -312,6 +316,46 @@ private fun Intent.toTriggerEvent(): TriggerEvent? = when (action) {
             ),
         )
     }
+    TriggerService.ACTION_INTENT -> {
+        val token = getStringExtra(IntentTriggerReceiver.EXTRA_INTENT_TOKEN) ?: return null
+        if (token.isBlank()) return null
+        TriggerEvent(
+            kind = TriggerKinds.INTENT_RECEIVED,
+            source = TriggerSource.INTENT,
+            atEpochMs = System.currentTimeMillis(),
+            data = mapOf(
+                "intent.token" to token,
+                "intent.action" to getStringExtra(IntentTriggerReceiver.EXTRA_INTENT_ACTION).orEmpty(),
+                "intent.data" to getStringExtra(IntentTriggerReceiver.EXTRA_INTENT_DATA).orEmpty(),
+                "intent.extras" to getStringExtra(IntentTriggerReceiver.EXTRA_INTENT_EXTRAS).orEmpty(),
+            ),
+        )
+    }
+    TriggerService.ACTION_TILE -> TriggerEvent(
+        kind = TriggerKinds.QUICK_SETTING,
+        source = TriggerSource.TILE,
+        atEpochMs = System.currentTimeMillis(),
+    )
+    TriggerService.ACTION_SHARE -> TriggerEvent(
+        kind = TriggerKinds.SHARE_RECEIVED,
+        source = TriggerSource.SHARE,
+        atEpochMs = System.currentTimeMillis(),
+        data = mapOf(
+            "share.text" to getStringExtra(ShareReceiverActivity.EXTRA_SHARE_TEXT).orEmpty(),
+            "share.uri" to getStringExtra(ShareReceiverActivity.EXTRA_SHARE_URI).orEmpty(),
+            "share.mime" to getStringExtra(ShareReceiverActivity.EXTRA_SHARE_MIME).orEmpty(),
+        ),
+    )
+    TriggerService.ACTION_SMS -> TriggerEvent(
+        kind = TriggerKinds.SMS_RECEIVED,
+        source = TriggerSource.SMS,
+        atEpochMs = System.currentTimeMillis(),
+        data = mapOf(
+            "sms.sender" to getStringExtra(SmsTriggerReceiver.EXTRA_SMS_SENDER).orEmpty(),
+            "sms.body" to getStringExtra(SmsTriggerReceiver.EXTRA_SMS_BODY).orEmpty(),
+            "sms.timestamp" to getLongExtra(SmsTriggerReceiver.EXTRA_SMS_TIMESTAMP, System.currentTimeMillis()).toString(),
+        ),
+    )
     TriggerService.ACTION_EVENT -> {
         val ruleId = getStringExtra("rule_id") ?: return null
         val index = getIntExtra("trigger_index", -1).takeIf { it >= 0 } ?: return null

@@ -15,7 +15,11 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 /** One installable listener family. Several trigger types can share a source. */
-enum class TriggerSource { TIME, SCREEN, POWER, BATTERY, BOOT, WIFI, BLUETOOTH, NOTIFICATION, APP, HEADSET, LOCATION, SYSTEM, METHOD_HOOK, BROADCAST }
+enum class TriggerSource {
+    TIME, SCREEN, POWER, BATTERY, BOOT, WIFI, BLUETOOTH, NOTIFICATION, APP, HEADSET, LOCATION,
+    SYSTEM, METHOD_HOOK, BROADCAST, INTENT, HTTP, TILE, SHARE,
+    PHONE, SMS, CALENDAR, MEDIA,
+}
 
 object TriggerTypes {
     const val TIME = "trigger.time"
@@ -54,6 +58,16 @@ object TriggerTypes {
     const val SETTING_CHANGED = "trigger.setting_changed"
     const val TICK = "trigger.tick"
     const val ACCESSIBILITY_CHANGED = "trigger.accessibility_changed"
+    const val INTENT_RECEIVED = "trigger.intent_received"
+    const val HTTP_REQUEST = "trigger.http_request"
+    const val QUICK_SETTING = "trigger.quick_setting"
+    const val SHARE_RECEIVED = "trigger.share_received"
+    const val CALL_STATE = "trigger.call_state"
+    const val SMS_RECEIVED = "trigger.sms_received"
+    const val MISSED_CALL = "trigger.missed_call"
+    const val NOTIFICATION_REMOVED = "trigger.notification_removed"
+    const val MEDIA_TRACK = "trigger.media_track"
+    const val CALENDAR_CHANGED = "trigger.calendar_changed"
 
     /** Old rules keep their type id; only these two are mapped onto the new listeners. */
     fun sourceOf(typeId: String): TriggerSource? = when (typeId) {
@@ -77,6 +91,15 @@ object TriggerTypes {
         SYSTEM_TIME_CHANGED, NEXT_ALARM_CHANGED, STORAGE_MEDIA, SHUTDOWN, STORAGE_LOW,
         LOCALE_CHANGED, PACKAGE_CHANGE, WALLPAPER_CHANGED, SETTING_CHANGED, TICK,
         ACCESSIBILITY_CHANGED -> TriggerSource.BROADCAST
+        INTENT_RECEIVED -> TriggerSource.INTENT
+        HTTP_REQUEST -> TriggerSource.HTTP
+        QUICK_SETTING -> TriggerSource.TILE
+        SHARE_RECEIVED -> TriggerSource.SHARE
+        CALL_STATE, MISSED_CALL -> TriggerSource.PHONE
+        SMS_RECEIVED -> TriggerSource.SMS
+        NOTIFICATION_REMOVED -> TriggerSource.NOTIFICATION
+        MEDIA_TRACK -> TriggerSource.MEDIA
+        CALENDAR_CHANGED -> TriggerSource.CALENDAR
         else -> null
     }
 
@@ -194,6 +217,16 @@ object TriggerKinds {
     const val SETTING_CHANGED = "setting_changed"
     const val TICK = "tick"
     const val ACCESSIBILITY_CHANGED = "accessibility_changed"
+    const val INTENT_RECEIVED = "intent_received"
+    const val HTTP_REQUEST = "http_request"
+    const val QUICK_SETTING = "quick_setting"
+    const val SHARE_RECEIVED = "share_received"
+    const val CALL_STATE = "call_state"
+    const val SMS_RECEIVED = "sms_received"
+    const val MISSED_CALL = "missed_call"
+    const val NOTIFICATION_REMOVED = "notification_removed"
+    const val MEDIA_TRACK = "media_track"
+    const val CALENDAR_CHANGED = "calendar_changed"
 }
 
 /** Recomputes the listener set and reports the delta; the host installs/removes only changes. */
@@ -329,6 +362,18 @@ object TriggerMatcher {
             TriggerKinds.TICK -> matchesTick(binding, event)
             TriggerKinds.ACCESSIBILITY_CHANGED ->
                 binding.component.typeId == TriggerTypes.ACCESSIBILITY_CHANGED
+            TriggerKinds.INTENT_RECEIVED -> matchesIntent(binding, event)
+            TriggerKinds.HTTP_REQUEST -> matchesHttp(binding, event)
+            TriggerKinds.QUICK_SETTING -> binding.component.typeId == TriggerTypes.QUICK_SETTING
+            TriggerKinds.SHARE_RECEIVED -> matchesShare(binding, event)
+            TriggerKinds.CALL_STATE -> matchesCallState(binding, event)
+            TriggerKinds.SMS_RECEIVED -> matchesSms(binding, event)
+            TriggerKinds.MISSED_CALL -> binding.component.typeId == TriggerTypes.MISSED_CALL
+            TriggerKinds.NOTIFICATION_REMOVED -> matchesNotificationFields(
+                binding, event, TriggerTypes.NOTIFICATION_REMOVED, removed = true,
+            )
+            TriggerKinds.MEDIA_TRACK -> matchesMediaTrack(binding, event)
+            TriggerKinds.CALENDAR_CHANGED -> binding.component.typeId == TriggerTypes.CALENDAR_CHANGED
             else -> false
         }
     }
@@ -433,17 +478,8 @@ object TriggerMatcher {
         }
     }
 
-    private fun matchesNotification(binding: TriggerBinding, event: TriggerEvent): Boolean {
-        if (binding.component.typeId != TriggerTypes.NOTIFICATION) return false
-        fun keyword(key: String) = binding.component.params[key]?.stringValue().orEmpty().trim()
-        val app = keyword("app")
-        if (app.isNotEmpty() && app != event.data["notification.app"].orEmpty()) return false
-        val title = keyword("title")
-        if (title.isNotEmpty() && !event.data["notification.title"].orEmpty().contains(title, ignoreCase = true)) return false
-        val text = keyword("text")
-        if (text.isNotEmpty() && !event.data["notification.text"].orEmpty().contains(text, ignoreCase = true)) return false
-        return true
-    }
+    private fun matchesNotification(binding: TriggerBinding, event: TriggerEvent): Boolean =
+        matchesNotificationFields(binding, event, TriggerTypes.NOTIFICATION, removed = false)
 
     private fun matchesApp(
         binding: TriggerBinding,
@@ -669,6 +705,91 @@ object TriggerMatcher {
         // The periodic host check re-samples a level, so a cooldown is more useful than an edge:
         // a device that is already low when automation starts still gets one alert.
         return free < threshold && states.cooldown(binding.key, event.atEpochMs, STORAGE_LOW_WINDOW_MS)
+    }
+
+    private fun matchesIntent(binding: TriggerBinding, event: TriggerEvent): Boolean {
+        if (binding.component.typeId != TriggerTypes.INTENT_RECEIVED) return false
+        val token = binding.component.params["token"]?.stringValue()?.trim().orEmpty()
+        if (token.isEmpty() || token != event.data["intent.token"]) return false
+        val action = binding.component.params["action"]?.stringValue()?.trim().orEmpty()
+        return action.isEmpty() || action == event.data["intent.action"]
+    }
+
+    private fun matchesHttp(binding: TriggerBinding, event: TriggerEvent): Boolean {
+        if (binding.component.typeId != TriggerTypes.HTTP_REQUEST) return false
+        val token = binding.component.params["token"]?.stringValue()?.trim().orEmpty()
+        if (token.isEmpty() || token != event.data["http.token"]) return false
+        val method = binding.component.params["method"]?.stringValue()?.trim().orEmpty()
+        if (method.isNotEmpty() && method != "any" && !method.equals(event.data["http.method"], true)) {
+            return false
+        }
+        val path = binding.component.params["path"]?.stringValue()?.trim().orEmpty()
+        return path.isEmpty() || path == event.data["http.path"]
+    }
+
+    private fun matchesShare(binding: TriggerBinding, event: TriggerEvent): Boolean {
+        if (binding.component.typeId != TriggerTypes.SHARE_RECEIVED) return false
+        val kind = binding.component.params["kind"]?.stringValue()?.trim().orEmpty()
+        if (kind.isEmpty() || kind == "any") return true
+        val mime = event.data["share.mime"].orEmpty()
+        return when (kind) {
+            "text" -> mime.startsWith("text/")
+            "image" -> mime.startsWith("image/")
+            else -> true
+        }
+    }
+
+    private fun matchesCallState(binding: TriggerBinding, event: TriggerEvent): Boolean {
+        if (binding.component.typeId != TriggerTypes.CALL_STATE) return false
+        val wanted = binding.component.params["event"]?.stringValue()?.trim().orEmpty()
+        return wanted.isEmpty() || wanted == "any" || wanted == event.data["call.state"]
+    }
+
+    private fun matchesSms(binding: TriggerBinding, event: TriggerEvent): Boolean {
+        if (binding.component.typeId != TriggerTypes.SMS_RECEIVED) return false
+        val sender = binding.component.params["sender"]?.stringValue()?.trim().orEmpty()
+        if (sender.isNotEmpty() && sender != event.data["sms.sender"].orEmpty()) return false
+        val keyword = binding.component.params["keyword"]?.stringValue()?.trim().orEmpty()
+        return keyword.isEmpty() || event.data["sms.body"].orEmpty().contains(keyword, ignoreCase = true)
+    }
+
+    private fun matchesNotificationFields(
+        binding: TriggerBinding,
+        event: TriggerEvent,
+        expectedType: String,
+        removed: Boolean,
+    ): Boolean {
+        if (binding.component.typeId != expectedType) return false
+        fun param(key: String) = binding.component.params[key]?.stringValue()?.trim().orEmpty()
+        fun field(key: String) = event.data["notification.$key"].orEmpty()
+        val app = param("app")
+        if (app.isNotEmpty() && app != field("app")) return false
+        for (key in listOf("title", "text", "subtext")) {
+            val wanted = param(key)
+            if (wanted.isNotEmpty() && !field(key).contains(wanted, ignoreCase = true)) return false
+        }
+        val category = param("category")
+        if (category.isNotEmpty() && category != field("category")) return false
+        val channel = param("channel")
+        if (channel.isNotEmpty() && channel != field("channel")) return false
+        val ongoing = param("ongoing")
+        if (ongoing.isNotEmpty() && ongoing != "any") {
+            val expected = when (ongoing) {
+                "yes" -> "true"
+                "no" -> "false"
+                else -> ongoing
+            }
+            if (expected != field("ongoing")) return false
+        }
+        // Kept as an explicit parameter so the caller and matcher cannot drift on removed-vs-posted.
+        return if (removed) event.kind == TriggerKinds.NOTIFICATION_REMOVED
+        else event.kind == TriggerKinds.NOTIFICATION
+    }
+
+    private fun matchesMediaTrack(binding: TriggerBinding, event: TriggerEvent): Boolean {
+        if (binding.component.typeId != TriggerTypes.MEDIA_TRACK) return false
+        val app = binding.component.params["app"]?.stringValue()?.trim().orEmpty()
+        return app.isEmpty() || app == event.data["media.package"].orEmpty()
     }
 
     private fun matchesSetting(binding: TriggerBinding, event: TriggerEvent): Boolean {

@@ -30,7 +30,7 @@ class CanonicalLegacyMatrixTest {
             "trigger.boot_completed" to "", "trigger.battery_low" to "20%",
             "trigger.charging" to "开始充电",
             "trigger.wifi" to "已连接|", "trigger.bluetooth" to "已连接|",
-            "trigger.notification" to "||", "trigger.app_foreground" to "切到前台|应用包名",
+            "trigger.notification" to "||||||任意", "trigger.app_foreground" to "切到前台|应用包名",
             "trigger.headset" to "已插入|任意耳机",
             "trigger.location_enter" to "公司", "trigger.location_exit" to "家",
             "condition.time_range" to "08:00–22:00", "condition.weekday" to "工作日",
@@ -67,6 +67,10 @@ class CanonicalLegacyMatrixTest {
                     "trigger.shutdown", "trigger.storage_low", "trigger.locale_changed",
                     "trigger.package_change", "trigger.wallpaper_changed", "trigger.setting_changed",
                     "trigger.tick", "trigger.accessibility_changed", // added after v0.5
+                    "trigger.intent_received", "trigger.http_request",
+                    "trigger.quick_setting", "trigger.share_received",
+                    "trigger.call_state", "trigger.sms_received", "trigger.missed_call",
+                    "trigger.notification_removed", "trigger.media_track", "trigger.calendar_changed",
                 )
         }
         assertEquals(expected.keys, legacyComponents.map { it.typeId }.toSet())
