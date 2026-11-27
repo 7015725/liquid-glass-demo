@@ -15,6 +15,9 @@ import com.flowglass.engine.trigger.TriggerSkipRecorder
 import com.flowglass.engine.trigger.TriggerSource
 import com.flowglass.engine.trigger.TriggerSourceRegistry
 import com.flowglass.engine.trigger.TriggerTypes
+import com.flowglass.engine.log.TraceEvent
+import com.flowglass.engine.log.TraceKind
+import com.flowglass.engine.log.TraceSink
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
@@ -71,6 +74,11 @@ class TriggerEngineTest {
         }
     }
 
+    private class RecordingTraceSink : TraceSink {
+        val events = mutableListOf<TraceEvent>()
+        override fun record(event: TraceEvent) { events += event }
+    }
+
     private class Skips {
         val records = mutableListOf<String>()
         val recorder = TriggerSkipRecorder { _, _, detail, _ -> records += detail }
@@ -119,6 +127,24 @@ class TriggerEngineTest {
         assertTrue(on.executions.single().variables["event.time"] is String)
         assertEquals(0, d.dispatch(screenEvent(TriggerKinds.SCREEN_OFF), listOf(screenRule)).executions.size)
         assertEquals(0, d.dispatch(screenEvent(TriggerKinds.USER_PRESENT), listOf(screenRule)).executions.size)
+    }
+
+    @Test
+    fun dispatchEmitsEventAndMatchTrace() {
+        val sink = RecordingTraceSink()
+        val d = TriggerDispatcher(
+            FakeClock(0),
+            FakeEnvironment(),
+            RecordingExecutor(),
+            TriggerSkipRecorder { _, _, _, _ -> },
+            trace = sink,
+        )
+        val r = rule("screen", listOf(trigger("trigger.screen_on")))
+
+        d.dispatch(screenEvent(), listOf(r))
+
+        assertTrue(sink.events.any { it.kind == TraceKind.EVENT })
+        assertTrue(sink.events.any { it.kind == TraceKind.MATCH })
     }
 
     @Test

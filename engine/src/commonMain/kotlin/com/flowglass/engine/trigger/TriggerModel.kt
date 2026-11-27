@@ -176,6 +176,8 @@ data class TriggerEvent(
     val methodHookVariables: Map<String, String> = emptyMap(),
     /** Monotonic dispatch sequence; the receiver uses gaps to count bounded-buffer drops. */
     val seq: Long = 0,
+    /** Correlation id for this event; blank lets the dispatcher generate one. */
+    val traceId: String = "",
 )
 
 object TriggerKinds {

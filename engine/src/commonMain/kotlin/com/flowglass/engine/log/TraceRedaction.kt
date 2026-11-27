@@ -45,7 +45,7 @@ object TraceRedaction {
             when {
                 secretKey.containsMatchIn(key) -> "***"
                 includeRaw -> value.take(MAX_VALUE)
-                else -> text(key, value)
+                else -> "***"
             }
         }
 }

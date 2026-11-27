@@ -4,6 +4,7 @@ import com.flowglass.engine.log.TraceEvent
 import com.flowglass.engine.log.TraceKind
 import com.flowglass.engine.log.TraceSink
 import com.flowglass.engine.log.TraceStatus
+import com.flowglass.engine.log.TraceRedaction
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.EmptyCoroutineContext
@@ -125,5 +126,37 @@ class TraceCoreTest {
         val finished = sink.events.first { it.kind == TraceKind.RUN && it.status == TraceStatus.SKIPPED }
         assertEquals(log.id, started.runId)
         assertEquals(log.id, finished.runId)
+    }
+
+    @Test
+    fun redactionMasksSecretsAndTruncatesLongValues() {
+        val meta = ComponentMeta(
+            typeId = "action.test",
+            name = "测试",
+            category = "测试",
+            kind = ComponentKind.ACTION,
+            params = listOf(
+                ParamSpec("password", "密码", ParamType.TEXT),
+                ParamSpec("text", "文本", ParamType.TEXT),
+            ),
+            supports = listOf(LayerSupport(ExecutionLayer.NORMAL)),
+        )
+        val redacted = TraceRedaction.params(
+            meta,
+            mapOf(
+                "password" to JsonPrimitive("p@ss"),
+                "text" to JsonPrimitive("x".repeat(600)),
+                "authorization" to JsonPrimitive("Bearer abc"),
+            ),
+        )
+
+        assertEquals("***", redacted["password"])
+        assertEquals("***", redacted["authorization"])
+        assertTrue(redacted.getValue("text").endsWith("…"))
+        assertEquals(513, redacted.getValue("text").length)
+        assertEquals(
+            "***",
+            TraceRedaction.event(mapOf("body" to "通知正文"), includeRaw = false).getValue("body"),
+        )
     }
 }

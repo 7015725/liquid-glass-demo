@@ -55,7 +55,7 @@ fun HomeScreen(state: AppState, onOpenTab: (Int) -> Unit) {
     var i = 0
     HeroCard(state, Modifier.staggerIn(i++))
     QuickOneTaps(state, onOpenTab, Modifier.staggerIn(i++))
-    MetricsCard(state, Modifier.staggerIn(i++))
+    MetricsCard(state, onOpenTab, Modifier.staggerIn(i++))
     RecentRuns(state, onOpenTab, Modifier.staggerIn(i++))
     if (UiFeatures.SHOW_RUN_MODE) ModeCard(state, Modifier.staggerIn(i++))
 }
@@ -305,7 +305,7 @@ private fun Meta(label: String, value: String, modifier: Modifier) {
 }
 
 @Composable
-private fun MetricsCard(state: AppState, modifier: Modifier) {
+private fun MetricsCard(state: AppState, onOpenTab: (Int) -> Unit, modifier: Modifier) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (isActive) {
@@ -316,7 +316,18 @@ private fun MetricsCard(state: AppState, modifier: Modifier) {
     val stats = computeRunStats(state.logs, now, zoneId = java.time.ZoneId.systemDefault())
     PressCard(modifier.fillMaxWidth()) {
         Column {
-            SectionTitle("执行统计") { T("来自运行记录", 13.sp, color = C.Muted) }
+            SectionTitle("执行统计") {
+                T(
+                    "完整日志 ›",
+                    13.sp,
+                    FontWeight.Medium,
+                    C.Primary,
+                    Modifier.clickable {
+                        state.settingsPage = SettingsPage.Logs
+                        onOpenTab(3)
+                    },
+                )
+            }
             Spacer(Modifier.height(14.dp))
             if (!stats.hasData) {
                 EmptyState(

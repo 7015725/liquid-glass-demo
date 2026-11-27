@@ -93,6 +93,7 @@ object SettingsPage {
     const val Backup = 7
     const val Variables = 8
     const val A11yManager = 9
+    const val Logs = 10
     fun title(p: Int) = when (p) {
         KeepAlive -> "App 保活"
         Root -> "Root 激活"
@@ -103,6 +104,7 @@ object SettingsPage {
         Backup -> "备份与恢复"
         Variables -> "变量"
         A11yManager -> "无障碍管理"
+        Logs -> "日志记录"
         else -> "设置"
     }
 }
@@ -124,6 +126,7 @@ fun SettingsHost(
         SettingsPage.Backup -> BackupRestorePage(state, themeMode, onThemeModeChange)
         SettingsPage.Variables -> VariableManagerPage(state)
         SettingsPage.A11yManager -> A11yManagerPage()
+        SettingsPage.Logs -> LogCenterPage(AppRuntime.of(LocalContext.current).logStore, state)
         else -> SettingsMain(state, themeMode)
     }
 }
@@ -335,6 +338,7 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
     GroupCard(k++) {
         ListRow(Row1(themeMode.icon(), "外观", themeMode.label, sub = themeMode.description) { state.settingsPage = SettingsPage.Appearance }, true)
         ListRow(Row1(Ic.Copy, "变量", sub = "内置、局部、全局变量与备注") { state.settingsPage = SettingsPage.Variables }, true)
+        ListRow(Row1(Ic.Timer, "日志记录", sub = "查看、筛选、导出完整日志") { state.settingsPage = SettingsPage.Logs }, true)
         ListRow(Row1(Ic.Archive, "备份与恢复", sub = "导入导出指令、备份全部数据") { state.settingsPage = SettingsPage.Backup }, true)
         ListRow(Row1(Ic.Bell, "通知提醒") {}, true)
         if (UiFeatures.SHOW_RUN_MODE) {

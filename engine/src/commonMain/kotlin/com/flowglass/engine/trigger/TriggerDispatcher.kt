@@ -8,6 +8,14 @@ import com.flowglass.engine.OutputCatalog
 import com.flowglass.engine.OutputValues
 import com.flowglass.engine.VariableType
 import com.flowglass.engine.methodhook.MethodHookVariables
+import com.flowglass.engine.log.NoopTraceSink
+import com.flowglass.engine.log.TraceEvent
+import com.flowglass.engine.log.TraceKind
+import com.flowglass.engine.log.TraceLevel
+import com.flowglass.engine.log.TraceRedaction
+import com.flowglass.engine.log.TraceSink
+import com.flowglass.engine.log.TraceStatus
+import com.flowglass.engine.log.newTraceId
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -52,6 +60,19 @@ interface TriggerExecutor {
         variables: Map<String, Any?>,
         readOnlyNames: Set<String> = emptySet(),
     ): Boolean
+
+    /**
+     * Trace-aware entry point. The default delegates to [execute] so existing hosts and tests
+     * keep working; TriggerHost overrides it to pass the id into the rule run.
+     */
+    fun executeTraced(
+        rule: TriggerRule,
+        binding: TriggerBinding,
+        reason: String,
+        variables: Map<String, Any?>,
+        readOnlyNames: Set<String>,
+        traceId: String,
+    ): Boolean = execute(rule, binding, reason, variables, readOnlyNames)
 }
 
 fun interface TriggerSkipRecorder {
@@ -64,6 +85,7 @@ data class TriggerExecution(
     val reason: String,
     val variables: Map<String, Any?>,
     val readOnlyNames: Set<String> = emptySet(),
+    val traceId: String = "",
 )
 
 data class TriggerSkip(
@@ -80,7 +102,17 @@ data class DispatchOutcome(
     val queued: Int = 0,
 )
 
-data class ConditionOutcome(val passed: Boolean, val failed: List<String> = emptyList()) {
+data class TriggerConditionEvaluation(
+    val component: TriggerComponent,
+    val passed: Boolean,
+    val detail: String,
+)
+
+data class ConditionOutcome(
+    val passed: Boolean,
+    val failed: List<String> = emptyList(),
+    val evaluations: List<TriggerConditionEvaluation> = emptyList(),
+) {
     val detail: String get() = "条件不满足：${failed.joinToString("、")}"
 }
 
@@ -105,16 +137,17 @@ object TriggerConditions {
             override fun fileExists(path: String, layer: ExecutionLayer?): Boolean? =
                 environment.fileExists(path)
         }
-        val failed = conditions.mapNotNull { condition ->
-            val passed = com.flowglass.engine.Conditions.evaluate(
+        val evaluations = conditions.map { condition ->
+            val result = com.flowglass.engine.Conditions.evaluateDetailed(
                 com.flowglass.engine.RuleComponent(condition.typeId, condition.params),
                 variables,
                 conditionEnvironment,
                 nowEpochMs,
             )
-            if (passed) null else condition.name
+            TriggerConditionEvaluation(condition, result.passed, result.detail)
         }
-        return ConditionOutcome(failed.isEmpty(), failed)
+        val failed = evaluations.filterNot { it.passed }.map { it.component.name }
+        return ConditionOutcome(failed.isEmpty(), failed, evaluations)
     }
 }
 
@@ -134,6 +167,8 @@ class TriggerDispatcher(
     private val skipRecorder: TriggerSkipRecorder,
     private val debounceMs: Long = 2_000,
     private val skipLogIntervalMs: Long = 60_000,
+    private val trace: TraceSink = NoopTraceSink,
+    private val includeRawEvents: () -> Boolean = { true },
 ) {
     private val lastFired = mutableMapOf<String, Long>()
     private val lastSkipLog = mutableMapOf<String, Long>()
@@ -143,6 +178,19 @@ class TriggerDispatcher(
 
     fun dispatch(event: TriggerEvent, rules: List<TriggerRule>): DispatchOutcome {
         val now = clock.nowEpochMs()
+        val traceId = event.traceId.ifBlank { newTraceId() }
+        trace.record(
+            TraceEvent(
+                traceId = traceId,
+                atEpochMs = now,
+                kind = TraceKind.EVENT,
+                status = TraceStatus.INFO,
+                source = event.source.name,
+                eventKind = event.kind,
+                message = "收到 ${event.kind}",
+                eventData = TraceRedaction.event(event.data, includeRaw = includeRawEvents()),
+            ),
+        )
         val offset = environment.zoneOffsetMinutes(now)
         val enabled = rules.filter { it.enabled }
         val allBindings = enabled.flatMap { TriggerPlan.bindings(it) }
@@ -179,6 +227,21 @@ class TriggerDispatcher(
             }
             val debounceKey = if (rule.triggerMatch.mode == MatchMode.ALL) "${rule.id}#all" else binding.key
             if (!allowsDebounce(debounceKey, now)) {
+                trace.record(
+                    TraceEvent(
+                        traceId = traceId,
+                        atEpochMs = now,
+                        kind = TraceKind.MATCH,
+                        status = TraceStatus.DEBOUNCED,
+                        level = TraceLevel.DEBUG,
+                        ruleId = rule.id,
+                        cmdId = rule.cmdId,
+                        ruleName = rule.name,
+                        componentTypeId = binding.component.typeId,
+                        message = "触发被防抖",
+                        detail = debounceKey,
+                    ),
+                )
                 debounced += ruleBindings.size
                 continue
             }
@@ -190,6 +253,27 @@ class TriggerDispatcher(
             val conditions = TriggerConditions.evaluate(
                 rule.conditions, environment, now, offset, conditionVariables,
             )
+            for (evaluation in conditions.evaluations) {
+                trace.record(
+                    TraceEvent(
+                        traceId = traceId,
+                        atEpochMs = now,
+                        kind = TraceKind.CONDITION,
+                        status = if (evaluation.passed) TraceStatus.SUCCESS else TraceStatus.FAILURE,
+                        level = if (evaluation.passed) TraceLevel.DEBUG else TraceLevel.INFO,
+                        ruleId = rule.id,
+                        cmdId = rule.cmdId,
+                        ruleName = rule.name,
+                        componentTypeId = evaluation.component.typeId,
+                        message = evaluation.component.name,
+                        detail = evaluation.detail,
+                        params = TraceRedaction.params(
+                            BuiltInComponents.registry().find(evaluation.component.typeId),
+                            evaluation.component.params,
+                        ),
+                    ),
+                )
+            }
             if (!conditions.passed) {
                 val detail = conditions.detail
                 val previous = lastSkipLog[rule.id]
@@ -208,30 +292,113 @@ class TriggerDispatcher(
             when (rule.runMode) {
                 com.flowglass.engine.RunMode.DROP -> if (active > 0) {
                     dropped++
+                    trace.record(
+                        TraceEvent(
+                            traceId = traceId,
+                            atEpochMs = now,
+                            kind = TraceKind.QUEUE,
+                            status = TraceStatus.DROPPED,
+                            level = TraceLevel.WARN,
+                            ruleId = rule.id,
+                            cmdId = rule.cmdId,
+                            ruleName = rule.name,
+                            message = "已有运行，按丢弃策略跳过",
+                        ),
+                    )
                     continue
                 }
                 com.flowglass.engine.RunMode.QUEUE -> if (active > 0) {
                     val queue = queues.getOrPut(rule.id) { ArrayDeque() }
-                    if (queue.size >= MAX_QUEUED_RUNS) dropped++ else {
-                        queue.addLast(TriggerExecution(rule, binding, reason, variables, readOnlyNames))
+                    if (queue.size >= MAX_QUEUED_RUNS) {
+                        dropped++
+                        trace.record(
+                            TraceEvent(
+                                traceId = traceId,
+                                atEpochMs = now,
+                                kind = TraceKind.QUEUE,
+                                status = TraceStatus.DROPPED,
+                                level = TraceLevel.WARN,
+                                ruleId = rule.id,
+                                cmdId = rule.cmdId,
+                                ruleName = rule.name,
+                                componentTypeId = binding.component.typeId,
+                                message = "队列已满，丢弃触发",
+                            ),
+                        )
+                    } else {
+                        queue.addLast(TriggerExecution(rule, binding, reason, variables, readOnlyNames, traceId))
                         queued++
+                        trace.record(
+                            TraceEvent(
+                                traceId = traceId,
+                                atEpochMs = now,
+                                kind = TraceKind.QUEUE,
+                                status = TraceStatus.QUEUED,
+                                ruleId = rule.id,
+                                cmdId = rule.cmdId,
+                                ruleName = rule.name,
+                                componentTypeId = binding.component.typeId,
+                                message = "已排队",
+                            ),
+                        )
                     }
                     continue
                 }
                 com.flowglass.engine.RunMode.RESTART -> if (active > 0) executor.cancel(rule)
                 com.flowglass.engine.RunMode.PARALLEL -> if (active >= MAX_PARALLEL_RUNS) {
                     dropped++
+                    trace.record(
+                        TraceEvent(
+                            traceId = traceId,
+                            atEpochMs = now,
+                            kind = TraceKind.QUEUE,
+                            status = TraceStatus.DROPPED,
+                            level = TraceLevel.WARN,
+                            ruleId = rule.id,
+                            cmdId = rule.cmdId,
+                            ruleName = rule.name,
+                            message = "并行运行数已满",
+                        ),
+                    )
                     continue
                 }
             }
             lastFired[debounceKey] = now
+            trace.record(
+                TraceEvent(
+                    traceId = traceId,
+                    atEpochMs = now,
+                    kind = TraceKind.MATCH,
+                    status = TraceStatus.SUCCESS,
+                    ruleId = rule.id,
+                    cmdId = rule.cmdId,
+                    ruleName = rule.name,
+                    componentTypeId = binding.component.typeId,
+                    message = "规则匹配",
+                    detail = reasonFor(binding),
+                ),
+            )
             if (rule.triggerMatch.mode == MatchMode.ALL) {
                 // A conjunction is consumed by one execution; require fresh events next time.
                 ruleBindings.forEach { lastEvents.remove(it.key) }
             }
-            if (executor.execute(rule, binding, reason, variables, readOnlyNames)) {
-                executions += TriggerExecution(rule, binding, reason, variables, readOnlyNames)
+            if (executor.executeTraced(rule, binding, reason, variables, readOnlyNames, traceId)) {
+                executions += TriggerExecution(rule, binding, reason, variables, readOnlyNames, traceId)
             } else {
+                trace.record(
+                    TraceEvent(
+                        traceId = traceId,
+                        atEpochMs = now,
+                        kind = TraceKind.RUN,
+                        status = TraceStatus.DROPPED,
+                        level = TraceLevel.WARN,
+                        ruleId = rule.id,
+                        cmdId = rule.cmdId,
+                        ruleName = rule.name,
+                        componentTypeId = binding.component.typeId,
+                        message = "执行器拒绝启动",
+                    ),
+                )
                 dropped++
             }
         }
@@ -246,7 +413,15 @@ class TriggerDispatcher(
         val queue = queues[rule.id] ?: return
         while (queue.isNotEmpty() && executor.activeCount(rule) == 0) {
             val next = queue.removeFirst()
-            if (executor.execute(next.rule, next.binding, next.reason, next.variables, next.readOnlyNames)) return
+            if (executor.executeTraced(
+                    next.rule,
+                    next.binding,
+                    next.reason,
+                    next.variables,
+                    next.readOnlyNames,
+                    next.traceId,
+                )
+            ) return
         }
         if (queue.isEmpty()) queues.remove(rule.id)
     }
