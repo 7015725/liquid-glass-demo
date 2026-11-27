@@ -188,6 +188,8 @@ data class ParamSpec(
      * Defaults to all profiles so existing application parameters keep their behavior.
      */
     val applicationScope: ApplicationScope = ApplicationScope.ALL_PROFILES,
+    /** Hide this value in trace logs; token-like editors are redacted automatically. */
+    val sensitive: Boolean = false,
 )
 
 /** Task-chain semantics executed by the interpreter instead of a plain action handler. */
