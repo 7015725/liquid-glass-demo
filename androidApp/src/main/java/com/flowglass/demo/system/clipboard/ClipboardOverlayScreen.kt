@@ -1,11 +1,6 @@
 package com.flowglass.demo.system.clipboard
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,6 +27,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +41,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -168,6 +168,10 @@ internal fun ClipboardOverlayScreen(
                     if (!searchOpen) search = ""
                 },
                 onSearchChange = { search = it },
+                onSearchClose = {
+                    searchOpen = false
+                    search = ""
+                },
                 onCopy = { entry ->
                     onCopy(entry)
                     copiedId = entry.id
@@ -208,6 +212,7 @@ private fun ClipboardSheet(
     retentionDays: Int,
     onSearchToggle: () -> Unit,
     onSearchChange: (String) -> Unit,
+    onSearchClose: () -> Unit,
     onCopy: (ClipboardEntry) -> Unit,
     onDelete: (ClipboardEntry) -> Unit,
     onClear: () -> Unit,
@@ -259,6 +264,11 @@ private fun ClipboardSheet(
                 .clip(CircleShape)
                 .background(C.Divider),
         )
+        val searchProgress by animateFloatAsState(
+            targetValue = if (searchOpen) 1f else 0f,
+            animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+            label = "clipboardSearch",
+        )
         Row(
             Modifier
                 .fillMaxWidth()
@@ -267,78 +277,78 @@ private fun ClipboardSheet(
         ) {
             Box(
                 Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(C.PrimarySoft, C.TonalStrong),
-                        ),
-                    )
-                    .border(
-                        1.dp,
-                        C.Primary.copy(alpha = 0.24f),
-                        RoundedCornerShape(13.dp),
-                    ),
-                contentAlignment = Alignment.Center,
+                    .weight(1f)
+                    .height(54.dp),
             ) {
-                LineIcon(Ic.Copy, C.Primary, 21.dp)
-            }
-            Spacer(Modifier.width(11.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    T("全局剪贴板", 19.sp, FontWeight.Bold, C.OnSurface, maxLines = 1)
-                    Spacer(Modifier.width(8.dp))
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(C.PrimarySoft.copy(alpha = 0.62f))
-                            .border(
-                                1.dp,
-                                C.Primary.copy(alpha = 0.22f),
-                                RoundedCornerShape(50),
-                            )
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                    ) {
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = (1f - searchProgress).coerceIn(0f, 1f) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            T("全局剪贴板", 19.sp, FontWeight.Bold, C.OnSurface, maxLines = 1)
+                            Spacer(Modifier.width(8.dp))
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(C.PrimarySoft.copy(alpha = 0.62f))
+                                    .border(
+                                        1.dp,
+                                        C.Primary.copy(alpha = 0.22f),
+                                        RoundedCornerShape(50),
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                            ) {
+                                T(
+                                    if (page == null) "…" else "${page.total} 条",
+                                    10.sp,
+                                    FontWeight.SemiBold,
+                                    C.Primary,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(3.dp))
                         T(
-                            if (page == null) "…" else "${page.total} 条",
-                            10.sp,
-                            FontWeight.SemiBold,
-                            C.Primary,
+                            if (page == null) "正在读取本机记录…" else "${page.total} 条记录 · 仅保存在本机",
+                            11.sp,
+                            color = C.Muted,
                             maxLines = 1,
                         )
                     }
+                    OverlayIconButton(
+                        icon = Ic.Search,
+                        contentDescription = "搜索",
+                        onClick = onSearchToggle,
+                    )
                 }
-                Spacer(Modifier.height(3.dp))
-                T(
-                    if (page == null) "正在读取本机记录…" else "${page.total} 条记录 · 仅保存在本机",
-                    11.sp,
-                    color = C.Muted,
-                    maxLines = 1,
-                )
+                if (searchProgress > 0.001f) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = searchProgress
+                                scaleX = 0.18f + 0.82f * searchProgress
+                                transformOrigin = TransformOrigin(1f, 0.5f)
+                            },
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        ClipboardSearchField(
+                            value = search,
+                            focusRequester = searchFocus,
+                            onValueChange = onSearchChange,
+                            onClose = onSearchClose,
+                        )
+                    }
+                }
             }
-            OverlayIconButton(
-                icon = Ic.Search,
-                contentDescription = if (searchOpen) "收起搜索" else "搜索",
-                active = searchOpen,
-                onClick = onSearchToggle,
-            )
             Spacer(Modifier.width(2.dp))
             OverlayIconButton(
                 icon = Ic.Close,
                 contentDescription = "关闭",
                 onClick = onClose,
-            )
-        }
-
-        AnimatedVisibility(
-            visible = searchOpen,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
-        ) {
-            ClipboardSearchField(
-                value = search,
-                focusRequester = searchFocus,
-                onValueChange = onSearchChange,
             )
         }
 
@@ -422,17 +432,17 @@ private fun ClipboardSearchField(
     value: String,
     focusRequester: FocusRequester,
     onValueChange: (String) -> Unit,
+    onClose: () -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 9.dp)
-            .height(42.dp)
+            .height(44.dp)
             .clip(RoundedCornerShape(50))
             .background(C.Field)
             .border(1.dp, C.Divider.copy(alpha = 0.36f), RoundedCornerShape(50))
-            .padding(horizontal = 13.dp),
+            .padding(start = 13.dp, end = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         LineIcon(Ic.Search, C.Muted, 17.dp)
@@ -458,16 +468,15 @@ private fun ClipboardSearchField(
                 T("搜索内容或应用", 14.sp, color = C.Muted, maxLines = 1)
             }
         }
-        if (value.isNotEmpty()) {
-            Box(
-                Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .clickable { onValueChange("") },
-                contentAlignment = Alignment.Center,
-            ) {
-                LineIcon(Ic.Close, C.Muted, 14.dp)
-            }
+        Box(
+            Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onClose)
+                .semanticsDescription("关闭搜索"),
+            contentAlignment = Alignment.Center,
+        ) {
+            LineIcon(Ic.Close, C.Muted, 15.dp)
         }
     }
 }
