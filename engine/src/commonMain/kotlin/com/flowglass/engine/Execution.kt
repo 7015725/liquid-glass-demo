@@ -5,6 +5,15 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
+import com.flowglass.engine.log.NoopTraceSink
+import com.flowglass.engine.log.TraceEvent
+import com.flowglass.engine.log.TraceKind
+import com.flowglass.engine.log.TraceLevel
+import com.flowglass.engine.log.TraceRedaction
+import com.flowglass.engine.log.TraceSink
+import com.flowglass.engine.log.TraceStatus
+import com.flowglass.engine.log.newTraceId
+import com.flowglass.engine.log.toTraceStatus
 import kotlin.coroutines.cancellation.CancellationException
 
 @Serializable
@@ -43,6 +52,8 @@ data class RunLog(
 data class RunContext(
     val rule: Rule,
     val reason: String,
+    /** Correlation id for the whole rule run; actions/conditions reuse it. */
+    val runId: String = newTraceId(),
     val variables: MutableMap<String, Any?> = linkedMapOf(),
     /** 当前正在执行的步骤下标（从 0 开始）；-1 表示未开始。 */
     var currentStep: Int = -1,
@@ -386,6 +397,9 @@ class RuleExecutor(
      * pure-JVM hosts so a long wait never blocks a coroutine dispatcher on Android.
      */
     private val sleeper: suspend (Long) -> Unit = { Thread.sleep(it) },
+    private val trace: TraceSink = NoopTraceSink,
+    private val traceId: String = newTraceId(),
+    private val parentSpanId: String? = null,
 ) {
     suspend fun run(
         rule: Rule,
@@ -398,12 +412,13 @@ class RuleExecutor(
     ): RunLog {
         cancellationCheckpoint.ensureActive()
         val start = clock.nowEpochMs()
+        val runId = newTraceId()
         val monotonicStart = kotlin.time.TimeSource.Monotonic.markNow()
         val steps = mutableListOf<StepResult>()
         // Normalise output bindings before the first step so a hand-edited or pre-migration
         // rule still gets unique, read-only names.
         val normalized = OutputCatalog.normalizeRule(rule, registry)
-        val context = RunContext(normalized, reason)
+        val context = RunContext(normalized, reason, runId)
         val outputNames = readOnlyOutputNames(normalized) + initialReadOnlyNames
         val scopes = RunScopes(normalized, initialVariables, globals, globalVariableMeta, outputNames)
         context.scriptVariables = object : ScriptVariableAccess {
@@ -413,6 +428,21 @@ class RuleExecutor(
             }
             override fun names(): Set<String> = scopes.names()
         }
+        trace.record(
+            TraceEvent(
+                traceId = traceId,
+                spanId = runId,
+                parentSpanId = parentSpanId,
+                runId = runId,
+                atEpochMs = start,
+                kind = TraceKind.RUN,
+                status = TraceStatus.STARTED,
+                ruleId = normalized.id,
+                ruleName = normalized.name,
+                message = "开始执行",
+                detail = reason,
+            ),
+        )
         var budgetExceeded: BudgetExceeded? = null
         var stopped: StopSignal? = null
 
@@ -426,8 +456,42 @@ class RuleExecutor(
         } catch (exceeded: BudgetExceeded) {
             budgetExceeded = exceeded
         } catch (cancelled: CancellationException) {
+            trace.record(
+                TraceEvent(
+                    traceId = traceId,
+                    spanId = runId,
+                    parentSpanId = parentSpanId,
+                    runId = runId,
+                    atEpochMs = clock.nowEpochMs(),
+                    kind = TraceKind.RUN,
+                    status = TraceStatus.CANCELLED,
+                    level = TraceLevel.WARN,
+                    ruleId = normalized.id,
+                    ruleName = normalized.name,
+                    message = "执行已取消",
+                ),
+            )
             // A manual stop must not persist half-finished variables or fabricate a result.
             throw cancelled
+        } catch (failure: Throwable) {
+            trace.record(
+                TraceEvent(
+                    traceId = traceId,
+                    spanId = runId,
+                    parentSpanId = parentSpanId,
+                    runId = runId,
+                    atEpochMs = clock.nowEpochMs(),
+                    kind = TraceKind.RUN,
+                    status = TraceStatus.FAILURE,
+                    level = TraceLevel.ERROR,
+                    ruleId = normalized.id,
+                    ruleName = normalized.name,
+                    message = "执行异常",
+                    errorCode = "run_exception",
+                    errorStack = failure.stackTraceToString().take(16_384),
+                ),
+            )
+            throw failure
         }
 
         val failed = steps.firstOrNull { it.status == StepStatus.FAILURE }
@@ -450,12 +514,29 @@ class RuleExecutor(
         val elapsed = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
             monotonicStart.elapsedNow().inWholeNanoseconds.coerceAtLeast(0),
         )
+        trace.record(
+            TraceEvent(
+                traceId = traceId,
+                spanId = runId,
+                parentSpanId = parentSpanId,
+                runId = runId,
+                atEpochMs = start,
+                kind = TraceKind.RUN,
+                status = status.toTraceStatus(),
+                level = if (status == StepStatus.FAILURE) TraceLevel.ERROR else TraceLevel.INFO,
+                ruleId = normalized.id,
+                ruleName = normalized.name,
+                message = "执行结束",
+                detail = detail,
+                durationMs = elapsed,
+            ),
+        )
         // Success and failure both persist variables; cancellation already returned above.
         sink.persist(scopes.ruleWrites(), scopes.globalWrites())
         val (ruleDefinitions, globalDefinitions) = scopes.definitions()
         sink.persistDefinitions(ruleDefinitions, globalDefinitions)
         return RunLog(
-            id = newIdString(),
+            id = runId,
             ruleId = rule.id,
             ruleName = rule.name,
             reason = reason,
@@ -518,7 +599,7 @@ class RuleExecutor(
         return when (block) {
             BlockKind.IF -> runIf(node, path, depth, context, scopes, budget, steps, ::record)
             BlockKind.LOOP -> runLoop(node, path, depth, context, scopes, budget, steps, ::record)
-            BlockKind.WAIT -> runWait(node, scopes, ::record)
+            BlockKind.WAIT -> runWait(node, context, scopes, ::record)
             BlockKind.BREAK -> throw BreakSignal()
             BlockKind.STOP -> {
                 val success = node.params["status"]?.stringValue() != "failure"
@@ -527,7 +608,7 @@ class RuleExecutor(
                 record(if (success) StepStatus.SUCCESS else StepStatus.FAILURE, message)
                 throw StopSignal(success, message)
             }
-            BlockKind.SET_VAR -> runSetVar(node, scopes, ::record)
+            BlockKind.SET_VAR -> runSetVar(node, context, scopes, ::record)
             BlockKind.RUN_RULE -> runChain(node, depth, budget, scopes, ::record)
         }
     }
@@ -548,14 +629,82 @@ class RuleExecutor(
         val variables = scopes.flattened()
         val expanded = ParamTemplate.expand(node.params, meta.params, variables)
         val resolved = if (expanded == node.params) node else node.copy(params = expanded)
+        val spanId = newTraceId()
         val started = kotlin.time.TimeSource.Monotonic.markNow()
+        trace.record(
+            TraceEvent(
+                traceId = traceId,
+                spanId = spanId,
+                parentSpanId = parentSpanId,
+                runId = context.runId,
+                atEpochMs = clock.nowEpochMs(),
+                kind = TraceKind.ACTION,
+                status = TraceStatus.STARTED,
+                ruleId = context.rule.id,
+                ruleName = context.rule.name,
+                componentTypeId = node.type,
+                componentPath = path,
+                message = "开始执行 ${meta.name}",
+                params = TraceRedaction.params(meta, resolved.params),
+            ),
+        )
         // Exceptions propagate: the host owns the "internal error" wording and its log row.
         // Only a FAILURE outcome participates in RETRY.
         suspend fun attempt(): ActionOutcome = action.run(context, resolved)
-        var result = attempt()
-        if (result.status == StepStatus.FAILURE && node.onError == OnError.RETRY) result = attempt()
+        var result: ActionOutcome
+        try {
+            result = attempt()
+            if (result.status == StepStatus.FAILURE && node.onError == OnError.RETRY) result = attempt()
+        } catch (failure: Throwable) {
+            trace.record(
+                TraceEvent(
+                    traceId = traceId,
+                    spanId = spanId,
+                    parentSpanId = parentSpanId,
+                    runId = context.runId,
+                    atEpochMs = clock.nowEpochMs(),
+                    kind = TraceKind.ACTION,
+                    status = TraceStatus.FAILURE,
+                    level = TraceLevel.ERROR,
+                    ruleId = context.rule.id,
+                    ruleName = context.rule.name,
+                    componentTypeId = node.type,
+                    componentPath = path,
+                    message = meta.name,
+                    detail = failure.message.orEmpty(),
+                    durationMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                        started.elapsedNow().inWholeNanoseconds.coerceAtLeast(0),
+                    ),
+                    params = TraceRedaction.params(meta, resolved.params),
+                    errorCode = "action_exception",
+                    errorStack = failure.stackTraceToString().take(16_384),
+                ),
+            )
+            throw failure
+        }
         cancellationCheckpoint.ensureActive()
         val duration = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(started.elapsedNow().inWholeNanoseconds.coerceAtLeast(0))
+        trace.record(
+            TraceEvent(
+                traceId = traceId,
+                spanId = spanId,
+                parentSpanId = parentSpanId,
+                runId = context.runId,
+                atEpochMs = clock.nowEpochMs(),
+                kind = TraceKind.ACTION,
+                status = result.status.toTraceStatus(),
+                level = if (result.status == StepStatus.FAILURE) TraceLevel.ERROR else TraceLevel.INFO,
+                ruleId = context.rule.id,
+                ruleName = context.rule.name,
+                componentTypeId = node.type,
+                componentPath = path,
+                message = meta.name,
+                detail = result.detail,
+                durationMs = duration,
+                params = TraceRedaction.params(meta, resolved.params),
+                outputs = TraceRedaction.values(result.outputs),
+            ),
+        )
         steps += StepResult(node.type, result.status, result.detail, duration, path, result.layer)
         scopes.run[LAST_DETAIL] = result.detail
         scopes.builtins["上一步结果"] = result.detail
@@ -612,7 +761,7 @@ class RuleExecutor(
     ): SequenceOutcome {
         val variables = scopes.flattened()
         fun results(conditions: List<RuleComponent>): List<ConditionEvaluation> =
-            conditions.map { evaluate(it, variables) }
+            conditions.map { evaluate(it, variables, context) }
         fun passes(conditions: List<RuleComponent>): Boolean {
             val evaluated = results(conditions)
             return conditions.isNotEmpty() && evaluated.all { it.passed }
@@ -670,7 +819,7 @@ class RuleExecutor(
             while (iterations < limit) {
                 if (whileMode) {
                     val variables = scopes.flattened()
-                    val evaluated = node.conditions.map { evaluate(it, variables) }
+                    val evaluated = node.conditions.map { evaluate(it, variables, context) }
                     val pass = node.conditions.isNotEmpty() && evaluated.all { it.passed }
                     if (!pass) {
                         lastConditionDetail = evaluated.firstOrNull { !it.passed }?.detail.orEmpty()
@@ -705,6 +854,7 @@ class RuleExecutor(
 
     private suspend fun runWait(
         node: RuleComponent,
+        context: RunContext,
         scopes: RunScopes,
         record: (StepStatus, String) -> Unit,
     ): SequenceOutcome {
@@ -718,7 +868,7 @@ class RuleExecutor(
         while (true) {
             cancellationCheckpoint.ensureActive()
             val variables = scopes.flattened()
-            val evaluated = node.conditions.map { evaluate(it, variables) }
+            val evaluated = node.conditions.map { evaluate(it, variables, context) }
             if (evaluated.all { it.passed }) {
                 record(StepStatus.SUCCESS, "条件已成立")
                 return SequenceOutcome(StepStatus.SUCCESS, "条件已成立")
@@ -737,6 +887,7 @@ class RuleExecutor(
 
     private fun runSetVar(
         node: RuleComponent,
+        context: RunContext,
         scopes: RunScopes,
         record: (StepStatus, String) -> Unit,
     ): SequenceOutcome {
@@ -752,7 +903,29 @@ class RuleExecutor(
                 else -> throw IllegalArgumentException("未知保存范围")
             }
             val retain = (node.params["retain"]?.stringValue() ?: "false") == "true"
+            val before = scopes.read(name)
             val stored = scopes.setNamed(name, value, type, op, scope, retain)
+            trace.record(
+                TraceEvent(
+                    traceId = traceId,
+                    runId = context.runId,
+                    atEpochMs = clock.nowEpochMs(),
+                    kind = TraceKind.VARIABLE,
+                    status = TraceStatus.SUCCESS,
+                    ruleId = context.rule.id,
+                    ruleName = context.rule.name,
+                    componentTypeId = node.type,
+                    componentPath = context.currentPath,
+                    message = "$name = ${TraceRedaction.text(name, stored)}",
+                    params = mapOf(
+                        "name" to name,
+                        "op" to op,
+                        "scope" to scope.name,
+                        "before" to TraceRedaction.text(name, before?.toString().orEmpty()),
+                        "after" to TraceRedaction.text(name, stored),
+                    ),
+                ),
+            )
             record(StepStatus.SUCCESS, "$name = ${stored.ifEmpty { "(空)" }}")
             SequenceOutcome(StepStatus.SUCCESS, "$name = $stored")
         } catch (invalid: IllegalArgumentException) {
@@ -791,16 +964,43 @@ class RuleExecutor(
         return SequenceOutcome(outcome.status, outcome.detail)
     }
 
-    private fun evaluate(condition: RuleComponent, variables: Map<String, Any?>): ConditionEvaluation {
+    private fun evaluate(
+        condition: RuleComponent,
+        variables: Map<String, Any?>,
+        context: RunContext,
+    ): ConditionEvaluation {
         val meta = registry.find(condition.type)
         val layer = meta?.let { conditionLayerSelector?.invoke(it) }
-        return Conditions.evaluateDetailed(
+        val started = kotlin.time.TimeSource.Monotonic.markNow()
+        val result = Conditions.evaluateDetailed(
             condition,
             variables,
             environment ?: DefaultEnvironment,
             clock.nowEpochMs(),
             layer,
         )
+        trace.record(
+            TraceEvent(
+                traceId = traceId,
+                parentSpanId = parentSpanId,
+                runId = context.runId,
+                atEpochMs = clock.nowEpochMs(),
+                kind = TraceKind.CONDITION,
+                status = if (result.passed) TraceStatus.SUCCESS else TraceStatus.FAILURE,
+                level = if (result.passed) TraceLevel.DEBUG else TraceLevel.INFO,
+                ruleId = context.rule.id,
+                ruleName = context.rule.name,
+                componentTypeId = condition.type,
+                componentPath = context.currentPath,
+                message = meta?.name ?: condition.type,
+                detail = result.detail,
+                durationMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                    started.elapsedNow().inWholeNanoseconds.coerceAtLeast(0),
+                ),
+                params = TraceRedaction.params(meta, condition.params),
+            ),
+        )
+        return result
     }
 
     private companion object {
