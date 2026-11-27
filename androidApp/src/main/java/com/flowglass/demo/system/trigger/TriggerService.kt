@@ -12,9 +12,13 @@ import android.util.Log
 import com.flowglass.demo.system.RunningNotification
 import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.system.exec.ExecutionRuntime
+import com.flowglass.demo.system.log.recordDiagnostic
 import com.flowglass.demo.ui.AppRuntime
 import com.flowglass.demo.ui.snapshot
 import com.flowglass.demo.xposed.SystemHookProtocol
+import com.flowglass.engine.log.TraceKind
+import com.flowglass.engine.log.TraceLevel
+import com.flowglass.engine.log.TraceStatus
 import com.flowglass.engine.trigger.TriggerEvent
 import com.flowglass.engine.trigger.TriggerKinds
 import com.flowglass.engine.trigger.TriggerSource
@@ -25,6 +29,23 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private fun Context.triggerServiceTrace(
+    status: TraceStatus,
+    message: String,
+    detail: String = "",
+    error: Throwable? = null,
+) {
+    AppRuntime.of(this).logStore.recordDiagnostic(
+        kind = TraceKind.SYSTEM,
+        status = status,
+        source = "TRIGGER_SERVICE",
+        message = message,
+        detail = detail,
+        level = if (error != null || status == TraceStatus.FAILURE) TraceLevel.ERROR else TraceLevel.INFO,
+        error = error,
+    )
+}
 
 /**
  * A dedicated `specialUse|location` foreground service instead of reusing KeepAliveService.
@@ -47,6 +68,7 @@ class TriggerService : Service() {
     override fun onCreate() {
         super.onCreate()
         current = this
+        triggerServiceTrace(TraceStatus.STARTED, "触发器服务已启动")
         // The service can be the first component started after a reboot, possibly before the
         // system hook receiver is registered. Re-send the persisted hook state here; the hook
         // replays its loaded announcement if this state still arrived too early.
@@ -80,6 +102,7 @@ class TriggerService : Service() {
         host = null
         if (current === this) current = null
         TriggerStatus.reset()
+        triggerServiceTrace(TraceStatus.INFO, "触发器服务已停止")
         RunningNotification.stop(this, RunningNotification.OWNER_TRIGGER)
         scope.cancel()
         super.onDestroy()
@@ -128,6 +151,12 @@ class TriggerService : Service() {
                 created.prime(pending)
                 pending.clear()
                 created.start()
+            } catch (t: Throwable) {
+                triggerServiceTrace(
+                    TraceStatus.FAILURE,
+                    "触发器服务初始化失败",
+                    error = t,
+                )
             } finally {
                 starting = false
             }
@@ -223,7 +252,13 @@ class TriggerService : Service() {
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
             else context.startService(intent)
             true
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            context.triggerServiceTrace(
+                TraceStatus.FAILURE,
+                "触发器服务启动失败",
+                detail = intent.action.orEmpty(),
+                error = t,
+            )
             false
         }
 

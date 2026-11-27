@@ -19,11 +19,15 @@ import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.system.exec.ConditionFileAccess
 import com.flowglass.demo.system.exec.ExecutionRuntime
 import com.flowglass.demo.system.log.LogSettings
+import com.flowglass.demo.system.log.recordDiagnostic
 import com.flowglass.demo.ui.AppRuntime
 import com.flowglass.demo.ui.AppState
 import com.flowglass.demo.ui.Cmd
 import com.flowglass.demo.ui.snapshot
 import com.flowglass.demo.xposed.method.MethodHookEventSink
+import com.flowglass.engine.log.TraceKind
+import com.flowglass.engine.log.TraceLevel
+import com.flowglass.engine.log.TraceStatus
 import com.flowglass.engine.methodhook.AppMethodCall
 import com.flowglass.engine.methodhook.MethodHookVariables
 import com.flowglass.engine.Clock
@@ -205,6 +209,26 @@ internal class TriggerHost(
         includeRawEvents = { LogSettings(context).includeRawEvents },
     )
     private val sourceRegistry = TriggerSourceRegistry(::installSource, ::uninstallSource)
+    private fun traceSource(
+        source: TriggerSource,
+        status: TraceStatus,
+        message: String,
+        error: Throwable? = null,
+    ) {
+        val level = when {
+            error != null || status == TraceStatus.FAILURE -> TraceLevel.ERROR
+            status == TraceStatus.SKIPPED -> TraceLevel.WARN
+            else -> TraceLevel.INFO
+        }
+        AppRuntime.of(context).logStore.recordDiagnostic(
+            kind = TraceKind.SOURCE,
+            status = status,
+            source = source.name,
+            message = message,
+            level = level,
+            error = error,
+        )
+    }
     private val alarms = AlarmScheduler(context)
     private val wifiWatcher = WifiWatcher(context, scope, ::emitEvent)
     private val bluetoothWatcher = BluetoothWatcher(context, ::emitEvent)
@@ -213,7 +237,9 @@ internal class TriggerHost(
     private val appWatcher = AppForegroundWatcher(context, scope, ::emitEvent)
     private val rootAppWatcher = RootForegroundWatcher(context, scope, ::emitEvent)
     private val systemBroadcastSource = SystemBroadcastSource(context, scope, ::emit) { lastRules }
-    private val httpTriggerServer = HttpTriggerServer(context, scope, ::emit) { lastRules }
+    private val httpTriggerServer = HttpTriggerServer(context, scope, ::emit, { lastRules }) { message, error ->
+        traceSource(TriggerSource.HTTP, TraceStatus.FAILURE, message, error)
+    }
     private val phoneStateSource = PhoneStateSource(context, ::emit)
     private val calendarWatcher = CalendarWatcher(context, ::emit)
     private val mediaTrackSource = MediaTrackSource(context, ::emit)
@@ -246,6 +272,7 @@ internal class TriggerHost(
     private val pendingEvents = ArrayDeque<TriggerEvent>()
     private var alarmSignature: String? = null
     @Volatile private var lastRules: List<TriggerRule> = emptyList()
+    private var lastBlockedSources: Set<TriggerSource> = emptySet()
     private val eventSeq = java.util.concurrent.atomic.AtomicLong(0)
 
     /** Routes a verified target-process event into the normal trigger dispatcher. */
@@ -426,6 +453,15 @@ internal class TriggerHost(
 
     private fun reconcile(input: TriggerInput) {
         val eligible = eligibleRules(input.rules)
+        val blockedSources = input.rules.asSequence()
+            .filter { it.enabled && !it.permissionsGranted(context) }
+            .flatMap { it.triggers.asSequence() }
+            .mapNotNull { TriggerTypes.sourceOf(it.typeId.orEmpty()) }
+            .toSet()
+        (blockedSources - lastBlockedSources).forEach { source ->
+            traceSource(source, TraceStatus.SKIPPED, "触发器源缺少权限，相关规则未监听")
+        }
+        lastBlockedSources = blockedSources
         if (!input.running || eligible.isEmpty()) {
             SystemHookSettings.clearSubscriptions(context)
             dispatcher.prune(emptyList())
@@ -486,19 +522,20 @@ internal class TriggerHost(
     }
 
     private fun installSource(source: TriggerSource) {
+        try {
         when (source) {
-            TriggerSource.SCREEN -> register(screenReceiver, IntentFilter().apply {
+            TriggerSource.SCREEN -> register(TriggerSource.SCREEN, screenReceiver, IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_SCREEN_OFF)
                 addAction(Intent.ACTION_USER_PRESENT)
             })
-            TriggerSource.POWER -> register(powerReceiver, IntentFilter().apply {
+            TriggerSource.POWER -> register(TriggerSource.POWER, powerReceiver, IntentFilter().apply {
                 addAction(Intent.ACTION_POWER_CONNECTED)
                 addAction(Intent.ACTION_POWER_DISCONNECTED)
             })
             TriggerSource.BATTERY -> {
                 val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-                val sticky = register(batteryReceiver, filter)
+                val sticky = register(TriggerSource.BATTERY, batteryReceiver, filter)
                 // Initialize the stateful baseline from the sticky broadcast.
                 if (sticky != null) batteryReceiver.onReceive(context, sticky)
             }
@@ -527,9 +564,15 @@ internal class TriggerHost(
             TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM, TriggerSource.METHOD_HOOK,
             TriggerSource.INTENT, TriggerSource.TILE, TriggerSource.SHARE, TriggerSource.SMS -> Unit
         }
+            traceSource(source, TraceStatus.STARTED, "触发器源已启动")
+        } catch (t: Throwable) {
+            traceSource(source, TraceStatus.FAILURE, "触发器源启动失败", t)
+            Log.e("TriggerHost", "install source $source failed", t)
+        }
     }
 
     private fun uninstallSource(source: TriggerSource) {
+        try {
         when (source) {
             TriggerSource.SCREEN -> unregister(screenReceiver)
             TriggerSource.POWER -> unregister(powerReceiver)
@@ -551,16 +594,22 @@ internal class TriggerHost(
             TriggerSource.TIME, TriggerSource.BOOT, TriggerSource.SYSTEM, TriggerSource.METHOD_HOOK,
             TriggerSource.INTENT, TriggerSource.TILE, TriggerSource.SHARE, TriggerSource.SMS -> Unit
         }
+            traceSource(source, TraceStatus.INFO, "触发器源已停止")
+        } catch (t: Throwable) {
+            traceSource(source, TraceStatus.FAILURE, "触发器源停止失败", t)
+            Log.e("TriggerHost", "uninstall source $source failed", t)
+        }
     }
 
-    private fun register(receiver: BroadcastReceiver, filter: IntentFilter): Intent? = try {
+    private fun register(source: TriggerSource, receiver: BroadcastReceiver, filter: IntentFilter): Intent? = try {
         if (Build.VERSION.SDK_INT >= 33) {
             context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             context.registerReceiver(receiver, filter)
         }
-    } catch (_: Throwable) {
+    } catch (t: Throwable) {
+        traceSource(source, TraceStatus.FAILURE, "广播监听注册失败", t)
         null
     }
 

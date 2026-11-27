@@ -36,6 +36,7 @@ internal class HttpTriggerServer(
     private val scope: CoroutineScope,
     private val emit: (TriggerEvent) -> Unit,
     private val rules: () -> List<TriggerRule>,
+    private val onFailure: (String, Throwable?) -> Unit = { _, _ -> },
 ) {
     private data class Config(val port: Int, val lan: Boolean)
     private class Running(
@@ -90,6 +91,7 @@ internal class HttpTriggerServer(
             context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED
         ) {
             Log.w(TAG, "LAN bind rejected: ACCESS_LOCAL_NETWORK not granted")
+            onFailure("HTTP 触发器未获本地网络权限，无法绑定局域网端口", null)
             return
         }
         val socket = try {
@@ -107,6 +109,7 @@ internal class HttpTriggerServer(
             }
         } catch (error: Throwable) {
             Log.w(TAG, "cannot bind HTTP trigger port ${config.port}: ${error.message}")
+            onFailure("HTTP 触发器端口 ${config.port} 绑定失败", error)
             return
         }
         val running = Running(
