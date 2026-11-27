@@ -634,6 +634,12 @@ class TriggerDispatcher(
                 putText("trigger.sms.sender", data["sms.sender"])
                 putText("trigger.sms.body", data["sms.body"])
             }
+            TriggerTypes.CLIPBOARD_CHANGED -> {
+                putText("trigger.clipboard.text", data["clipboard.text"])
+                putText("trigger.clipboard.package", data["clipboard.package"])
+                putText("trigger.clipboard.time", data["clipboard.time"])
+                putText("trigger.clipboard.mime", data["clipboard.mime"])
+            }
             TriggerTypes.MEDIA_TRACK -> {
                 putText("trigger.media.title", data["media.title"])
                 putText("trigger.media.artist", data["media.artist"])

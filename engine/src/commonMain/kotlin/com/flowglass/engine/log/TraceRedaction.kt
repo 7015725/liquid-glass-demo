@@ -6,7 +6,9 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
 object TraceRedaction {
-    private val secretKey = Regex("(?i)(token|password|secret|authorization|cookie|api[-_]?key)")
+    private val secretKey = Regex(
+        "(?i)(token|password|secret|authorization|cookie|api[-_]?key|clipboard\\.(text|content)|剪贴板内容)",
+    )
     private const val MAX_VALUE = 512
 
     fun text(key: String, raw: String, force: Boolean = false): String {

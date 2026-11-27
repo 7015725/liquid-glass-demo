@@ -18,7 +18,7 @@ import kotlinx.serialization.json.jsonPrimitive
 enum class TriggerSource {
     TIME, SCREEN, POWER, BATTERY, BOOT, WIFI, BLUETOOTH, NOTIFICATION, APP, HEADSET, LOCATION,
     SYSTEM, METHOD_HOOK, BROADCAST, INTENT, HTTP, TILE, SHARE,
-    PHONE, SMS, CALENDAR, MEDIA,
+    PHONE, SMS, CALENDAR, MEDIA, CLIPBOARD,
 }
 
 object TriggerTypes {
@@ -68,6 +68,7 @@ object TriggerTypes {
     const val NOTIFICATION_REMOVED = "trigger.notification_removed"
     const val MEDIA_TRACK = "trigger.media_track"
     const val CALENDAR_CHANGED = "trigger.calendar_changed"
+    const val CLIPBOARD_CHANGED = "trigger.clipboard_changed"
 
     /** Old rules keep their type id; only these two are mapped onto the new listeners. */
     fun sourceOf(typeId: String): TriggerSource? = when (typeId) {
@@ -100,6 +101,7 @@ object TriggerTypes {
         NOTIFICATION_REMOVED -> TriggerSource.NOTIFICATION
         MEDIA_TRACK -> TriggerSource.MEDIA
         CALENDAR_CHANGED -> TriggerSource.CALENDAR
+        CLIPBOARD_CHANGED -> TriggerSource.CLIPBOARD
         else -> null
     }
 
@@ -229,6 +231,7 @@ object TriggerKinds {
     const val NOTIFICATION_REMOVED = "notification_removed"
     const val MEDIA_TRACK = "media_track"
     const val CALENDAR_CHANGED = "calendar_changed"
+    const val CLIPBOARD_CHANGED = "clipboard_changed"
 }
 
 /** Recomputes the listener set and reports the delta; the host installs/removes only changes. */
@@ -376,6 +379,8 @@ object TriggerMatcher {
             )
             TriggerKinds.MEDIA_TRACK -> matchesMediaTrack(binding, event)
             TriggerKinds.CALENDAR_CHANGED -> binding.component.typeId == TriggerTypes.CALENDAR_CHANGED
+            TriggerKinds.CLIPBOARD_CHANGED -> binding.component.typeId == TriggerTypes.CLIPBOARD_CHANGED &&
+                !event.data["clipboard.text"].isNullOrBlank()
             else -> false
         }
     }

@@ -537,6 +537,22 @@ object BuiltInComponents {
         ComponentMeta("trigger.calendar_changed", "日历变更", "系统", ComponentKind.TRIGGER,
             permissions = listOf("calendar"), supports = normalSupport("calendar"),
             description = "日历事件新增、修改或删除时触发；只监听变化，不读取或上传日程内容。"),
+        ComponentMeta("trigger.clipboard_changed", "剪贴板发生变化", "系统", ComponentKind.TRIGGER,
+            supports = listOf(
+                LayerSupport(ExecutionLayer.XPOSED),
+                LayerSupport(ExecutionLayer.NORMAL),
+            ),
+            description = "系统剪贴板内容被写入时触发。全局后台监听需要 LSPosed 系统钩子；没有钩子时只在应用可见时记录。",
+            outputs = listOf(
+                out("trigger.clipboard.text", "剪贴板内容", VariableType.TEXT, "剪贴板内容",
+                    "本次复制后的剪贴板正文；超过 32 KiB 会截断"),
+                out("trigger.clipboard.package", "来源应用", VariableType.TEXT, "剪贴板来源应用",
+                    "执行复制操作的应用包名；未知时为空"),
+                out("trigger.clipboard.time", "变化时间", VariableType.TEXT, "剪贴板时间",
+                    "本次变化的本机时间，格式 yyyy-MM-dd HH:mm:ss"),
+                out("trigger.clipboard.mime", "内容类型", VariableType.TEXT, "剪贴板类型",
+                    "ClipData 的 MIME 类型，例如 text/plain"),
+            )),
     )
 
     val conditions = listOf(
