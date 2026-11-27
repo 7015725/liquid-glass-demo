@@ -116,6 +116,19 @@ class TriggerM3Test {
     }
 
     @Test
+    fun smsKeywordRegexIsOptIn() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, executor)
+        val r = rule("sms-regex", trigger(TriggerTypes.SMS_RECEIVED,
+            "keyword" to "账单(已出|到了)", "matchMode" to "regex"))
+        assertEquals(0, d.dispatch(event(TriggerKinds.SMS_RECEIVED, 0, TriggerSource.SMS,
+            "sms.sender" to "10086", "sms.body" to "欢迎"), listOf(r)).executions.size)
+        assertEquals(1, d.dispatch(event(TriggerKinds.SMS_RECEIVED, 3_000, TriggerSource.SMS,
+            "sms.sender" to "10086", "sms.body" to "本月账单已出"), listOf(r)).executions.size)
+    }
+
+    @Test
     fun notificationExtensionAndRemovalAreDifferentKinds() {
         val clock = FakeClock(0)
         val executor = RecordingExecutor()

@@ -84,6 +84,9 @@ enum class ParamEditor {
     LOCATION,
     APP_METHOD_EXTRACTIONS,
 
+    /** Secret-like TEXT value: hidden by default, with generate/copy controls and no variables. */
+    TOKEN,
+
     /** Multi-line JavaScript editor: same TEXT storage, syntax highlighting and line numbers. */
     CODE,
 }
@@ -185,6 +188,8 @@ data class ParamSpec(
      * Defaults to all profiles so existing application parameters keep their behavior.
      */
     val applicationScope: ApplicationScope = ApplicationScope.ALL_PROFILES,
+    /** Hide this value in trace logs; token-like editors are redacted automatically. */
+    val sensitive: Boolean = false,
 )
 
 /** Task-chain semantics executed by the interpreter instead of a plain action handler. */

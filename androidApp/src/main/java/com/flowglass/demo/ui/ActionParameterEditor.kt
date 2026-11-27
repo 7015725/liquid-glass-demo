@@ -68,6 +68,10 @@ internal fun ActionParameterEditor(
         if (showDone) EditorPill("完成", "完成", action = onDone)
         return
     }
+    if (section == CommandSection.TRIGGERS) {
+        T("触发器参数不支持变量；这里只按固定值匹配。", 12.sp, color = C.OnSurfaceVar,
+            lineHeight = 18.sp, modifier = Modifier.testTag("trigger-parameter-hint"))
+    }
 
     if (meta.params.size > 1) {
         if (item.typeId == "condition.variable") {
@@ -75,13 +79,16 @@ internal fun ActionParameterEditor(
         } else if (item.typeId == "action.set_var") {
             SetVariableEditor(meta, item, onParameter, targets, variables, onValidity)
         } else {
-            MultiParameterEditor(meta, item, onParameter, onAuthorization, targets, variables,
+            MultiParameterEditor(meta, item, onParameter, onAuthorization, targets,
+                if (section == CommandSection.TRIGGERS) emptyList() else variables,
                 canConfigureOutputs, onConfigureOutputs, onValidity)
         }
     } else {
         val spec = meta.params.single()
+        var problem by remember(item.id) { mutableStateOf<String?>(null) }
         LaunchedEffect(item.id) {
-            onValidity(ParameterForm.compose(meta, mapOf(spec.key to item.parameter)).isFailure)
+            problem = ParameterForm.triggerProblem(meta, mapOf(spec.key to item.parameter))
+            onValidity(problem != null || ParameterForm.compose(meta, mapOf(spec.key to item.parameter)).isFailure)
         }
         ParamField(
             spec = spec,
@@ -89,13 +96,15 @@ internal fun ActionParameterEditor(
             tag = "item-parameter",
             onValue = { raw ->
                 onParameter(raw)
-                onValidity(ParameterForm.compose(meta, mapOf(spec.key to raw)).isFailure)
+                problem = ParameterForm.triggerProblem(meta, mapOf(spec.key to raw))
+                onValidity(problem != null || ParameterForm.compose(meta, mapOf(spec.key to raw)).isFailure)
             },
             targets = targets,
-            variables = variables,
+            variables = if (section == CommandSection.TRIGGERS) emptyList() else variables,
             canConfigureOutputs = canConfigureOutputs,
             onConfigureOutputs = onConfigureOutputs,
         )
+        problem?.let { T(it, 12.sp, color = C.Bad) }
         if (spec.hint.isNotBlank()) {
             T(spec.hint, 13.sp, color = C.OnSurfaceVar, lineHeight = 20.sp,
                 modifier = Modifier.testTag("parameter-help"))
@@ -243,15 +252,26 @@ private fun MultiParameterEditor(
     var fields by remember(item.id) { mutableStateOf(ParameterForm.fields(meta, item.parameter)) }
     var error by remember(item.id) { mutableStateOf<String?>(null) }
     LaunchedEffect(item.id) {
-        onValidity(ParameterForm.compose(meta, fields).isFailure)
+        val problem = ParameterForm.triggerProblem(meta, fields)
+        error = problem
+        onValidity(problem != null || ParameterForm.compose(meta, fields).isFailure)
     }
 
     fun update(key: String, value: String) {
         val next = fields + (key to value)
         fields = next
         val composed = ParameterForm.compose(meta, next)
-            .onSuccess { onParameter(it); error = null; onValidity(false) }
-            .onFailure { error = it.message?.replace('\n', ' ')?.take(120); onValidity(true) }
+        composed
+            .onSuccess {
+                val problem = ParameterForm.triggerProblem(meta, next)
+                error = problem
+                onParameter(it)
+                onValidity(problem != null)
+            }
+            .onFailure {
+                error = it.message?.replace('\n', ' ')?.take(120)
+                onValidity(true)
+            }
     }
 
     if (item.typeId == "trigger.time" && !canScheduleExactAlarms(androidx.compose.ui.platform.LocalContext.current)) {
@@ -270,21 +290,128 @@ private fun MultiParameterEditor(
     }
     error?.let { T("参数无效：$it", 12.sp, color = C.Bad) }
 
-    meta.params.forEach { spec ->
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            T(ParameterForm.fieldLabel(spec), 14.sp, FontWeight.SemiBold)
-            ParamField(
-                spec = spec,
-                current = fields[spec.key].orEmpty(),
-                tag = "param-${spec.key}",
-                onValue = { update(spec.key, it) },
-                targets = targets,
-                variables = variables,
-                canConfigureOutputs = canConfigureOutputs,
-                onConfigureOutputs = onConfigureOutputs,
-            )
-            if (spec.hint.isNotBlank()) T(spec.hint, 12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
+    val params = visibleParams(meta)
+    if (meta.typeId == "trigger.http_request") {
+        val byKey = params.associateBy { it.key }
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            TriggerSection("监听", listOfNotNull(byKey["port"], byKey["bind"])) { spec ->
+                TriggerParamBlock(spec, fields, targets, variables, canConfigureOutputs,
+                    onConfigureOutputs, ::update)
+            }
+            TriggerSection("请求匹配", listOfNotNull(byKey["method"], byKey["path"])) { spec ->
+                TriggerParamBlock(spec, fields, targets, variables, canConfigureOutputs,
+                    onConfigureOutputs, ::update)
+            }
         }
+    } else if (meta.typeId == "trigger.intent_received") {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            TriggerSection("匹配条件", params) { spec ->
+                TriggerParamBlock(spec, fields, targets, variables, canConfigureOutputs,
+                    onConfigureOutputs, ::update)
+            }
+        }
+    } else {
+        params.forEach { spec ->
+            TriggerParamBlock(spec, fields, targets, variables, canConfigureOutputs,
+                onConfigureOutputs, ::update)
+        }
+    }
+    if (meta.kind == com.flowglass.engine.ComponentKind.TRIGGER &&
+        meta.params.any { it.key == "matchMode" }
+    ) {
+        TriggerMatchPreview(meta, fields)
+    }
+}
+
+private fun visibleParams(meta: ComponentMeta): List<com.flowglass.engine.ParamSpec> =
+    if (meta.kind == com.flowglass.engine.ComponentKind.TRIGGER &&
+        meta.typeId in setOf("trigger.intent_received", "trigger.http_request")
+    ) {
+        // Token is legacy-only for these two open entries; it must not render a subtitle or box.
+        meta.params.filterNot { it.key == "token" }
+    } else {
+        meta.params
+    }
+
+@Composable
+private fun TriggerSection(
+    title: String,
+    params: List<com.flowglass.engine.ParamSpec>,
+    content: @Composable (com.flowglass.engine.ParamSpec) -> Unit,
+) {
+    if (params.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (title.isNotBlank()) {
+            T(title, 12.sp, FontWeight.SemiBold, color = C.OnSurfaceVar)
+        }
+        params.forEach { content(it) }
+    }
+}
+
+@Composable
+private fun TriggerParamBlock(
+    spec: com.flowglass.engine.ParamSpec,
+    fields: Map<String, String>,
+    targets: List<String>,
+    variables: List<VariableOption>,
+    canConfigureOutputs: Boolean,
+    onConfigureOutputs: (() -> Unit)?,
+    update: (String, String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        T(ParameterForm.fieldLabel(spec), 14.sp, FontWeight.SemiBold)
+        ParamField(
+            spec = spec,
+            current = fields[spec.key].orEmpty(),
+            tag = "param-${spec.key}",
+            onValue = { update(spec.key, it) },
+            targets = targets,
+            variables = variables,
+            canConfigureOutputs = canConfigureOutputs,
+            onConfigureOutputs = onConfigureOutputs,
+        )
+        if (spec.hint.isNotBlank()) {
+            T(spec.hint, 12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
+        }
+    }
+}
+
+@Composable
+private fun TriggerMatchPreview(meta: ComponentMeta, fields: Map<String, String>) {
+    var sample by remember(meta.typeId) { mutableStateOf("") }
+    val keys = when {
+        meta.params.any { it.key == "title" } -> listOf("title", "text", "subtext")
+        meta.params.any { it.key == "keyword" } -> listOf("keyword")
+        meta.params.any { it.key == "ssid" } -> listOf("ssid")
+        meta.params.any { it.key == "name" } -> listOf("name")
+        else -> emptyList()
+    }
+    if (keys.isEmpty()) return
+    val mode = fields["matchMode"].orEmpty()
+    val regex = mode == "regex" || mode == "正则表达式"
+    val exact = mode == "exact" || mode == "精确"
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        T("测试匹配（本地预览）", 14.sp, FontWeight.SemiBold)
+        T("粘贴一段示例文本；只在本页计算，不读取真实通知、短信或设备名称。", 12.sp,
+            color = C.OnSurfaceVar, lineHeight = 18.sp)
+        ParameterTextField(sample, "trigger-match-sample") { sample = it }
+        val rows = keys.mapNotNull { key ->
+            val pattern = fields[key].orEmpty().trim()
+            if (pattern.isEmpty()) null else {
+                val hit = runCatching {
+                    when {
+                        regex -> Regex(pattern, RegexOption.IGNORE_CASE).containsMatchIn(sample)
+                        exact -> sample.equals(pattern, ignoreCase = true)
+                        else -> sample.contains(pattern, ignoreCase = true)
+                    }
+                }.getOrDefault(false)
+                val label = meta.params.firstOrNull { it.key == key }?.label ?: key
+                "$label：${if (hit) "命中" else "未命中"}"
+            }
+        }
+        T(if (rows.isEmpty()) "先填写一个关键字再测试。" else rows.joinToString(" · "), 12.sp,
+            color = if (rows.any { it.endsWith("：命中") }) C.Primary else C.OnSurfaceVar,
+            lineHeight = 18.sp)
     }
 }
 

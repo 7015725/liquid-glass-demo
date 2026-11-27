@@ -10,10 +10,11 @@
 - `ANY`（默认）：任一触发器命中即执行。事件型触发器仍按各自的状态边沿、参数和 2 秒防抖判断。
 - `ALL`：规则的所有触发器都满足才执行。
   - **状态型触发器**按命中事件发生时的**当前状态**判断，不要求看到一次状态边沿：
-    - WiFi：`connected` 表示当前网络为 WiFi 且（配置了 SSID 时）SSID 一致；
+    - WiFi：`connected` 表示当前网络为 WiFi 且（配置了 SSID 时）SSID 按配置的“精确/包含/正则”方式匹配；
       `disconnected` 表示当前 SSID 不是配置的那个（未配置 SSID 时表示当前不是 WiFi）。
       系统不给出 SSID（未授权、定位关闭或 `<unknown ssid>`）时，带 SSID 的两个方向都不匹配，
       避免把「不知道」当成「不是 Home」。
+    - 蓝牙：设备名称默认按不区分大小写的包含匹配，也可切换为精确或正则。
     - 充电状态：`trigger.power_connected` / `trigger.power_disconnected` 按当前是否充电判断；
       旧版 `trigger.charging` 的 `charging` / `stopped` 也按当前充电状态判断。
     - 电量：按当前电量与阈值比较；旧版 `battery_low` 按“低于阈值”处理。
@@ -52,6 +53,12 @@
 
 - 四种策略覆盖空闲、运行中、队列上限、并行上限、重启取消和队列唤醒。
 
+## 变量与匹配
+
+触发器参数**不支持变量展开**。编辑页仍可能显示普通文本框，但 `{变量}` 在触发器匹配阶段按字面量处理；触发时也不提供动作输出变量。需要在执行后判断变量值时，请把判断放进条件或后续动作。
+
+通知、短信、WiFi 和蓝牙的文本过滤支持“包含/精确/正则”三种模式（具体字段不同）；默认保持旧规则的字面量行为。正则在保存时校验长度和语法，匹配失败时按不命中处理，不会让调度器崩溃。包含 `|` 的触发器文本字段会无损存成结构化 JSON，避免与旧版字段分隔符冲突。带匹配方式的触发器编辑页提供“测试匹配（本地预览）”：粘贴示例文本即可逐字段查看命中结果，不读取真实通知或短信。
+
 ## 地点触发与系统定位开关
 
 地点触发器在宿主存活期间监听 `LocationManager.PROVIDERS_CHANGED_ACTION`。启动时系统定位关闭、或在运行中
@@ -59,7 +66,7 @@
 GPS 次之，采样间隔两分钟，不申请后台定位权限。
 
 
-外部入口（显式 Intent、本机 HTTP、快速设置磁贴、系统分享）的令牌和边界见 [external-entry-triggers.md](external-entry-triggers.md)。
+外部入口（显式 Intent、本机 HTTP、快速设置磁贴、系统分享）的边界见 [external-entry-triggers.md](external-entry-triggers.md)。
 
 
 电话、短信、日历、媒体与通知移除触发器的权限和边界见 [phone-sms-calendar-media-triggers.md](phone-sms-calendar-media-triggers.md)。

@@ -15,22 +15,21 @@
 
 ## 收到 Intent
 
-调用方必须把广播**显式发送给**：
+调用方把广播**显式发送给**：
 
 ```text
 com.flowglass.demo/.system.trigger.IntentTriggerReceiver
 ```
 
-接收器不声明隐式 action 过滤器，因此普通系统广播不会进入触发器引擎。每条规则必须设置自己的令牌，调用方在 `flowglass_token`（或兼容的 `token`）额外参数中携带同一令牌：
+接收器不声明隐式 action 过滤器，因此普通系统广播不会进入触发器引擎。这个入口**不校验令牌**：
 
 ```bash
 adb shell am broadcast \
   -n com.flowglass.demo/.system.trigger.IntentTriggerReceiver \
-  --es flowglass_token 'rule-token' \
   --es demo 'hello'
 ```
 
-- 令牌为空或与规则不一致时不触发。
+- 任何已安装应用或 adb 都能触发，请只给不会造成破坏的动作使用。
 - 可选 `action` 参数用于精确匹配 Intent action；留空匹配任意 action。
 - 只转发字符串、整数、长整数、布尔、浮点和双精度额外参数。
 - 最多 32 个额外参数，序列化后最多 4 KiB；单个值最多 512 字符。
@@ -44,21 +43,20 @@ adb shell am broadcast \
 
 ```bash
 curl -i -X POST \
-  -H 'X-Flowglass-Token: rule-token' \
   --data 'hello' \
   'http://127.0.0.1:8765/hook'
 ```
 
 - 默认绑定 `127.0.0.1`；选择“局域网”后才绑定 `0.0.0.0`。
 - 默认端口 `8765`，可在规则里改成 `1024–65535`。
-- 令牌可放在 `X-Flowglass-Token`、`Authorization: Bearer` 或 `token` 查询参数中；规则令牌为空时不会启动服务。
-- 方法支持 `GET`、`POST`、`PUT`；请求体最大 64 KiB；每令牌每分钟最多 60 次请求。
-- 成功返回 `202 Accepted`；令牌错误 `401`；方法不支持 `405`；请求过大或格式错误 `400`；超频 `429`；监听器已停止 `503`。
+- 入口**不校验令牌**：任何本机应用（或选择局域网后能访问该端口的设备）都能触发。
+- 方法支持 `GET`、`POST`、`PUT`；请求体最大 64 KiB；每个来源每分钟最多 60 次请求。
+- 成功返回 `202 Accepted`；方法不支持 `405`；请求过大或格式错误 `400`；超频 `429`；监听器已停止 `503`。
 - 只处理单次请求/连接，不支持 keep-alive、分块传输或 TLS。
 - 输出：`方法`、`路径`、`查询串`、`正文`、`HTTP来源`。
 - 端口被占用、绑定失败或 Android 17+ 未授予本地网络权限时，规则不会启动监听；日志中会记录原因。
 
-HTTP 入口默认只允许本机访问，不建议在没有额外网络隔离的情况下选择“局域网”。
+HTTP 入口默认只允许本机访问；它没有身份校验，**同设备的任何应用都能触发**。选择“局域网”后会把规则暴露给同一网络内的其他设备，除非明确需要，否则不要这样绑定。
 
 ## 快速设置点击
 

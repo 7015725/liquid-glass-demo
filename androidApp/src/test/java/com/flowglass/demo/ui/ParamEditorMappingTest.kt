@@ -16,7 +16,7 @@ class ParamEditorMappingTest {
     @Test fun everyBuiltInParameterResolvesToAConcreteEditor() {
         val all = registry.all()
         assertEquals("组件数量", 88, all.size)
-        assertEquals("参数数量", 121, all.sumOf { it.params.size })
+        assertEquals("参数数量", 130, all.sumOf { it.params.size })
         all.forEach { meta ->
             meta.params.forEach { spec ->
                 assertNotEquals(
@@ -37,6 +37,10 @@ class ParamEditorMappingTest {
         assertEquals(ParamEditor.INT_RANGE, editor("condition.battery_range", "range"))
         assertEquals(ParamEditor.APPLICATION, editor("trigger.notification", "app"))
         assertEquals(ParamEditor.APPLICATION, editor("action.launch_app", "package"))
+        assertEquals(ParamEditor.APPLICATION, editor("trigger.next_alarm_changed", "package"))
+        assertEquals(ParamEditor.APPLICATION, editor("trigger.media_track", "app"))
+        assertEquals(ParamEditor.TOKEN, editor("trigger.intent_received", "token"))
+        assertEquals(ParamEditor.TOKEN, editor("trigger.http_request", "token"))
         assertEquals(ParamEditor.SEGMENTED, editor("action.wifi_switch", "mode"))
     }
 

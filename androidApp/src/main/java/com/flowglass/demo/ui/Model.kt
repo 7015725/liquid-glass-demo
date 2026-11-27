@@ -177,8 +177,14 @@ internal fun Cmd.categoryName(): String? =
 class AppState internal constructor(saved: PersistedAppState?) {
     constructor() : this(null)
     private var executionEngine: com.flowglass.demo.system.exec.ExecutionEngine? = null
-    fun bindExecutionContext(context: android.content.Context) =
-        bindExecutionEngine(com.flowglass.demo.system.exec.ExecutionRuntime.engine(context))
+    fun bindExecutionContext(
+        context: android.content.Context,
+        traceSink: com.flowglass.engine.log.TraceSink? = null,
+    ) {
+        val engine = com.flowglass.demo.system.exec.ExecutionRuntime.engine(context)
+        if (traceSink != null) engine.traceSink = traceSink
+        bindExecutionEngine(engine)
+    }
 
     /** Persisted rule locals plus globals, keyed by name; the trigger host evaluates conditions before a run. */
     internal fun persistedVariablesFor(engineRuleId: String): Map<String, Any?> {
@@ -1504,19 +1510,20 @@ class AppState internal constructor(saved: PersistedAppState?) {
         variables: Map<String, Any?>,
         mode: com.flowglass.engine.RunMode,
         readOnlyNames: Set<String> = emptySet(),
+        traceId: String? = null,
     ): kotlinx.coroutines.Job? {
         val active = activeExecutionCount(cmd.id)
         return when (mode) {
             com.flowglass.engine.RunMode.DROP -> if (active > 0) null
-                else launchExecution(cmd, scope, reason, variables, allowParallel = false, readOnlyNames = readOnlyNames)
+                else launchExecution(cmd, scope, reason, variables, allowParallel = false, readOnlyNames = readOnlyNames, traceId = traceId)
             com.flowglass.engine.RunMode.QUEUE -> if (active > 0) null
-                else launchExecution(cmd, scope, reason, variables, allowParallel = false, readOnlyNames = readOnlyNames)
+                else launchExecution(cmd, scope, reason, variables, allowParallel = false, readOnlyNames = readOnlyNames, traceId = traceId)
             com.flowglass.engine.RunMode.RESTART -> {
                 if (active > 0) cancelExecution(cmd.id)
-                launchExecution(cmd, scope, reason, variables, allowParallel = false, readOnlyNames = readOnlyNames)
+                launchExecution(cmd, scope, reason, variables, allowParallel = false, readOnlyNames = readOnlyNames, traceId = traceId)
             }
             com.flowglass.engine.RunMode.PARALLEL -> if (active >= 3) null
-                else launchExecution(cmd, scope, reason, variables, allowParallel = true, readOnlyNames = readOnlyNames)
+                else launchExecution(cmd, scope, reason, variables, allowParallel = true, readOnlyNames = readOnlyNames, traceId = traceId)
         }
     }
 
@@ -1527,6 +1534,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         variables: Map<String, Any?>,
         allowParallel: Boolean = false,
         readOnlyNames: Set<String> = emptySet(),
+        traceId: String? = null,
     ): kotlinx.coroutines.Job {
         val engine = executionEngine
         val token = Any()
@@ -1537,7 +1545,7 @@ class AppState internal constructor(saved: PersistedAppState?) {
         val job = com.flowglass.demo.system.exec.ExecutionRuntime.scope.launch {
             try {
                 val result = try {
-                    engine?.run(cmd, reason, variables, allowParallel, readOnlyNames) ?: com.flowglass.demo.system.exec.RunResult(
+                    engine?.run(cmd, reason, variables, allowParallel, readOnlyNames, traceId) ?: com.flowglass.demo.system.exec.RunResult(
                         cmd.id, reason, listOf(com.flowglass.demo.system.exec.StepResult(
                             cmd.id, "执行环境检查", com.flowglass.demo.system.exec.StepStatus.FAILURE,
                             "执行环境未就绪", 0)), 0)

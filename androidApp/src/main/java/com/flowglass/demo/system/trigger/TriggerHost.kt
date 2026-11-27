@@ -18,6 +18,7 @@ import androidx.compose.runtime.snapshotFlow
 import com.flowglass.demo.system.SystemHookSettings
 import com.flowglass.demo.system.exec.ConditionFileAccess
 import com.flowglass.demo.system.exec.ExecutionRuntime
+import com.flowglass.demo.system.log.LogSettings
 import com.flowglass.demo.ui.AppRuntime
 import com.flowglass.demo.ui.AppState
 import com.flowglass.demo.ui.Cmd
@@ -148,9 +149,35 @@ internal class TriggerHost(
             reason: String,
             variables: Map<String, Any?>,
             readOnlyNames: Set<String>,
+        ): Boolean = executeInternal(rule, binding, reason, variables, readOnlyNames, "")
+
+        override fun executeTraced(
+            rule: TriggerRule,
+            binding: TriggerBinding,
+            reason: String,
+            variables: Map<String, Any?>,
+            readOnlyNames: Set<String>,
+            traceId: String,
+        ): Boolean = executeInternal(rule, binding, reason, variables, readOnlyNames, traceId)
+
+        private fun executeInternal(
+            rule: TriggerRule,
+            binding: TriggerBinding,
+            reason: String,
+            variables: Map<String, Any?>,
+            readOnlyNames: Set<String>,
+            traceId: String,
         ): Boolean {
             val cmd = state.find(rule.cmdId) ?: return false
-            val job = state.executeWithPolicy(cmd, scope, reason, variables, rule.runMode, readOnlyNames) ?: return false
+            val job = state.executeWithPolicy(
+                cmd,
+                scope,
+                reason,
+                variables,
+                rule.runMode,
+                readOnlyNames,
+                traceId.ifBlank { null },
+            ) ?: return false
             job.invokeOnCompletion {
                 // The engine completes on its own dispatcher; the completion mutates the dispatcher
                 // queue and the execution maps, so it belongs to the same serial worker as events.
@@ -174,6 +201,8 @@ internal class TriggerHost(
                 AppRuntime.of(context).requestSave { state.snapshot() }
             }
         },
+        trace = AppRuntime.of(context).logStore,
+        includeRawEvents = { LogSettings(context).includeRawEvents },
     )
     private val sourceRegistry = TriggerSourceRegistry(::installSource, ::uninstallSource)
     private val alarms = AlarmScheduler(context)

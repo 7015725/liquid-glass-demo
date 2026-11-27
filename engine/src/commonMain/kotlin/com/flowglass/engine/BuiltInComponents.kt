@@ -118,7 +118,7 @@ object BuiltInComponents {
                 out("trigger.system_time.kind", "变更类型", VariableType.TEXT, "变更类型", "date、time 或 timezone"),
             )),
         ComponentMeta("trigger.next_alarm_changed", "下一个闹钟变化", "系统", ComponentKind.TRIGGER,
-            listOf(param("package", "闹钟应用", "", ParamType.TEXT, required = false,
+            listOf(param("package", "闹钟应用", "", ParamType.APPLICATION, required = false,
                 hint = "留空匹配任意应用；填写包名后精确匹配，例如 com.android.deskclock。")),
             supports = normalLayer,
             description = "系统下一个闹钟被设置、修改或取消时触发；取消时输出为空。",
@@ -202,6 +202,10 @@ object BuiltInComponents {
                 param("ssid", "网络名称", "", ParamType.TEXT, required = false,
                     hint = "留空匹配任意 WiFi。读取网络名称需要定位权限。",
                     source = ParamSource.WIFI_NETWORKS),
+                param("matchMode", "名称匹配方式", "exact", ParamType.ENUM, options = listOf(
+                    ParamOption("exact", "精确"), ParamOption("contains", "包含"),
+                    ParamOption("regex", "正则表达式")),
+                    hint = "默认精确匹配；旧规则保持原有行为。"),
             ), permissions = listOf("location"), supports = normalSupport("location"),
             outputs = listOf(
                 out("trigger.wifi.ssid", "WiFi 名称", VariableType.TEXT, "WiFi名称", "本次事件的网络名称"),
@@ -214,6 +218,10 @@ object BuiltInComponents {
                 param("name", "设备名称", "", ParamType.TEXT, required = false,
                     hint = "留空匹配任意设备；填写后按名称包含匹配。",
                     source = ParamSource.PAIRED_BLUETOOTH),
+                param("matchMode", "名称匹配方式", "contains", ParamType.ENUM, options = listOf(
+                    ParamOption("exact", "精确"), ParamOption("contains", "包含"),
+                    ParamOption("regex", "正则表达式")),
+                    hint = "默认包含匹配；旧规则保持原有行为。"),
             ), permissions = listOf("bluetooth_connect"), supports = normalSupport("bluetooth_connect"),
             outputs = listOf(
                 out("trigger.bluetooth.name", "蓝牙名称", VariableType.TEXT, "蓝牙名称", "本次事件的设备名称"),
@@ -232,6 +240,10 @@ object BuiltInComponents {
                     hint = "留空匹配任意渠道；按通知渠道 ID 精确匹配。"),
                 param("ongoing", "常驻通知", "any", ParamType.ENUM, options = listOf(
                     ParamOption("any", "任意"), ParamOption("yes", "是"), ParamOption("no", "否"))),
+                param("matchMode", "关键字匹配方式", "contains", ParamType.ENUM, options = listOf(
+                    ParamOption("contains", "包含"), ParamOption("exact", "精确"),
+                    ParamOption("regex", "正则表达式")),
+                    hint = "作用于标题、正文和副文本；类别、渠道和应用仍为精确匹配。"),
             ), permissions = listOf("notification_listener"), supports = normalSupport("notification_listener"),
             outputs = listOf(
                 out("trigger.notification.app", "通知应用", VariableType.TEXT, "通知应用", "发出通知的应用包名；分身会带 @用户"),
@@ -404,12 +416,14 @@ object BuiltInComponents {
             )),
         ComponentMeta("trigger.intent_received", "收到 Intent", "系统", ComponentKind.TRIGGER,
             listOf(
-                param("token", "令牌", "", ParamType.TEXT, required = true,
-                    hint = "调用方必须在 flowglass_token 额外参数中携带同一令牌；留空不会触发。"),
+                // Hidden from the editor; retained only so old serialized rules still map fields.
+                param("token", "令牌", "", ParamType.TEXT, required = false,
+                    editor = ParamEditor.TOKEN,
+                    hint = "旧规则兼容字段，编辑页不再显示，也不参与匹配。"),
                 param("action", "Intent Action", "", ParamType.TEXT, required = false,
                     hint = "留空匹配任意 action；填写后精确匹配。"),
             ), supports = normalLayer,
-            description = "其他应用或 adb 向流光发送显式 Intent 时触发；只接受带正确令牌的调用。",
+            description = "其他应用或 adb 向流光发送显式 Intent 时触发；入口不校验令牌。",
             outputs = listOf(
                 out("trigger.intent.action", "Action", VariableType.TEXT, "Intent动作", "收到的 Intent action"),
                 out("trigger.intent.data", "Data URI", VariableType.TEXT, "Intent数据", "收到的 Intent data URI"),
@@ -417,8 +431,10 @@ object BuiltInComponents {
             )),
         ComponentMeta("trigger.http_request", "HTTP 请求", "网络", ComponentKind.TRIGGER,
             listOf(
-                param("token", "令牌", "", ParamType.TEXT, required = true,
-                    hint = "请求必须携带 X-Flowglass-Token 头或 token 查询参数；留空不会启动服务。"),
+                // Hidden from the editor; retained only so old serialized rules still map fields.
+                param("token", "令牌", "", ParamType.TEXT, required = false,
+                    editor = ParamEditor.TOKEN,
+                    hint = "旧规则兼容字段，编辑页不再显示，也不参与匹配。"),
                 ParamSpec("port", "端口", ParamType.INTEGER, defaultValue = JsonPrimitive(8765),
                     minValue = 1024, maxValue = 65535,
                     hint = "默认 8765；端口被占用时规则不会启动，状态页会显示错误。"),
@@ -431,7 +447,7 @@ object BuiltInComponents {
                     ParamOption("loopback", "仅本机 127.0.0.1"),
                     ParamOption("lan", "局域网 0.0.0.0"))),
             ), permissions = listOf("local_network"), supports = normalSupport("local_network"),
-            description = "在本地启动 HTTP 服务，收到带令牌的请求时触发；默认只绑定 127.0.0.1。",
+            description = "在本地启动 HTTP 服务，收到请求时触发；默认只绑定 127.0.0.1，入口不校验令牌。",
             outputs = listOf(
                 out("trigger.http.method", "方法", VariableType.TEXT, "方法", "HTTP 方法"),
                 out("trigger.http.path", "路径", VariableType.TEXT, "路径", "请求路径，不含查询串"),
@@ -467,6 +483,10 @@ object BuiltInComponents {
                 param("sender", "发送方", "", ParamType.TEXT, required = false,
                     hint = "留空匹配任意发送方；填写后精确匹配号码。"),
                 param("keyword", "正文关键字", "", ParamType.TEXT, required = false),
+                param("matchMode", "关键字匹配方式", "contains", ParamType.ENUM, options = listOf(
+                    ParamOption("contains", "包含"), ParamOption("exact", "精确"),
+                    ParamOption("regex", "正则表达式")),
+                    hint = "应用于正文关键字；发送方仍为精确匹配。"),
             ), permissions = listOf("sms"), supports = normalSupport("sms"),
             description = "收到短信时触发；默认不读取历史短信，只读取这条广播的内容。",
             outputs = listOf(
@@ -482,6 +502,17 @@ object BuiltInComponents {
                     hint = "留空匹配任意应用。"),
                 param("title", "标题关键字", "", ParamType.TEXT, required = false),
                 param("text", "内容关键字", "", ParamType.TEXT, required = false),
+                param("subtext", "副文本关键字", "", ParamType.TEXT, required = false),
+                param("category", "类别", "", ParamType.TEXT, required = false,
+                    hint = "留空匹配任意类别；例如 msg、email、call。"),
+                param("channel", "渠道 ID", "", ParamType.TEXT, required = false,
+                    hint = "留空匹配任意渠道；按通知渠道 ID 精确匹配。"),
+                param("ongoing", "常驻通知", "any", ParamType.ENUM, options = listOf(
+                    ParamOption("any", "任意"), ParamOption("yes", "是"), ParamOption("no", "否"))),
+                param("matchMode", "关键字匹配方式", "contains", ParamType.ENUM, options = listOf(
+                    ParamOption("contains", "包含"), ParamOption("exact", "精确"),
+                    ParamOption("regex", "正则表达式")),
+                    hint = "作用于标题、正文和副文本；类别、渠道和应用仍为精确匹配。"),
             ), permissions = listOf("notification_listener"), supports = normalSupport("notification_listener"),
             description = "通知被用户清除、应用取消或被系统移除时触发。",
             outputs = listOf(
@@ -493,7 +524,7 @@ object BuiltInComponents {
                 out("trigger.notification.channel", "通知渠道", VariableType.TEXT, "移除通知渠道", "被移除通知的渠道 ID"),
             )),
         ComponentMeta("trigger.media_track", "媒体曲目变化", "媒体", ComponentKind.TRIGGER,
-            listOf(param("app", "应用", "", ParamType.TEXT, required = false,
+            listOf(param("app", "应用", "", ParamType.APPLICATION, required = false,
                 hint = "留空匹配任意媒体应用；填写包名后精确匹配。")),
             permissions = listOf("notification_listener"), supports = normalSupport("notification_listener"),
             description = "当前媒体会话切换曲目时触发；需要通知使用权读取媒体会话。",

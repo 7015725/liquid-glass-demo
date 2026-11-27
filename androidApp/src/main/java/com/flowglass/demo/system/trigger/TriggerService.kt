@@ -317,8 +317,9 @@ private fun Intent.toTriggerEvent(): TriggerEvent? = when (action) {
         )
     }
     TriggerService.ACTION_INTENT -> {
-        val token = getStringExtra(IntentTriggerReceiver.EXTRA_INTENT_TOKEN) ?: return null
-        if (token.isBlank()) return null
+        // Empty token is the open mode; it must still reach the dispatcher so open rules can
+        // match. A missing extra is treated the same as an explicitly empty one.
+        val token = getStringExtra(IntentTriggerReceiver.EXTRA_INTENT_TOKEN).orEmpty()
         TriggerEvent(
             kind = TriggerKinds.INTENT_RECEIVED,
             source = TriggerSource.INTENT,

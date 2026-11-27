@@ -63,6 +63,10 @@ data class CommandItem(
             "condition.app_process_state" -> parameter.split('|').joinToString(" · ")
             "condition.variable" -> ActionSummary.conditionText(this)
             else -> parameter
+        }.let { compact ->
+            if (typeId?.startsWith("trigger.") == true && parameter.trimStart().startsWith("{")) {
+                triggerStructuredDisplay(typeId, parameter) ?: compact
+            } else compact
         }
         return if (text.isEmpty()) name else "$name：$text"
     }
@@ -171,6 +175,21 @@ private fun structuredOrNull(parameter: String, key: String): JsonObject? {
     if (!parameter.trimStart().startsWith("{")) return null
     return runCatching { Json.parseToJsonElement(parameter) as? JsonObject }
         .getOrNull()?.takeIf { it[key] is JsonPrimitive }
+}
+
+/** Structured trigger parameters are used when a field contains the legacy `|` separator. */
+private fun triggerStructuredDisplay(typeId: String, parameter: String): String? {
+    val meta = runCatching {
+        com.flowglass.engine.BuiltInComponents.registry().find(typeId)
+    }.getOrNull() ?: return null
+    val parsed = runCatching {
+        com.flowglass.engine.ParameterCodec.parseComponent(meta, parameter)
+    }.getOrNull() ?: return null
+    return meta.params.mapNotNull { spec ->
+        parsed[spec.key]?.let { value ->
+            runCatching { com.flowglass.engine.ParameterCodec.format(spec, value) }.getOrNull()
+        }
+    }.filter { it.isNotBlank() }.joinToString(" · ")
 }
 data class CommandOption(
     val name: String,

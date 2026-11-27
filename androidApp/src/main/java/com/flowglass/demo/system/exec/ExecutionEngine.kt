@@ -23,6 +23,9 @@ import com.flowglass.engine.RuleExecutor
 import com.flowglass.engine.RunBudget
 import com.flowglass.engine.VariableSink
 import com.flowglass.engine.StepStatus as EngineStepStatus
+import com.flowglass.engine.log.NoopTraceSink
+import com.flowglass.engine.log.TraceSink
+import com.flowglass.engine.log.newTraceId
 
 enum class StepStatus { SUCCESS, FAILURE, SKIPPED }
 data class StepResult(
@@ -39,7 +42,14 @@ data class TaskOutcome(
     val detail: String,
     val outputs: Map<String, Any?> = emptyMap(),
 )
-data class RunResult(val cmdId: Long, val reason: String, val steps: List<StepResult>, val durationMs: Long, val ignored: Boolean = false) {
+data class RunResult(
+    val cmdId: Long,
+    val reason: String,
+    val steps: List<StepResult>,
+    val durationMs: Long,
+    val ignored: Boolean = false,
+    val traceId: String = "",
+) {
     val ok: Boolean get() = !ignored && steps.none { it.status == StepStatus.FAILURE }
     val detail: String get() = steps.firstOrNull { it.status == StepStatus.FAILURE }?.detail
         ?: steps.joinToString("；") { "${it.name}：${it.detail}" }.ifEmpty { "没有可执行任务" }.let {
@@ -87,6 +97,9 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
     /** 文档世代提供者；写入回调带回本次 run 启动时的世代，宿主据此丢弃跨代写入。 */
     var documentEpoch: () -> Int = { 0 }
 
+    /** Process-wide trace sink; AppRuntime installs the SQLite store here. */
+    var traceSink: TraceSink = NoopTraceSink
+
     /** Rule/global variable write-back; `ruleId` owns the rule-scope keys. */
     var variableWriter: ((String, Map<String, Any?>, Map<String, Any?>, Int) -> Unit)? = null
 
@@ -123,13 +136,14 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
         variables: Map<String, Any?> = emptyMap(),
         allowParallel: Boolean = false,
         readOnlyNames: Set<String> = emptySet(),
+        traceId: String? = null,
     ): RunResult {
         currentCoroutineContext().ensureActive()
         if (!allowParallel && !active.add(cmd.id)) {
             return RunResult(cmd.id, reason, emptyList(), 0, ignored = true)
         }
         try {
-            return runInternal(cmd, reason, variables, null, null, readOnlyNames)
+            return runInternal(cmd, reason, variables, null, null, readOnlyNames, traceId)
         } finally {
             if (!allowParallel) active.remove(cmd.id)
         }
@@ -144,6 +158,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
         sharedBudget: RunBudget?,
         startDepth: Int?,
         readOnlyNames: Set<String> = emptySet(),
+        traceId: String? = null,
     ): RunResult {
         val epoch = documentEpoch()
         val stored = globalsProvider?.invoke()
@@ -188,6 +203,8 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
             // Cooperative: delay() lets a stop cancel the poll immediately instead of blocking a
             // Dispatchers.Default thread for up to the 1 hour timeout.
             sleeper = { kotlinx.coroutines.delay(it) },
+            trace = traceSink,
+            traceId = traceId ?: newTraceId(),
         ).run(rule, reason, initial, document.globals, sharedBudget ?: RunBudget(), depth, readOnlyNames)
         val steps = log.steps.map { step ->
             val item = cmd.itemAtPath(step.path)
@@ -214,6 +231,7 @@ class ExecutionEngine(context: Context, private val executor: (suspend (Cmd, Com
             reason = reason,
             steps = capped + failureStep,
             durationMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos),
+            traceId = log.id,
         )
     }
 

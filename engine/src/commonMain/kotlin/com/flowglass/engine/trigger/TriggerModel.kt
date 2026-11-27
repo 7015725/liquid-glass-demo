@@ -176,6 +176,8 @@ data class TriggerEvent(
     val methodHookVariables: Map<String, String> = emptyMap(),
     /** Monotonic dispatch sequence; the receiver uses gaps to count bounded-buffer drops. */
     val seq: Long = 0,
+    /** Correlation id for this event; blank lets the dispatcher generate one. */
+    val traceId: String = "",
 )
 
 object TriggerKinds {
@@ -443,15 +445,16 @@ object TriggerMatcher {
         if (binding.component.typeId != TriggerTypes.WIFI) return false
         val connected = event.data["state"] == "connected"
         val wanted = binding.component.params["ssid"]?.stringValue().orEmpty().trim()
+        val mode = binding.component.params["matchMode"]?.stringValue().orEmpty().ifEmpty { "exact" }
         val current = if (connected) event.data["ssid"].orEmpty().trim() else ""
         val previous = states.text(binding.key)
         states.putText(binding.key, current)
         if (previous == null) return false
-        val matches = wanted.isEmpty() || current.equals(wanted, ignoreCase = true)
+        val matches = wanted.isEmpty() || textMatches(wanted, current, mode)
         return when (binding.component.params["state"]?.stringValue()) {
             "connected" -> connected && previous != current && matches
             "disconnected" -> !connected && (if (wanted.isEmpty()) previous.isNotEmpty()
-                else previous.equals(wanted, ignoreCase = true))
+                else textMatches(wanted, previous, mode))
             else -> false
         }
     }
@@ -464,8 +467,9 @@ object TriggerMatcher {
         if (binding.component.typeId != TriggerTypes.BLUETOOTH) return false
         val connected = event.data["state"] == "connected"
         val wanted = binding.component.params["name"]?.stringValue().orEmpty().trim()
+        val mode = binding.component.params["matchMode"]?.stringValue().orEmpty().ifEmpty { "contains" }
         val actual = event.data["name"].orEmpty()
-        if (wanted.isNotEmpty() && !actual.contains(wanted, ignoreCase = true)) return false
+        if (wanted.isNotEmpty() && !textMatches(wanted, actual, mode)) return false
         val current = if (connected) actual.ifEmpty { "connected" } else ""
         val previous = states.text(binding.key)
         states.putText(binding.key, current)
@@ -473,7 +477,7 @@ object TriggerMatcher {
         return when (binding.component.params["state"]?.stringValue()) {
             "connected" -> connected && previous != current && current.isNotEmpty()
             "disconnected" -> !connected && (if (wanted.isEmpty()) previous.isNotEmpty()
-                else previous.contains(wanted, ignoreCase = true))
+                else textMatches(wanted, previous, mode))
             else -> false
         }
     }
@@ -709,16 +713,15 @@ object TriggerMatcher {
 
     private fun matchesIntent(binding: TriggerBinding, event: TriggerEvent): Boolean {
         if (binding.component.typeId != TriggerTypes.INTENT_RECEIVED) return false
-        val token = binding.component.params["token"]?.stringValue()?.trim().orEmpty()
-        if (token.isEmpty() || token != event.data["intent.token"]) return false
+        // The editor no longer exposes a token; old token parameters are accepted as legacy
+        // data but deliberately ignored. The explicit receiver is the only entry boundary.
         val action = binding.component.params["action"]?.stringValue()?.trim().orEmpty()
         return action.isEmpty() || action == event.data["intent.action"]
     }
 
     private fun matchesHttp(binding: TriggerBinding, event: TriggerEvent): Boolean {
         if (binding.component.typeId != TriggerTypes.HTTP_REQUEST) return false
-        val token = binding.component.params["token"]?.stringValue()?.trim().orEmpty()
-        if (token.isEmpty() || token != event.data["http.token"]) return false
+        // Tokens are no longer part of the HTTP trigger contract; keep only request matching.
         val method = binding.component.params["method"]?.stringValue()?.trim().orEmpty()
         if (method.isNotEmpty() && method != "any" && !method.equals(event.data["http.method"], true)) {
             return false
@@ -750,7 +753,20 @@ object TriggerMatcher {
         val sender = binding.component.params["sender"]?.stringValue()?.trim().orEmpty()
         if (sender.isNotEmpty() && sender != event.data["sms.sender"].orEmpty()) return false
         val keyword = binding.component.params["keyword"]?.stringValue()?.trim().orEmpty()
-        return keyword.isEmpty() || event.data["sms.body"].orEmpty().contains(keyword, ignoreCase = true)
+        val mode = binding.component.params["matchMode"]?.stringValue()?.trim().orEmpty().ifEmpty { "contains" }
+        return keyword.isEmpty() || textMatches(keyword, event.data["sms.body"].orEmpty(), mode)
+    }
+
+    /** Literal substring by default; `exact` and `regex` are opt-in per trigger parameter. */
+    private fun textMatches(pattern: String, text: String, mode: String): Boolean {
+        if (pattern.isEmpty()) return true
+        return when (mode) {
+            "regex" -> runCatching {
+                Regex(pattern, RegexOption.IGNORE_CASE).containsMatchIn(text)
+            }.getOrDefault(false)
+            "exact" -> text.equals(pattern, ignoreCase = true)
+            else -> text.contains(pattern, ignoreCase = true)
+        }
     }
 
     private fun matchesNotificationFields(
@@ -764,9 +780,10 @@ object TriggerMatcher {
         fun field(key: String) = event.data["notification.$key"].orEmpty()
         val app = param("app")
         if (app.isNotEmpty() && app != field("app")) return false
+        val mode = param("matchMode").ifEmpty { "contains" }
         for (key in listOf("title", "text", "subtext")) {
             val wanted = param(key)
-            if (wanted.isNotEmpty() && !field(key).contains(wanted, ignoreCase = true)) return false
+            if (wanted.isNotEmpty() && !textMatches(wanted, field(key), mode)) return false
         }
         val category = param("category")
         if (category.isNotEmpty() && category != field("category")) return false

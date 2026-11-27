@@ -51,6 +51,8 @@ private val storageCallbacks = CoroutineScope(SupervisorJob() + Dispatchers.Main
  */
 internal class AppRuntime private constructor(private val context: Context) {
     private val store = CommandStore(File(context.filesDir, "commands.json"))
+    /** Process-wide structured log store; SQLite writes are queued off the caller thread. */
+    val logStore = com.flowglass.demo.system.log.AppLogStore(context)
     private val queue = StorageQueue()
     private val lock = Any()
     private val parsed = StoreLoadCache(store::load)
@@ -80,7 +82,7 @@ internal class AppRuntime private constructor(private val context: Context) {
         return onMainThread {
             synchronized(lock) {
                 appState ?: loaded.appState().also { created ->
-                    created.bindExecutionContext(context)
+                    created.bindExecutionContext(context, logStore)
                     stateCreatedOnMainThread = true
                     appState = created
                 }
