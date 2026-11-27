@@ -24,6 +24,9 @@ object SystemHookProtocol {
     const val EXTRA_WATCHED = "watched"
     const val EXTRA_EVENT = "event"
     const val EXTRA_SEQ = "seq"
+    const val EXTRA_CLIP_TEXT = "clip_text"
+    const val EXTRA_CLIP_MIME = "clip_mime"
+    const val EXTRA_CLIP_LABEL = "clip_label"
 
     /** Event names carried by [ACTION_EVENT]. */
     const val EVENT_FOREGROUND = "foreground"
@@ -38,6 +41,7 @@ object SystemHookProtocol {
     const val EVENT_MEDIA_STOPPED = "media_stopped"
     const val EVENT_FOREGROUND_SERVICE_STARTED = "foreground_service_started"
     const val EVENT_FOREGROUND_SERVICE_STOPPED = "foreground_service_stopped"
+    const val EVENT_CLIPBOARD_CHANGED = "clipboard_changed"
 
     const val PERMISSION = "com.flowglass.demo.permission.SYSTEM_HOOK"
     const val SYSTEM_RECEIVER = "com.flowglass.demo.system.trigger.SystemHookReceiver"

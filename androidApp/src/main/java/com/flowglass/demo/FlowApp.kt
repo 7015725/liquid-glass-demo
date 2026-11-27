@@ -32,6 +32,7 @@ class FlowApp : Application() {
         // Re-send the persisted hook state after process/system restarts; the system hook starts
         // disabled when its own process is recreated.
         SystemHookSettings.broadcastState(this)
+        com.flowglass.demo.system.clipboard.ClipboardArchive.sync(this)
         // A reboot, an alarm or a plain launch all end here; the service itself decides whether
         // the engine switch and the enabled-rule set still justify listening.
         TriggerService.ensureStarted(this)

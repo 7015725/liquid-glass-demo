@@ -74,6 +74,19 @@ class SystemHookReceiverTest {
     }
 
     @Test
+    fun clipboardEventWithEmptyTextIsDropped() {
+        val app = app()
+        SystemHookReceiver().onReceive(
+            app,
+            Intent(SystemHookProtocol.ACTION_EVENT)
+                .putExtra(SystemHookProtocol.EXTRA_EVENT, SystemHookProtocol.EVENT_CLIPBOARD_CHANGED)
+                .putExtra(SystemHookProtocol.EXTRA_CLIP_TEXT, "")
+                .putExtra(SystemHookProtocol.EXTRA_TIME, 1L),
+        )
+        assertEquals(null, Shadows.shadowOf(app).nextStartedService)
+    }
+
+    @Test
     fun malformedEventIsDroppedBeforeStartingTheService() {
         val app = app()
         SystemHookReceiver().onReceive(

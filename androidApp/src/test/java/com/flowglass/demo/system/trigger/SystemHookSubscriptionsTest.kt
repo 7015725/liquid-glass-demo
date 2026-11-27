@@ -42,6 +42,13 @@ class SystemHookSubscriptionsTest {
     }
 
     @Test
+    fun clipboardTriggerUsesClipboardFamilyWithoutAWatchedPackage() {
+        val rules = listOf(rule("clipboard", "trigger.clipboard_changed" to emptyMap()))
+        assertEquals(SystemHookFamily.CLIPBOARD.mask, SystemHookSubscriptions.requiredFamilies(rules))
+        assertEquals(emptySet<String>(), SystemHookSubscriptions.watchedPackages(rules))
+    }
+
+    @Test
     fun keyguardUsesTheKeyguardFamilyWithoutAPackageAllowlist() {
         val rules = listOf(rule("keyguard", "trigger.keyguard" to mapOf("state" to "locked")))
         assertEquals(SystemHookFamily.KEYGUARD.mask, SystemHookSubscriptions.requiredFamilies(rules))
