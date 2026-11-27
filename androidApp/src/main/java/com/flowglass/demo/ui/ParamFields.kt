@@ -43,6 +43,7 @@ import com.flowglass.engine.methodhook.MethodHookVariables
 import com.flowglass.engine.resolvedEditor
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
+import java.security.SecureRandom
 import kotlin.math.roundToInt
 
 private val weekdayLabels = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -85,6 +86,7 @@ internal fun ParamField(
                 canConfigureOutputs, onConfigureOutputs)
             ParamEditor.TEXT -> VariableTextField(current, tag, variables, multiline = false, onValue,
                 canConfigureOutputs, onConfigureOutputs)
+            ParamEditor.TOKEN -> TokenField(current, tag, onValue)
             ParamEditor.APP_METHOD_EXTRACTIONS -> ExtractionEditorField(current, tag, onValue, variables)
             ParamEditor.STEPPER -> StepperField(spec, current, tag, onValue)
             ParamEditor.TIME -> TimeField(current, tag, onValue)
@@ -93,6 +95,67 @@ internal fun ParamField(
             ParamEditor.DURATION -> DurationField(current, tag, onValue)
             ParamEditor.AUTO -> ParameterTextField(current, tag, onValue)
         }
+    }
+}
+
+@Composable
+private fun TokenField(current: String, tag: String, onValue: (String) -> Unit) {
+    var revealed by rememberSaveable(tag) { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val clipboard = remember(context) {
+        context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 64.dp)
+                .clip(RoundedRectangle(24.dp)).background(C.Card)
+                .padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (revealed || current.isBlank()) {
+                BasicTextField(
+                    current,
+                    { next -> onValue(next); message = null },
+                    Modifier.weight(1f).testTag(tag).imeAutoScroll().padding(vertical = 12.dp),
+                    textStyle = TextStyle(color = C.OnSurface, fontSize = 16.sp, lineHeight = 24.sp),
+                    cursorBrush = SolidColor(C.Primary),
+                )
+            } else {
+                T(
+                    "•".repeat(current.length.coerceIn(8, 32)),
+                    16.sp,
+                    color = C.OnSurface,
+                    modifier = Modifier.weight(1f).testTag(tag),
+                )
+            }
+            T(if (current.isBlank()) "未设置" else "${current.length} 字符", 11.sp, color = C.Muted)
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            EditorPill(if (revealed) "隐藏" else "显示", "显示令牌") { revealed = !revealed }
+            EditorPill("生成", "生成令牌") {
+                val bytes = ByteArray(24)
+                SecureRandom().nextBytes(bytes)
+                val token = bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                revealed = true
+                message = "已生成 48 字符令牌"
+                onValue(token)
+            }
+            EditorPill("复制", "复制令牌") {
+                if (current.isBlank()) {
+                    message = "先填写或生成令牌"
+                } else {
+                    clipboard.setPrimaryClip(
+                        android.content.ClipData.newPlainText("Flowglass token", current),
+                    )
+                    message = "令牌已复制到剪贴板"
+                }
+            }
+        }
+        message?.let { T(it, 12.sp, color = C.OnSurfaceVar) }
     }
 }
 

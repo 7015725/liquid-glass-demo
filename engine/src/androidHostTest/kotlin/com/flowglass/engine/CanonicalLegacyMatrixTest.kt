@@ -29,8 +29,8 @@ class CanonicalLegacyMatrixTest {
             "trigger.power_disconnected" to "", "trigger.battery_level" to "低于|20%",
             "trigger.boot_completed" to "", "trigger.battery_low" to "20%",
             "trigger.charging" to "开始充电",
-            "trigger.wifi" to "已连接|", "trigger.bluetooth" to "已连接|",
-            "trigger.notification" to "||||||任意", "trigger.app_foreground" to "切到前台|应用包名",
+            "trigger.wifi" to "已连接||精确", "trigger.bluetooth" to "已连接||包含",
+            "trigger.notification" to "||||||任意|包含", "trigger.app_foreground" to "切到前台|应用包名",
             "trigger.headset" to "已插入|任意耳机",
             "trigger.location_enter" to "公司", "trigger.location_exit" to "家",
             "condition.time_range" to "08:00–22:00", "condition.weekday" to "工作日",
@@ -139,6 +139,34 @@ class CanonicalLegacyMatrixTest {
                 assertEquals(JsonPrimitive(option.value), migrate(meta, input).params[spec.key])
             }
         }
+    }
+
+    @Test
+    fun oldFieldCountsGainNewFilterDefaultsWithoutBecomingUnknown() {
+        fun meta(typeId: String) = BuiltInComponents.all.single { it.typeId == typeId }
+        fun parsed(typeId: String, text: String) = ParameterCodec.parseComponent(meta(typeId), text)
+
+        val notification = parsed("trigger.notification", "com.app|标题|正文")
+        assertEquals(JsonPrimitive("com.app"), notification["app"])
+        assertEquals(JsonPrimitive("标题"), notification["title"])
+        assertEquals(JsonPrimitive("正文"), notification["text"])
+        assertEquals(JsonPrimitive("contains"), notification["matchMode"])
+
+        val notificationSeven = parsed("trigger.notification", "com.app|标题|正文||||任意")
+        assertEquals(JsonPrimitive("contains"), notificationSeven["matchMode"])
+
+        val removed = parsed("trigger.notification_removed", "com.app|标题|正文")
+        assertEquals(JsonPrimitive("contains"), removed["matchMode"])
+        assertEquals(JsonPrimitive("any"), removed["ongoing"])
+
+        val sms = parsed("trigger.sms_received", "10086|验证码")
+        assertEquals(JsonPrimitive("contains"), sms["matchMode"])
+
+        val wifi = parsed("trigger.wifi", "已连接|Home")
+        assertEquals(JsonPrimitive("exact"), wifi["matchMode"])
+
+        val bluetooth = parsed("trigger.bluetooth", "已连接|Buds")
+        assertEquals(JsonPrimitive("contains"), bluetooth["matchMode"])
     }
 
     @Test fun notificationKeepsBothFieldsAndAllBodySeparators() {

@@ -26,11 +26,12 @@ com.flowglass.demo/.system.trigger.IntentTriggerReceiver
 ```bash
 adb shell am broadcast \
   -n com.flowglass.demo/.system.trigger.IntentTriggerReceiver \
-  --es flowglass_token 'rule-token' \
+  --es flowglass_token 'replace-with-16+-char-token' \
   --es demo 'hello'
 ```
 
-- 令牌为空或与规则不一致时不触发。
+- 令牌为空或与规则不一致时不触发。编辑页可生成、显示/隐藏和复制令牌；令牌至少 16 个字符，不能包含空白，也不接受变量。
+- 令牌以明文保存在规则文档中，不要复用其他服务的密码或 API Key。
 - 可选 `action` 参数用于精确匹配 Intent action；留空匹配任意 action。
 - 只转发字符串、整数、长整数、布尔、浮点和双精度额外参数。
 - 最多 32 个额外参数，序列化后最多 4 KiB；单个值最多 512 字符。
@@ -44,14 +45,14 @@ adb shell am broadcast \
 
 ```bash
 curl -i -X POST \
-  -H 'X-Flowglass-Token: rule-token' \
+  -H 'X-Flowglass-Token: replace-with-16+-char-token' \
   --data 'hello' \
   'http://127.0.0.1:8765/hook'
 ```
 
 - 默认绑定 `127.0.0.1`；选择“局域网”后才绑定 `0.0.0.0`。
 - 默认端口 `8765`，可在规则里改成 `1024–65535`。
-- 令牌可放在 `X-Flowglass-Token`、`Authorization: Bearer` 或 `token` 查询参数中；规则令牌为空时不会启动服务。
+- 令牌可放在 `X-Flowglass-Token`、`Authorization: Bearer <token>` 或 `token` 查询参数中；规则令牌为空时不会启动服务。编辑页可生成、掩码和复制令牌，令牌至少 16 个字符且不能包含空白。
 - 方法支持 `GET`、`POST`、`PUT`；请求体最大 64 KiB；每令牌每分钟最多 60 次请求。
 - 成功返回 `202 Accepted`；令牌错误 `401`；方法不支持 `405`；请求过大或格式错误 `400`；超频 `429`；监听器已停止 `503`。
 - 只处理单次请求/连接，不支持 keep-alive、分块传输或 TLS。

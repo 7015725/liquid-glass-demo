@@ -195,6 +195,17 @@ object ParameterCodec {
                 )
             }
         }
+        // Trigger text fields can contain `|` (notably regex alternation). Such a rule is stored
+        // as a JSON object of canonical values; compact `|`-separated text remains the default.
+        if (meta.kind == ComponentKind.TRIGGER) {
+            val structured = jsonObjectOrNull(text)
+            if (structured != null && meta.params.any { structured.containsKey(it.key) }) {
+                return meta.params.associate { spec ->
+                    val raw = (structured[spec.key] as? JsonPrimitive)?.content
+                    spec.key to if (raw != null) parse(spec, raw) else spec.defaultValue
+                }
+            }
+        }
         // v0.5 location rules stored a free-form label such as "公司"; keep them editable rather
         // than turning the whole component into an unknown item. They cannot trigger until the
         // user replaces the label with coordinates.
@@ -202,13 +213,22 @@ object ParameterCodec {
             return mapOf("location" to JsonPrimitive(text), "radius" to JsonPrimitive(500))
         }
         if (meta.params.isEmpty()) { require(text.isEmpty()) { "无参数组件包含未识别文字" }; return emptyMap() }
-        if (meta.typeId == "trigger.notification" && text.split('|').size == 3 && '\n' !in text) {
-            // v0.5 stored only app|title|text. The extra M3 fields are appended with defaults so
-            // opening an old rule never turns it into an unknown component.
+        // Older rules stored fewer fields than the current metadata. Append the new fields'
+        // defaults only for exact legacy shapes; arbitrary text still becomes an unknown item.
+        val legacyCounts = when (meta.typeId) {
+            "trigger.notification" -> setOf(3, 7)
+            "trigger.notification_removed" -> setOf(3)
+            "trigger.sms_received" -> setOf(2)
+            "trigger.wifi", "trigger.bluetooth" -> setOf(2)
+            else -> emptySet()
+        }
+        if (legacyCounts.isNotEmpty() && '\n' !in text) {
             val parts = text.split('|')
-            return meta.params.mapIndexed { index, spec ->
-                spec.key to if (index < parts.size) parse(spec, parts[index]) else spec.defaultValue
-            }.toMap()
+            if (parts.size in legacyCounts) {
+                return meta.params.mapIndexed { index, spec ->
+                    spec.key to if (index < parts.size) parse(spec, parts[index]) else spec.defaultValue
+                }.toMap()
+            }
         }
         if (meta.params.size > 1) {
             val parts = text.split('|')
@@ -330,7 +350,7 @@ object ParameterCodec {
             val values = meta.params.map { format(it, merged[it.key]) }
             if (values.any { '|' in it }) {
                 // `|` is the legacy separator; a value containing it is stored as JSON so the
-                // separator cannot corrupt it. The editor still displays the parsed form.
+                // separator cannot corrupt the field. The editor still displays the parsed form.
                 return buildJsonObject {
                     meta.params.forEach { spec ->
                         val raw = (merged[spec.key] as? JsonPrimitive)?.content.orEmpty()
@@ -340,6 +360,19 @@ object ParameterCodec {
             }
             require(values.none { '|' in it }) { "参数不能包含 |" }
             return values.joinToString("|")
+        }
+        if (meta.kind == ComponentKind.TRIGGER && meta.params.size > 1) {
+            val values = meta.params.map { format(it, params[it.key]) }
+            if (values.any { '|' in it || '\n' in it }) {
+                // Regex alternation (and any other trigger text) can contain the legacy
+                // separator. Store canonical values in JSON; parseComponentRaw recognizes it.
+                return buildJsonObject {
+                    meta.params.forEach { spec ->
+                        val raw = (params[spec.key] ?: spec.defaultValue) as? JsonPrimitive
+                        put(spec.key, JsonPrimitive(raw?.content.orEmpty()))
+                    }
+                }.toString()
+            }
         }
         if (meta.params.size > 1) {
             val values = meta.params.map { format(it, params[it.key]) }

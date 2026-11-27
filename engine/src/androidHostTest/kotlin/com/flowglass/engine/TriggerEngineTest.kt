@@ -514,6 +514,57 @@ class TriggerEngineTest {
     }
 
     @Test
+    fun notificationRegexModeIsOptInAndLiteralModeStaysLiteral() {
+        val clock = FakeClock(0)
+        val d = dispatcher(clock, FakeEnvironment(), RecordingExecutor())
+        val regex = rule("regex", listOf(trigger(
+            "trigger.notification", "title" to "验证码\\d+", "matchMode" to "regex",
+        )))
+        val literal = rule("literal", listOf(trigger(
+            "trigger.notification", "title" to "验证码\\d+",
+        )))
+        fun event(title: String) = TriggerEvent(
+            TriggerKinds.NOTIFICATION, TriggerSource.NOTIFICATION, clock.now,
+            mapOf("notification.app" to "com.example", "notification.title" to title),
+        )
+
+        assertEquals(1, d.dispatch(event("您的验证码123"), listOf(regex)).executions.size)
+        assertEquals(0, d.dispatch(event("您的验证码123"), listOf(literal)).executions.size)
+        clock.now = 3_000
+        assertEquals(0, d.dispatch(event("普通消息"), listOf(regex)).executions.size)
+    }
+
+    @Test
+    fun notificationExactModeMatchesWholeFieldOnly() {
+        val clock = FakeClock(0)
+        val d = dispatcher(clock, FakeEnvironment(), RecordingExecutor())
+        val exact = rule("exact", listOf(trigger(
+            "trigger.notification", "title" to "验证码", "matchMode" to "exact",
+        )))
+        fun event(title: String) = TriggerEvent(
+            TriggerKinds.NOTIFICATION, TriggerSource.NOTIFICATION, clock.now,
+            mapOf("notification.app" to "com.example", "notification.title" to title),
+        )
+
+        assertEquals(0, d.dispatch(event("您的验证码"), listOf(exact)).executions.size)
+        assertEquals(1, d.dispatch(event("验证码"), listOf(exact)).executions.size)
+    }
+
+    @Test
+    fun invalidRegexFailsClosedInsteadOfCrashingTheDispatcher() {
+        val clock = FakeClock(0)
+        val d = dispatcher(clock, FakeEnvironment(), RecordingExecutor())
+        val bad = rule("bad-regex", listOf(trigger(
+            "trigger.notification", "title" to "(", "matchMode" to "regex",
+        )))
+        val event = TriggerEvent(
+            TriggerKinds.NOTIFICATION, TriggerSource.NOTIFICATION, clock.now,
+            mapOf("notification.app" to "com.example", "notification.title" to "anything"),
+        )
+        assertEquals(0, d.dispatch(event, listOf(bad)).executions.size)
+    }
+
+    @Test
     fun notificationTriggerKeepsCloneIdentitySeparateFromTheMainApp() {
         val clock = FakeClock(0)
         val executor = RecordingExecutor()
@@ -707,6 +758,36 @@ class TriggerEngineTest {
         assertEquals(1, d.dispatch(headsetEvent("plugged", "bluetooth"), listOf(headset)).executions.size)
         clock.now = 12_000
         assertEquals(0, d.dispatch(headsetEvent("unplugged", "wired"), listOf(headset)).executions.size)
+    }
+
+    @Test
+    fun wifiAndBluetoothMatchModesAreAppliedToTheConfiguredPattern() {
+        val clock = FakeClock(0)
+        val executor = RecordingExecutor()
+        val d = dispatcher(clock, FakeEnvironment(), executor)
+        val wifi = rule("wifi-contains", listOf(trigger(
+            "trigger.wifi", "state" to "connected", "ssid" to "Home", "matchMode" to "contains",
+        )))
+        val bluetooth = rule("bt-regex", listOf(trigger(
+            "trigger.bluetooth", "state" to "connected", "name" to "Buds|Headphones", "matchMode" to "regex",
+        )))
+        fun wifiEvent(state: String, ssid: String) = TriggerEvent(
+            TriggerKinds.WIFI, TriggerSource.WIFI, clock.now,
+            mapOf("state" to state, "ssid" to ssid),
+        )
+        fun btEvent(state: String, name: String) = TriggerEvent(
+            TriggerKinds.BLUETOOTH, TriggerSource.BLUETOOTH, clock.now,
+            mapOf("state" to state, "name" to name),
+        )
+        assertEquals(0, d.dispatch(wifiEvent("connected", "Office"), listOf(wifi)).executions.size)
+        clock.now = 3_000
+        assertEquals(1, d.dispatch(wifiEvent("connected", "Home 5G"), listOf(wifi)).executions.size)
+        clock.now = 6_000
+        assertEquals(0, d.dispatch(btEvent("disconnected", "Galaxy Buds"), listOf(bluetooth)).executions.size)
+        clock.now = 9_000
+        assertEquals(0, d.dispatch(btEvent("connected", "AirPods"), listOf(bluetooth)).executions.size)
+        clock.now = 12_000
+        assertEquals(1, d.dispatch(btEvent("connected", "Galaxy Buds"), listOf(bluetooth)).executions.size)
     }
 
     @Test

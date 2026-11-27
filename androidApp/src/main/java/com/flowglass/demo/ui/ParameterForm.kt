@@ -1,5 +1,6 @@
 package com.flowglass.demo.ui
 
+import com.flowglass.engine.ComponentKind
 import com.flowglass.engine.ComponentMeta
 import com.flowglass.engine.ParameterCodec
 
@@ -41,4 +42,59 @@ internal object ParameterForm {
 
     fun fieldLabel(spec: com.flowglass.engine.ParamSpec): String =
         if (spec.suffix.isEmpty()) spec.label else "${spec.label}（${spec.suffix}）"
+
+    /**
+     * UI-level checks for trigger values that are syntactically valid but can never match.
+     * These are deliberately not in ParameterCodec: old rules must still load so the user can
+     * repair them, even if an old token or location is incomplete.
+     */
+    fun triggerProblem(meta: ComponentMeta, fields: Map<String, String>): String? {
+        if (meta.kind != ComponentKind.TRIGGER) return null
+        fun value(key: String) = fields[key].orEmpty().trim()
+        val tokenSpec = meta.params.firstOrNull { it.key == "token" }
+        if (tokenSpec != null) {
+            val token = value("token")
+            if (token.isEmpty()) return "令牌不能为空；留空不会触发。"
+            if (token.length < 16) return "令牌至少需要 16 个字符。"
+            if (token.any { it.isWhitespace() }) return "令牌不能包含空白字符。"
+        }
+        if (meta.typeId.startsWith("trigger.location_")) {
+            val raw = value("location")
+            val parts = raw.split(',')
+            val lat = parts.getOrNull(0)?.trim()?.toDoubleOrNull()
+            val lng = parts.getOrNull(1)?.trim()?.toDoubleOrNull()
+            if (parts.size != 2 || lat == null || lng == null ||
+                lat !in -90.0..90.0 || lng !in -180.0..180.0
+            ) return "地点必须填写为“纬度,经度”，例如 39.9042,116.4074。"
+        }
+        if (value("matchMode") in setOf("regex", "正则表达式")) {
+            val keys = when (meta.typeId) {
+                "trigger.notification", "trigger.notification_removed" ->
+                    listOf("title", "text", "subtext")
+                "trigger.sms_received" -> listOf("keyword")
+                "trigger.wifi" -> listOf("ssid")
+                "trigger.bluetooth" -> listOf("name")
+                else -> emptyList()
+            }
+            for (key in keys) {
+                val pattern = value(key)
+                if (pattern.isEmpty()) continue
+                if (pattern.length > 512) return "正则表达式不能超过 512 个字符。"
+                if (runCatching { Regex(pattern) }.isFailure) return "正则表达式无效，请检查括号和转义。"
+            }
+        }
+        for (spec in meta.params) {
+            if (!spec.required || spec.type !in setOf(
+                    com.flowglass.engine.ParamType.TEXT,
+                    com.flowglass.engine.ParamType.APPLICATION,
+                )
+            ) continue
+            val current = value(spec.key)
+            if (current.isEmpty()) return "${spec.label}不能为空。"
+            if (spec.type == com.flowglass.engine.ParamType.APPLICATION &&
+                current == "应用包名"
+            ) return "请选择${spec.label}。"
+        }
+        return null
+    }
 }

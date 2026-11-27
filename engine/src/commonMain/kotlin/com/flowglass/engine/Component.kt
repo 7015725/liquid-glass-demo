@@ -84,6 +84,9 @@ enum class ParamEditor {
     LOCATION,
     APP_METHOD_EXTRACTIONS,
 
+    /** Secret-like TEXT value: hidden by default, with generate/copy controls and no variables. */
+    TOKEN,
+
     /** Multi-line JavaScript editor: same TEXT storage, syntax highlighting and line numbers. */
     CODE,
 }

@@ -104,4 +104,71 @@ class ParameterFormTest {
         assertEquals(ParamType.INT_RANGE, meta.params.single().type)
         assertEquals(ComponentKind.CONDITION, meta.kind)
     }
+
+    @Test fun triggerRegexCanContainTheLegacySeparatorWithoutCorruptingFields() {
+        val meta = requireNotNull(registry.find("trigger.notification"))
+        val fields = ParameterForm.fields(meta, "").toMutableMap().apply {
+            put("title", "验证码|动态码")
+            put("text", "\\d{6}")
+            put("matchMode", "正则表达式")
+        }
+        val composed = ParameterForm.compose(meta, fields).getOrThrow()
+        assertTrue(composed.trimStart().startsWith("{"))
+        val reopened = ParameterForm.fields(meta, composed)
+        assertEquals("验证码|动态码", reopened["title"])
+        assertEquals("\\d{6}", reopened["text"])
+        assertEquals("正则表达式", reopened["matchMode"])
+    }
+
+    @Test fun triggerValidationRejectsValuesThatCanNeverMatch() {
+        val intent = requireNotNull(registry.find("trigger.intent_received"))
+        val intentFields = ParameterForm.fields(intent, "")
+        assertTrue(
+            ParameterForm.triggerProblem(intent, intentFields)
+                .orEmpty().contains("令牌"),
+        )
+        assertTrue(
+            ParameterForm.triggerProblem(intent, intentFields + ("token" to "short"))
+                .orEmpty().contains("16"),
+        )
+        assertEquals(null, ParameterForm.triggerProblem(intent, intentFields + ("token" to "0123456789abcdef")))
+
+        val location = requireNotNull(registry.find("trigger.location_enter"))
+        val locationFields = ParameterForm.fields(location, "")
+        assertTrue(
+            ParameterForm.triggerProblem(location, locationFields)
+                .orEmpty().contains("纬度"),
+        )
+        assertEquals(null, ParameterForm.triggerProblem(location,
+            locationFields + ("location" to "39.9042,116.4074")))
+
+        val method = requireNotNull(registry.find("trigger.app_method_call"))
+        val methodFields = ParameterForm.fields(method, "")
+            .toMutableMap().apply {
+                put("package", "com.example.app")
+                put("methodName", "onPay")
+            }
+        assertTrue(
+            ParameterForm.triggerProblem(method, methodFields)
+                .orEmpty().contains("类名"),
+        )
+    }
+
+    @Test fun triggerValidationRejectsInvalidRegexBeforeSave() {
+        val notification = requireNotNull(registry.find("trigger.notification"))
+        val fields = ParameterForm.fields(notification, "").toMutableMap().apply {
+            put("title", "(")
+            put("matchMode", "正则表达式")
+        }
+        assertTrue(
+            ParameterForm.triggerProblem(notification, fields)
+                .orEmpty().contains("正则"),
+        )
+    }
+
+    @Test fun triggerValidationLeavesOptionalNotificationFiltersAlone() {
+        val notification = requireNotNull(registry.find("trigger.notification"))
+        val fields = ParameterForm.fields(notification, "")
+        assertEquals(null, ParameterForm.triggerProblem(notification, fields))
+    }
 }
