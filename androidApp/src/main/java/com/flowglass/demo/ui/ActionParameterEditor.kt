@@ -290,26 +290,89 @@ private fun MultiParameterEditor(
     }
     error?.let { T("参数无效：$it", 12.sp, color = C.Bad) }
 
-    meta.params.forEach { spec ->
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            T(ParameterForm.fieldLabel(spec), 14.sp, FontWeight.SemiBold)
-            ParamField(
-                spec = spec,
-                current = fields[spec.key].orEmpty(),
-                tag = "param-${spec.key}",
-                onValue = { update(spec.key, it) },
-                targets = targets,
-                variables = variables,
-                canConfigureOutputs = canConfigureOutputs,
-                onConfigureOutputs = onConfigureOutputs,
-            )
-            if (spec.hint.isNotBlank()) T(spec.hint, 12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
+    val params = visibleParams(meta)
+    if (meta.typeId == "trigger.http_request") {
+        val byKey = params.associateBy { it.key }
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            TriggerSection("监听", listOfNotNull(byKey["port"], byKey["bind"])) { spec ->
+                TriggerParamBlock(spec, fields, targets, variables, canConfigureOutputs,
+                    onConfigureOutputs, ::update)
+            }
+            TriggerSection("请求匹配", listOfNotNull(byKey["method"], byKey["path"])) { spec ->
+                TriggerParamBlock(spec, fields, targets, variables, canConfigureOutputs,
+                    onConfigureOutputs, ::update)
+            }
+        }
+    } else if (meta.typeId == "trigger.intent_received") {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            TriggerSection("匹配条件", params) { spec ->
+                TriggerParamBlock(spec, fields, targets, variables, canConfigureOutputs,
+                    onConfigureOutputs, ::update)
+            }
+        }
+    } else {
+        params.forEach { spec ->
+            TriggerParamBlock(spec, fields, targets, variables, canConfigureOutputs,
+                onConfigureOutputs, ::update)
         }
     }
     if (meta.kind == com.flowglass.engine.ComponentKind.TRIGGER &&
         meta.params.any { it.key == "matchMode" }
     ) {
         TriggerMatchPreview(meta, fields)
+    }
+}
+
+private fun visibleParams(meta: ComponentMeta): List<com.flowglass.engine.ParamSpec> =
+    if (meta.kind == com.flowglass.engine.ComponentKind.TRIGGER &&
+        meta.typeId in setOf("trigger.intent_received", "trigger.http_request")
+    ) {
+        // Token is legacy-only for these two open entries; it must not render a subtitle or box.
+        meta.params.filterNot { it.key == "token" }
+    } else {
+        meta.params
+    }
+
+@Composable
+private fun TriggerSection(
+    title: String,
+    params: List<com.flowglass.engine.ParamSpec>,
+    content: @Composable (com.flowglass.engine.ParamSpec) -> Unit,
+) {
+    if (params.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (title.isNotBlank()) {
+            T(title, 12.sp, FontWeight.SemiBold, color = C.OnSurfaceVar)
+        }
+        params.forEach { content(it) }
+    }
+}
+
+@Composable
+private fun TriggerParamBlock(
+    spec: com.flowglass.engine.ParamSpec,
+    fields: Map<String, String>,
+    targets: List<String>,
+    variables: List<VariableOption>,
+    canConfigureOutputs: Boolean,
+    onConfigureOutputs: (() -> Unit)?,
+    update: (String, String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        T(ParameterForm.fieldLabel(spec), 14.sp, FontWeight.SemiBold)
+        ParamField(
+            spec = spec,
+            current = fields[spec.key].orEmpty(),
+            tag = "param-${spec.key}",
+            onValue = { update(spec.key, it) },
+            targets = targets,
+            variables = variables,
+            canConfigureOutputs = canConfigureOutputs,
+            onConfigureOutputs = onConfigureOutputs,
+        )
+        if (spec.hint.isNotBlank()) {
+            T(spec.hint, 12.sp, color = C.OnSurfaceVar, lineHeight = 18.sp)
+        }
     }
 }
 

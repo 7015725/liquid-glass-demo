@@ -51,15 +51,6 @@ internal object ParameterForm {
     fun triggerProblem(meta: ComponentMeta, fields: Map<String, String>): String? {
         if (meta.kind != ComponentKind.TRIGGER) return null
         fun value(key: String) = fields[key].orEmpty().trim()
-        val tokenSpec = meta.params.firstOrNull { it.key == "token" }
-        if (tokenSpec != null) {
-            val token = value("token")
-            // Empty token is the explicit open mode. Only validate a token the user opted into.
-            if (token.isNotEmpty()) {
-                if (token.length < 16) return "令牌至少需要 16 个字符，或者留空开放入口。"
-                if (token.any { it.isWhitespace() }) return "令牌不能包含空白字符。"
-            }
-        }
         if (meta.typeId.startsWith("trigger.location_")) {
             val raw = value("location")
             val parts = raw.split(',')

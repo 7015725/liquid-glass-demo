@@ -81,37 +81,40 @@ class TriggerExternalTest {
     ) = TriggerEvent(kind, source, at, data.toMap())
 
     @Test
-    fun intentNeedsMatchingTokenAndOptionalAction() {
+    fun intentIgnoresLegacyTokenAndAppliesOptionalAction() {
         val clock = FakeClock(0)
         val executor = RecordingExecutor()
         val d = dispatcher(clock, executor)
         val r = rule("intent", trigger(TriggerTypes.INTENT_RECEIVED,
             "token" to "s3cret", "action" to "com.example.RUN"))
-        assertEquals(0, d.dispatch(event(TriggerKinds.INTENT_RECEIVED, 0, TriggerSource.INTENT,
+        // A legacy token is inert: the event still matches when the action agrees.
+        assertEquals(1, d.dispatch(event(TriggerKinds.INTENT_RECEIVED, 0, TriggerSource.INTENT,
             "intent.token" to "wrong", "intent.action" to "com.example.RUN"), listOf(r)).executions.size)
         assertEquals(0, d.dispatch(event(TriggerKinds.INTENT_RECEIVED, 3_000, TriggerSource.INTENT,
             "intent.token" to "s3cret", "intent.action" to "com.example.OTHER"), listOf(r)).executions.size)
+        clock.now = 6_000
         assertEquals(1, d.dispatch(event(TriggerKinds.INTENT_RECEIVED, 6_000, TriggerSource.INTENT,
             "intent.token" to "s3cret", "intent.action" to "com.example.RUN",
             "intent.data" to "https://example.com"), listOf(r)).executions.size)
-        assertEquals("https://example.com", executor.variables.single()["Intent数据"])
+        assertEquals("https://example.com", executor.variables.last()["Intent数据"])
     }
 
     @Test
-    fun httpNeedsTokenAndAppliesMethodAndPathFilters() {
+    fun httpIgnoresLegacyTokenAndAppliesMethodAndPathFilters() {
         val clock = FakeClock(0)
         val executor = RecordingExecutor()
         val d = dispatcher(clock, executor)
         val r = rule("http", trigger(TriggerTypes.HTTP_REQUEST,
             "token" to "hook-token", "method" to "POST", "path" to "/hook"))
-        assertEquals(0, d.dispatch(event(TriggerKinds.HTTP_REQUEST, 0, TriggerSource.HTTP,
+        assertEquals(1, d.dispatch(event(TriggerKinds.HTTP_REQUEST, 0, TriggerSource.HTTP,
             "http.token" to "wrong", "http.method" to "POST", "http.path" to "/hook"), listOf(r)).executions.size)
         assertEquals(0, d.dispatch(event(TriggerKinds.HTTP_REQUEST, 3_000, TriggerSource.HTTP,
             "http.token" to "hook-token", "http.method" to "GET", "http.path" to "/hook"), listOf(r)).executions.size)
+        clock.now = 6_000
         assertEquals(1, d.dispatch(event(TriggerKinds.HTTP_REQUEST, 6_000, TriggerSource.HTTP,
             "http.token" to "hook-token", "http.method" to "POST", "http.path" to "/hook",
             "http.body" to "hello"), listOf(r)).executions.size)
-        assertEquals("hello", executor.variables.single()["正文"])
+        assertEquals("hello", executor.variables.last()["正文"])
     }
 
     @Test

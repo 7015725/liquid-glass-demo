@@ -416,13 +416,14 @@ object BuiltInComponents {
             )),
         ComponentMeta("trigger.intent_received", "收到 Intent", "系统", ComponentKind.TRIGGER,
             listOf(
+                // Hidden from the editor; retained only so old serialized rules still map fields.
                 param("token", "令牌", "", ParamType.TEXT, required = false,
                     editor = ParamEditor.TOKEN,
-                    hint = "留空表示完全开放，任何应用/adb 都能触发；填写后调用方必须携带同一令牌。"),
+                    hint = "旧规则兼容字段，编辑页不再显示，也不参与匹配。"),
                 param("action", "Intent Action", "", ParamType.TEXT, required = false,
                     hint = "留空匹配任意 action；填写后精确匹配。"),
             ), supports = normalLayer,
-            description = "其他应用或 adb 向流光发送显式 Intent 时触发；令牌为空时不校验调用方。",
+            description = "其他应用或 adb 向流光发送显式 Intent 时触发；入口不校验令牌。",
             outputs = listOf(
                 out("trigger.intent.action", "Action", VariableType.TEXT, "Intent动作", "收到的 Intent action"),
                 out("trigger.intent.data", "Data URI", VariableType.TEXT, "Intent数据", "收到的 Intent data URI"),
@@ -430,9 +431,10 @@ object BuiltInComponents {
             )),
         ComponentMeta("trigger.http_request", "HTTP 请求", "网络", ComponentKind.TRIGGER,
             listOf(
+                // Hidden from the editor; retained only so old serialized rules still map fields.
                 param("token", "令牌", "", ParamType.TEXT, required = false,
                     editor = ParamEditor.TOKEN,
-                    hint = "留空表示完全开放，本机任何应用或能访问该端口的设备都能触发；填写后请求必须携带同一令牌。"),
+                    hint = "旧规则兼容字段，编辑页不再显示，也不参与匹配。"),
                 ParamSpec("port", "端口", ParamType.INTEGER, defaultValue = JsonPrimitive(8765),
                     minValue = 1024, maxValue = 65535,
                     hint = "默认 8765；端口被占用时规则不会启动，状态页会显示错误。"),
@@ -445,7 +447,7 @@ object BuiltInComponents {
                     ParamOption("loopback", "仅本机 127.0.0.1"),
                     ParamOption("lan", "局域网 0.0.0.0"))),
             ), permissions = listOf("local_network"), supports = normalSupport("local_network"),
-            description = "在本地启动 HTTP 服务，收到请求时触发；默认只绑定 127.0.0.1，令牌留空时完全开放。",
+            description = "在本地启动 HTTP 服务，收到请求时触发；默认只绑定 127.0.0.1，入口不校验令牌。",
             outputs = listOf(
                 out("trigger.http.method", "方法", VariableType.TEXT, "方法", "HTTP 方法"),
                 out("trigger.http.path", "路径", VariableType.TEXT, "路径", "请求路径，不含查询串"),

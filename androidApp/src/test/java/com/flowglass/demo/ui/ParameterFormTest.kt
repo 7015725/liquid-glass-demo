@@ -120,16 +120,12 @@ class ParameterFormTest {
         assertEquals("正则表达式", reopened["matchMode"])
     }
 
-    @Test fun triggerValidationAllowsOpenTokenButRejectsBrokenToken() {
+    @Test fun triggerValidationIgnoresHiddenLegacyTokenAndChecksLocationAndMethod() {
         val intent = requireNotNull(registry.find("trigger.intent_received"))
         val intentFields = ParameterForm.fields(intent, "")
-        // Empty token is the explicit open mode, not an invalid configuration.
+        // The token editor is gone; an old short token must not block saving.
         assertEquals(null, ParameterForm.triggerProblem(intent, intentFields))
-        assertTrue(
-            ParameterForm.triggerProblem(intent, intentFields + ("token" to "short"))
-                .orEmpty().contains("16"),
-        )
-        assertEquals(null, ParameterForm.triggerProblem(intent, intentFields + ("token" to "0123456789abcdef")))
+        assertEquals(null, ParameterForm.triggerProblem(intent, intentFields + ("token" to "short")))
 
         val location = requireNotNull(registry.find("trigger.location_enter"))
         val locationFields = ParameterForm.fields(location, "")

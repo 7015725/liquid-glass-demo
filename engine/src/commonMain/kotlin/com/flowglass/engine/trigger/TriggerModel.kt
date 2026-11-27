@@ -711,17 +711,15 @@ object TriggerMatcher {
 
     private fun matchesIntent(binding: TriggerBinding, event: TriggerEvent): Boolean {
         if (binding.component.typeId != TriggerTypes.INTENT_RECEIVED) return false
-        val token = binding.component.params["token"]?.stringValue()?.trim().orEmpty()
-        // Empty token is an explicit open entry; non-empty tokens stay rule-scoped.
-        if (token.isNotEmpty() && token != event.data["intent.token"]) return false
+        // The editor no longer exposes a token; old token parameters are accepted as legacy
+        // data but deliberately ignored. The explicit receiver is the only entry boundary.
         val action = binding.component.params["action"]?.stringValue()?.trim().orEmpty()
         return action.isEmpty() || action == event.data["intent.action"]
     }
 
     private fun matchesHttp(binding: TriggerBinding, event: TriggerEvent): Boolean {
         if (binding.component.typeId != TriggerTypes.HTTP_REQUEST) return false
-        val token = binding.component.params["token"]?.stringValue()?.trim().orEmpty()
-        if (token.isNotEmpty() && token != event.data["http.token"]) return false
+        // Tokens are no longer part of the HTTP trigger contract; keep only request matching.
         val method = binding.component.params["method"]?.stringValue()?.trim().orEmpty()
         if (method.isNotEmpty() && method != "any" && !method.equals(event.data["http.method"], true)) {
             return false

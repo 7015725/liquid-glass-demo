@@ -17,7 +17,6 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.ArrayDeque
 import kotlinx.coroutines.CoroutineScope
@@ -28,8 +27,9 @@ import kotlinx.coroutines.launch
 
 /**
  * Small loopback-first HTTP listener for the HTTP request trigger. It is deliberately not a
- * general-purpose web server: one request per connection, a 64 KiB body cap and a per-token
- * request budget keep a LAN exposure from becoming an unbounded parser.
+ * general-purpose web server: one request per connection, a 64 KiB body cap and a per-client
+ * request budget keep a LAN exposure from becoming an unbounded parser. The entry is open by
+ * design; access control is the user's bind choice, not a token.
  */
 internal class HttpTriggerServer(
     private val context: Context,
@@ -37,11 +37,10 @@ internal class HttpTriggerServer(
     private val emit: (TriggerEvent) -> Unit,
     private val rules: () -> List<TriggerRule>,
 ) {
-    private data class Config(val port: Int, val lan: Boolean, val tokens: Set<String>)
+    private data class Config(val port: Int, val lan: Boolean)
     private class Running(
         val socket: ServerSocket,
         val job: Job,
-        @Volatile var tokens: Set<String>,
     )
 
     private val servers = linkedMapOf<Int, Running>()
@@ -52,17 +51,14 @@ internal class HttpTriggerServer(
         for (rule in rules()) {
             for (trigger in rule.triggers) {
                 if (trigger.typeId != TriggerTypes.HTTP_REQUEST) continue
-                val token = trigger.params["token"]?.toString()?.trim('"')?.trim().orEmpty()
-                // An empty token is an explicit open listener; a non-empty token keeps the
-                // per-rule shared-secret behaviour. Do not silently drop an open rule.
                 val port = trigger.params["port"]?.toString()?.toIntOrNull()
                     ?.takeIf { it in 1024..65535 } ?: DEFAULT_PORT
                 val lan = trigger.params["bind"]?.toString()?.trim('"') == "lan"
                 val current = configs[port]
                 configs[port] = if (current == null) {
-                    Config(port, lan, setOf(token))
+                    Config(port, lan)
                 } else {
-                    current.copy(lan = current.lan || lan, tokens = current.tokens + token)
+                    current.copy(lan = current.lan || lan)
                 }
             }
         }
@@ -76,8 +72,6 @@ internal class HttpTriggerServer(
                 close(running)
                 servers.remove(port)
                 start(next)
-            } else {
-                running.tokens = next.tokens
             }
         }
         for ((port, config) in configs) {
@@ -118,7 +112,6 @@ internal class HttpTriggerServer(
         val running = Running(
             socket = socket,
             job = scope.launch(Dispatchers.IO) { acceptLoop(socket, config.port) },
-            tokens = config.tokens,
         )
         servers[config.port] = running
     }
@@ -160,11 +153,7 @@ internal class HttpTriggerServer(
             respond(output, 503, "listener stopped")
             return
         }
-        if ("" !in running.tokens && request.token !in running.tokens) {
-            respond(output, 401, "unauthorized")
-            return
-        }
-        if (!allowToken(request.token)) {
+        if (!allowClient(client.inetAddress?.hostAddress ?: "local")) {
             respond(output, 429, "too many requests")
             return
         }
@@ -174,7 +163,6 @@ internal class HttpTriggerServer(
                 source = TriggerSource.HTTP,
                 atEpochMs = System.currentTimeMillis(),
                 data = mapOf(
-                    "http.token" to request.token,
                     "http.method" to request.method,
                     "http.path" to request.path,
                     "http.query" to request.query,
@@ -186,10 +174,10 @@ internal class HttpTriggerServer(
         respond(output, 202, "accepted")
     }
 
-    private fun allowToken(token: String): Boolean {
+    private fun allowClient(key: String): Boolean {
         val now = System.currentTimeMillis()
         synchronized(rate) {
-            val window = rate.getOrPut(token) { ArrayDeque() }
+            val window = rate.getOrPut(key) { ArrayDeque() }
             while (window.isNotEmpty() && now - window.first() >= RATE_WINDOW_MS) window.removeFirst()
             if (window.size >= RATE_MAX) return false
             window.addLast(now)
@@ -201,7 +189,6 @@ internal class HttpTriggerServer(
         val method: String,
         val path: String,
         val query: String,
-        val token: String,
         val body: String,
     )
 
@@ -237,11 +224,7 @@ internal class HttpTriggerServer(
             offset += read
         }
         val body = String(bodyBytes, StandardCharsets.UTF_8)
-        val headerToken = headers["x-flowglass-token"].orEmpty()
-        val auth = headers["authorization"].orEmpty()
-        val bearer = if (auth.startsWith("Bearer ", ignoreCase = true)) auth.substring(7).trim() else ""
-        val token = headerToken.ifEmpty { bearer }.ifEmpty { queryParam(query, "token") }
-        return Request(method, path, query, token, body)
+        return Request(method, path, query, body)
     }
 
     private fun readLine(input: BufferedInputStream, max: Int): String? {
@@ -254,15 +237,6 @@ internal class HttpTriggerServer(
             if (bytes.size() > max) return null
         }
         return bytes.toString("UTF-8")
-    }
-
-    private fun queryParam(query: String, name: String): String {
-        if (query.isEmpty()) return ""
-        return query.split('&').firstNotNullOfOrNull { pair ->
-            val key = pair.substringBefore('=')
-            if (key != name) null
-            else runCatching { URLDecoder.decode(pair.substringAfter('=', ""), "UTF-8") }.getOrDefault("")
-        }.orEmpty()
     }
 
     private fun respond(output: BufferedOutputStream, status: Int, body: String) {
