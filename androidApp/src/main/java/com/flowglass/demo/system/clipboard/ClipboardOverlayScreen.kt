@@ -9,7 +9,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,7 +48,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
@@ -137,9 +135,15 @@ internal fun ClipboardOverlayScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.52f))
-            .pointerInput(Unit) { detectTapGestures { onClose() } },
+            .background(Color.Black.copy(alpha = 0.52f)),
     ) {
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .fillMaxHeight(0.24f)
+                .clickable(onClick = onClose),
+        )
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -147,8 +151,7 @@ internal fun ClipboardOverlayScreen(
                 .fillMaxWidth()
                 .fillMaxHeight(0.76f)
                 .navigationBarsPadding()
-                .imePadding()
-                .pointerInput(Unit) { detectTapGestures { } },
+                .imePadding(),
         ) {
             ClipboardSheet(
                 store = store,
@@ -650,6 +653,7 @@ private fun appLabel(context: android.content.Context, packageName: String): Str
     if (packageName.isBlank()) return "未知来源"
     when (packageName) {
         "com.android.chrome" -> return "Chrome"
+        "com.microsoft.emmx" -> return "Edge"
         "com.tencent.mm" -> return "微信"
         "com.android.systemui" -> return "系统 UI"
         "tv.danmaku.bili" -> return "哔哩哔哩"

@@ -205,6 +205,10 @@ internal object SystemHook {
             safe("clipboard event ${candidate.label}") {
                 if (!canEmit(SystemHookFamily.CLIPBOARD)) return@safe
                 val payload = ClipboardHookPayloadReader.read(args) ?: return@safe
+                android.util.Log.i(
+                    "FlowGlass/SystemHook",
+                    "clipboard event package=${payload.packageName} len=${payload.text.length}",
+                )
                 dispatcher.enqueue(
                     HookEvent(
                         family = SystemHookFamily.CLIPBOARD,
