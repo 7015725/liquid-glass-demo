@@ -122,11 +122,13 @@ class HookEventDispatcherTest {
         assertEquals(8, SystemHookFamily.KEYGUARD.mask)
         assertEquals(16, SystemHookFamily.MEDIA.mask)
         assertEquals(32, SystemHookFamily.FOREGROUND_SERVICE.mask)
+        assertEquals(64, SystemHookFamily.CLIPBOARD.mask)
         val mask = SystemHookFamily.maskOf(
             listOf(SystemHookFamily.FOREGROUND, SystemHookFamily.PROCESS, SystemHookFamily.CRASH),
         )
         assertEquals(setOf(SystemHookFamily.FOREGROUND, SystemHookFamily.PROCESS, SystemHookFamily.CRASH), SystemHookFamily.fromMask(mask))
-        assertEquals(emptySet<SystemHookFamily>(), SystemHookFamily.fromMask(0x40))
+        assertEquals(setOf(SystemHookFamily.CLIPBOARD), SystemHookFamily.fromMask(0x40))
+        assertEquals(emptySet<SystemHookFamily>(), SystemHookFamily.fromMask(0x80))
         assertEquals(SystemHookFamily.FOREGROUND.mask, SystemHookFamily.defaultMask)
     }
 
