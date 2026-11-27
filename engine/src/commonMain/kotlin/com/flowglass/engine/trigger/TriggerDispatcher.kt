@@ -358,11 +358,15 @@ class TriggerDispatcher(
                 putText("trigger.bluetooth.name", data["name"])
                 putText("trigger.bluetooth.state", data["state"])
             }
-            TriggerTypes.NOTIFICATION -> {
+            TriggerTypes.NOTIFICATION, TriggerTypes.NOTIFICATION_REMOVED -> {
                 putText("trigger.notification.app", data["notification.app"])
                 data["notification.user"]?.toIntOrNull()?.let { values["trigger.notification.user"] = it }
                 putText("trigger.notification.title", data["notification.title"])
                 putText("trigger.notification.text", data["notification.text"])
+                putText("trigger.notification.subtext", data["notification.subtext"])
+                putText("trigger.notification.category", data["notification.category"])
+                putText("trigger.notification.channel", data["notification.channel"])
+                putText("trigger.notification.ongoing", data["notification.ongoing"])
             }
             TriggerTypes.APP_FOREGROUND -> putApp()
             TriggerTypes.APP_PROCESS, TriggerTypes.FOREGROUND_SERVICE -> putApp()
@@ -432,6 +436,34 @@ class TriggerDispatcher(
                 data["accessibility.count"]?.toIntOrNull()
                     ?.let { values["trigger.accessibility.count"] = it }
                 putText("trigger.accessibility.services", data["accessibility.services"])
+            }
+            TriggerTypes.INTENT_RECEIVED -> {
+                putText("trigger.intent.action", data["intent.action"])
+                putText("trigger.intent.data", data["intent.data"])
+                putText("trigger.intent.extras", data["intent.extras"])
+            }
+            TriggerTypes.HTTP_REQUEST -> {
+                putText("trigger.http.method", data["http.method"])
+                putText("trigger.http.path", data["http.path"])
+                putText("trigger.http.query", data["http.query"])
+                putText("trigger.http.body", data["http.body"])
+                putText("trigger.http.remote", data["http.remote"])
+            }
+            TriggerTypes.SHARE_RECEIVED -> {
+                putText("trigger.share.text", data["share.text"])
+                putText("trigger.share.uri", data["share.uri"])
+                putText("trigger.share.mime", data["share.mime"])
+            }
+            TriggerTypes.CALL_STATE -> putText("trigger.call.state", data["call.state"])
+            TriggerTypes.SMS_RECEIVED -> {
+                putText("trigger.sms.sender", data["sms.sender"])
+                putText("trigger.sms.body", data["sms.body"])
+            }
+            TriggerTypes.MEDIA_TRACK -> {
+                putText("trigger.media.title", data["media.title"])
+                putText("trigger.media.artist", data["media.artist"])
+                putText("trigger.media.album", data["media.album"])
+                putText("trigger.media.package", data["media.package"])
             }
         }
         return values

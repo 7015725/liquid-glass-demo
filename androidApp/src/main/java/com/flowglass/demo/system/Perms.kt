@@ -91,6 +91,24 @@ object Perms {
             Grant.Page { Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS) }
         ))
         add(PermItem(
+            "phone_state", Ic.Phone, "电话状态",
+            "感知来电响铃、接通和空闲，触发通话与未接来电事件", false,
+            { c -> c.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED },
+            Grant.Runtime(Manifest.permission.READ_PHONE_STATE)
+        ))
+        add(PermItem(
+            "sms", Ic.Message, "接收短信",
+            "读取新到短信的发送方和正文，触发收到短信事件", false,
+            { c -> c.checkSelfPermission(Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED },
+            Grant.Runtime(Manifest.permission.RECEIVE_SMS)
+        ))
+        add(PermItem(
+            "calendar", Ic.Clock, "读取日历",
+            "感知日历事件新增、修改或删除，触发日历变更事件", false,
+            { c -> c.checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED },
+            Grant.Runtime(Manifest.permission.READ_CALENDAR)
+        ))
+        add(PermItem(
             "foreground_app", Ic.Grid, "前台应用",
             "感知应用切换；优先使用无障碍服务，其次使用情况访问", true,
             { c -> isA11yEnabled(c) || hasUsageAccess(c) },
