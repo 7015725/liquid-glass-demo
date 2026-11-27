@@ -109,7 +109,7 @@ private class OverlayWindow(private val context: Context) :
                 ClipboardOverlayScreen(
                     store = store,
                     refreshTick = refreshTick.value,
-                    onClose = { hide() },
+                    onClose = { ClipboardOverlay.hide() },
                     onCopy = { entry ->
                         ClipboardArchive.suppressNext(entry.content)
                         context.getSystemService(android.content.ClipboardManager::class.java)
