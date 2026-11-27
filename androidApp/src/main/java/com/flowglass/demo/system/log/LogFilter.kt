@@ -7,6 +7,8 @@ data class LogFilter(
     val minLevel: TraceLevel = TraceLevel.INFO,
     val kinds: Set<TraceKind> = emptySet(),
     val search: String = "",
+    val traceId: String? = null,
     val beforeMs: Long? = null,
+    val offset: Int = 0,
     val limit: Int = 500,
 )
