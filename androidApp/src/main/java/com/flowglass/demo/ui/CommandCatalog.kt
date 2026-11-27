@@ -247,6 +247,7 @@ object CommandCatalog {
         "文本" -> Ic.Copy
         "流程控制" -> Ic.Timer
         "设备" -> Ic.Phone
+        "系统" -> Ic.Settings
         else -> when (kind) {
             ComponentKind.TRIGGER -> Ic.Bolt
             ComponentKind.CONDITION -> Ic.Shield

@@ -11,6 +11,14 @@
 - [ ] `description` 说明值的来源和单位；没有敏感内容。
 - [ ] 条件组件不声明输出。
 
+## 触发器接线
+
+- [ ] `TriggerTypes` 常量、`sourceOf`、`TriggerKinds`、`TriggerMatcher.matches` 四处同时登记。
+- [ ] 新事件族在 `TriggerMatcher` 里按 `event` 参数过滤，不使用一个 typeId 复制多份。
+- [ ] 宿主有对应 emitter；没有 emitter 的监听族不得出现在 `sourceOf` 里。
+- [ ] 新增 `TriggerSource` 时同时补齐 `installSource` / `uninstallSource` 和生命周期清理。
+- [ ] 事件型触发器不得被 `isStateful` 误判；状态型触发器要提供 `matchesState`。
+
 ## 运行期
 
 - [ ] 有专属输出的触发器在 `TriggerDispatcher` 写入专属值。

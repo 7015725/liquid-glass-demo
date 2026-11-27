@@ -461,7 +461,7 @@ internal class AppForegroundWatcher(
     }
 }
 
-private fun register(
+internal fun register(
     context: Context,
     receiver: BroadcastReceiver,
     filter: IntentFilter,
