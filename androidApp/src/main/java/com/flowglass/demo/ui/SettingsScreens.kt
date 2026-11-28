@@ -94,6 +94,7 @@ object SettingsPage {
     const val Variables = 8
     const val A11yManager = 9
     const val Logs = 10
+    const val Clipboard = 11
     fun title(p: Int) = when (p) {
         KeepAlive -> "App 保活"
         Root -> "Root 激活"
@@ -105,6 +106,7 @@ object SettingsPage {
         Variables -> "变量"
         A11yManager -> "无障碍管理"
         Logs -> "日志记录"
+        Clipboard -> "全局剪贴板"
         else -> "设置"
     }
 }
@@ -127,6 +129,7 @@ fun SettingsHost(
         SettingsPage.Variables -> VariableManagerPage(state)
         SettingsPage.A11yManager -> A11yManagerPage()
         SettingsPage.Logs -> LogCenterPage(AppRuntime.of(LocalContext.current).logStore, state)
+        SettingsPage.Clipboard -> ClipboardSettingsPage()
         else -> SettingsMain(state, themeMode)
     }
 }
@@ -301,12 +304,17 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
     val granted = remember(t) { Perms.all.count { it.check(ctx) } }
     val lsposed = remember(t) { ModuleStatus.isActive() }
     val masterA11y = remember(t) { com.flowglass.demo.system.a11y.A11yServiceCatalog.masterEnabled(ctx) }
+    // LayerStatus is a plain process-wide snapshot, not Compose state. Keep a local state copy so
+    // the row updates as soon as the passive probe below finishes instead of showing "普通" until
+    // the user opens the execution-layer page and comes back.
+    var layers by remember { mutableStateOf(LayerStatus.current()) }
     LaunchedEffect(t) {
         val info = Root.check(request = false)
         state.root = if (state.root?.granted == true) state.root else info
         LayerStatus.updateRoot(info)
         val active = runCatching { ModuleStatus.isActive() }.getOrDefault(false)
         LayerStatus.updateLsposed(active, systemHookReady = SystemHookSettings.isAlive(ctx))
+        layers = LayerStatus.current()
     }
     val root = state.root
     val modes = listOf("省电", "均衡", "极速")
@@ -326,7 +334,6 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
             if (masterA11y) "系统已开启" else "系统未开启",
             sub = "选择要保活的无障碍服务",
             valueColor = if (masterA11y) C.GoodText else C.Muted) { state.settingsPage = SettingsPage.A11yManager }, true)
-        val layers = LayerStatus.current()
         val layersHeadline = LayerHeadline.of(layers)
         ListRow(Row1(Ic.Layers, "执行层级", layersHeadline.big,
             sub = "动作：${layersHeadline.actionLabel} · 事件：${layersHeadline.eventLabel}",
@@ -339,6 +346,9 @@ private fun SettingsMain(state: AppState, themeMode: ThemeMode) {
         ListRow(Row1(themeMode.icon(), "外观", themeMode.label, sub = themeMode.description) { state.settingsPage = SettingsPage.Appearance }, true)
         ListRow(Row1(Ic.Copy, "变量", sub = "内置、局部、全局变量与备注") { state.settingsPage = SettingsPage.Variables }, true)
         ListRow(Row1(Ic.Timer, "日志记录", sub = "查看、筛选、导出完整日志") { state.settingsPage = SettingsPage.Logs }, true)
+        ListRow(Row1(Ic.Copy, "全局剪贴板", sub = "记录剪贴板历史 · 全局浮窗查看") {
+            state.settingsPage = SettingsPage.Clipboard
+        }, true)
         ListRow(Row1(Ic.Archive, "备份与恢复", sub = "导入导出指令、备份全部数据") { state.settingsPage = SettingsPage.Backup }, true)
         ListRow(Row1(Ic.Bell, "通知提醒") {}, true)
         if (UiFeatures.SHOW_RUN_MODE) {
@@ -614,9 +624,7 @@ private fun LSPosedPage() {
         SystemHookSettings.Status.FAMILY_UNAVAILABLE -> "已加载，但已订阅的事件族缺少检测点"
         SystemHookSettings.Status.READY -> "已加载且开启；系统钩子心跳正常"
     }
-    val managerInstalled = remember(t) {
-        runCatching { ctx.packageManager.getPackageInfo("org.lsposed.manager", 0); true }.getOrDefault(false)
-    }
+    val managerInstalled = remember(t) { ModuleStatus.managerPackage(ctx) != null }
     var k = 0
     StatusCard(
         k++, Ic.Puzzle, "模块状态",
@@ -630,7 +638,8 @@ private fun LSPosedPage() {
         } else listOf("需要 LSPosed 框架"),
         action = {
             PrimaryButton("打开 LSPosed 管理器", Ic.Puzzle, {
-                val i = ctx.packageManager.getLaunchIntentForPackage("org.lsposed.manager")
+                val manager = ModuleStatus.managerPackage(ctx)
+                val i = manager?.let { ctx.packageManager.getLaunchIntentForPackage(it) }
                 if (i != null) Perms.open(ctx, i) else state_toast(ctx)
             }, Modifier.fillMaxWidth())
         }
@@ -720,6 +729,15 @@ private fun LSPosedPage() {
                 "前台服务",
                 familyValue(SystemHookFamily.FOREGROUND_SERVICE),
                 sub = "trigger.foreground_service · 只观察进入/退出，不读取通知",
+            ),
+            true,
+        )
+        ListRow(
+            Row1(
+                Ic.Copy,
+                "全局剪贴板",
+                familyValue(SystemHookFamily.CLIPBOARD),
+                sub = "trigger.clipboard_changed · 全局记录剪贴板，不依赖规则",
             ),
             true,
         )

@@ -1,5 +1,7 @@
 package com.flowglass.demo.xposed
 
+import android.content.Context
+
 /**
  * Replaced by [XposedEntry] when the classic module is enabled in LSPosed. The modern API101
  * framework does not inject the module into its own app, so [ModernModuleStatus] also marks this
@@ -37,6 +39,15 @@ object ModuleStatus {
 
     @JvmStatic
     fun scope(): List<String> = modernScope
+
+    /** Classic LSPosed and the Vector manager are both supported. */
+    @JvmStatic
+    fun managerPackage(context: Context): String? = listOf(
+        "org.lsposed.manager",
+        "org.matrix.vector.manager",
+    ).firstOrNull { packageName ->
+        runCatching { context.packageManager.getPackageInfo(packageName, 0) }.isSuccess
+    }
 
     @JvmStatic
     fun markModern(

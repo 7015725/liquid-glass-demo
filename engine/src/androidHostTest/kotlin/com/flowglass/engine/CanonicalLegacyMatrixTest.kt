@@ -69,6 +69,7 @@ class CanonicalLegacyMatrixTest {
                     "trigger.tick", "trigger.accessibility_changed", // added after v0.5
                     "trigger.intent_received", "trigger.http_request",
                     "trigger.quick_setting", "trigger.share_received",
+                    "trigger.clipboard_changed", "action.open_clipboard_history",
                     "trigger.call_state", "trigger.sms_received", "trigger.missed_call",
                     "trigger.notification_removed", "trigger.media_track", "trigger.calendar_changed",
                 )

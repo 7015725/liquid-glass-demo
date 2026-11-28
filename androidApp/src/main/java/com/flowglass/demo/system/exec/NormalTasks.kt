@@ -31,6 +31,11 @@ internal object NormalTasks {
                 manager.setPrimaryClip(ClipData.newPlainText(cmd.title, task.parameter))
                 TaskOutcome(StepStatus.SUCCESS, "已复制到剪贴板")
             }
+            "action.open_clipboard_history" -> withContext(Dispatchers.Main.immediate) {
+                val shown = com.flowglass.demo.system.clipboard.ClipboardOverlay.show(context)
+                if (shown) TaskOutcome(StepStatus.SUCCESS, "已打开全局剪贴板")
+                else TaskOutcome(StepStatus.FAILURE, "缺少悬浮窗权限，请先在设置中授权")
+            }
             "action.delay" -> {
                 val millis = TaskParameters.delayMillis(task.parameter)
                 kotlinx.coroutines.delay(millis)

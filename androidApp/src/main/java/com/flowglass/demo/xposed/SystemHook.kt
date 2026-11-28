@@ -66,6 +66,7 @@ internal object SystemHook {
             hookKeyguardCandidates(classLoader)
             hookMediaCandidates(classLoader)
             hookForegroundServiceCandidates(classLoader)
+            hookClipboardCandidates(classLoader)
             hookSystemContext(classLoader)
         }
     }
@@ -189,6 +190,38 @@ internal object SystemHook {
             family = SystemHookFamily.FOREGROUND_SERVICE,
         )
     }
+
+    private fun hookClipboardCandidates(classLoader: ClassLoader) {
+        hookCandidates(
+            classLoader = classLoader,
+            candidates = SystemHookCandidates.clipboard,
+            hookFactory = ::clipboardHook,
+            family = SystemHookFamily.CLIPBOARD,
+        )
+    }
+
+    private fun clipboardHook(candidate: HookCandidate): HookCallback =
+        HookCallback { _, args, _ ->
+            safe("clipboard event ${candidate.label}") {
+                if (!canEmit(SystemHookFamily.CLIPBOARD)) return@safe
+                val payload = ClipboardHookPayloadReader.read(args) ?: return@safe
+                android.util.Log.i(
+                    "FlowGlass/SystemHook",
+                    "clipboard event package=${payload.packageName} len=${payload.text.length}",
+                )
+                dispatcher.enqueue(
+                    HookEvent(
+                        family = SystemHookFamily.CLIPBOARD,
+                        kind = SystemHookProtocol.EVENT_CLIPBOARD_CHANGED,
+                        packageName = payload.packageName.ifBlank { null },
+                        userId = payload.userId,
+                        text = payload.text,
+                        mimeType = payload.mimeType,
+                        label = payload.label,
+                    ),
+                )
+            }
+        }
 
     /**
      * Hooks every candidate once and records its own count. A family can contain candidates from
@@ -597,6 +630,9 @@ internal object SystemHook {
             .putExtra(SystemHookProtocol.EXTRA_SEQ, sequence.incrementAndGet())
         event.packageName?.let { intent.putExtra(SystemHookProtocol.EXTRA_PACKAGE, it) }
         event.userId?.let { intent.putExtra(SystemHookProtocol.EXTRA_USER, it) }
+        event.text?.let { intent.putExtra(SystemHookProtocol.EXTRA_CLIP_TEXT, it) }
+        event.mimeType?.let { intent.putExtra(SystemHookProtocol.EXTRA_CLIP_MIME, it) }
+        event.label?.let { intent.putExtra(SystemHookProtocol.EXTRA_CLIP_LABEL, it) }
         context.sendBroadcast(intent)
     }
 

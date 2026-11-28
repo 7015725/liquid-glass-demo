@@ -41,6 +41,7 @@ internal object SystemHookSubscriptions {
         TriggerTypes.KEYGUARD -> SystemHookFamily.KEYGUARD
         TriggerTypes.MEDIA -> SystemHookFamily.MEDIA
         TriggerTypes.FOREGROUND_SERVICE -> SystemHookFamily.FOREGROUND_SERVICE
+        TriggerTypes.CLIPBOARD_CHANGED -> SystemHookFamily.CLIPBOARD
         else -> null
     }
 }

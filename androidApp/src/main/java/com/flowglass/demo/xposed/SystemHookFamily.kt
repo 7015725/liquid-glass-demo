@@ -14,6 +14,7 @@ internal enum class SystemHookFamily(val mask: Int, val label: String) {
     KEYGUARD(1 shl 3, "锁屏 / 解锁"),
     MEDIA(1 shl 4, "媒体会话"),
     FOREGROUND_SERVICE(1 shl 5, "前台服务"),
+    CLIPBOARD(1 shl 6, "剪贴板"),
     ;
 
     companion object {

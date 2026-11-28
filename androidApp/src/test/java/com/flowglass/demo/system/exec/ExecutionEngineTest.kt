@@ -5,6 +5,7 @@ import com.flowglass.demo.ui.Cmd
 import com.flowglass.demo.ui.CommandItem
 import com.flowglass.demo.ui.Ic
 import com.flowglass.demo.xposed.ModuleStatus
+import com.flowglass.demo.xposed.SystemHookFamily
 import com.flowglass.engine.ExecutionLayer
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -130,8 +131,9 @@ class ExecutionEngineTest {
         val app = RuntimeEnvironment.getApplication()
         try {
             SystemHookSettings.setEnabled(app, true)
-            SystemHookSettings.markLoaded(app, hookCount = 3)
-            SystemHookSettings.markHeartbeat(app, hookCount = 3)
+            val availableFamilies = SystemHookFamily.defaultMask or SystemHookFamily.CLIPBOARD.mask
+            SystemHookSettings.markLoaded(app, hookCount = 3, availableFamilies = availableFamilies)
+            SystemHookSettings.markHeartbeat(app, hookCount = 3, availableFamilies = availableFamilies)
             ModuleStatus.markModern(
                 apiVersion = 101,
                 frameworkName = "LSPosed",

@@ -1,5 +1,6 @@
 package com.flowglass.demo.system
 
+import android.content.Context
 import android.content.Intent
 import android.os.Looper
 import com.flowglass.demo.xposed.SystemHookFamily
@@ -7,6 +8,7 @@ import com.flowglass.demo.xposed.SystemHookProtocol
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -22,6 +24,12 @@ import java.util.concurrent.TimeUnit
 @Config(sdk = [35])
 class HookConfigRetryTest {
     private val app get() = RuntimeEnvironment.getApplication()
+
+    @Before
+    fun clearHookPreferences() {
+        app.getSharedPreferences("system_hook", Context.MODE_PRIVATE).edit().clear().commit()
+        SystemHookSettings.resetBroadcastThrottle()
+    }
 
     @After
     fun tearDown() {

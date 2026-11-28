@@ -4,6 +4,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.flowglass.demo.system.SystemHookSettings
+import com.flowglass.demo.system.clipboard.ClipboardArchive
+import com.flowglass.demo.system.clipboard.ClipboardCaptureSource
+import com.flowglass.demo.system.clipboard.ClipboardPayload
+import com.flowglass.demo.system.clipboard.ClipboardTriggerDispatch
 import com.flowglass.demo.xposed.SystemHookProtocol
 
 /**
@@ -54,6 +58,31 @@ class SystemHookReceiver : BroadcastReceiver() {
             receiveForeground(context, intent)
             return
         }
+        if (event == SystemHookProtocol.EVENT_CLIPBOARD_CHANGED) {
+            val text = intent.getStringExtra(SystemHookProtocol.EXTRA_CLIP_TEXT) ?: return
+            if (text.isBlank()) return
+            val payload = ClipboardPayload(
+                content = text,
+                originalLength = text.length,
+                packageName = intent.getStringExtra(SystemHookProtocol.EXTRA_PACKAGE).orEmpty(),
+                userId = intent.getIntExtra(SystemHookProtocol.EXTRA_USER, 0).coerceIn(0, 999_999),
+                mimeType = intent.getStringExtra(SystemHookProtocol.EXTRA_CLIP_MIME).orEmpty()
+                    .ifBlank { "text/plain" },
+                label = intent.getStringExtra(SystemHookProtocol.EXTRA_CLIP_LABEL).orEmpty(),
+                source = ClipboardCaptureSource.SYSTEM_HOOK,
+                atEpochMs = intent.getLongExtra(
+                    SystemHookProtocol.EXTRA_TIME,
+                    System.currentTimeMillis(),
+                ),
+                truncated = false,
+            )
+            val pending = goAsync()
+            ClipboardArchive.recordFromSystem(context, payload) { recorded ->
+                pending.finish()
+                if (recorded) ClipboardTriggerDispatch.deliver(context, payload)
+            }
+            return
+        }
         if (event == SystemHookProtocol.EVENT_KEYGUARD_LOCKED ||
             event == SystemHookProtocol.EVENT_KEYGUARD_UNLOCKED
         ) {
@@ -102,6 +131,7 @@ class SystemHookReceiver : BroadcastReceiver() {
             SystemHookProtocol.EVENT_MEDIA_STOPPED,
             SystemHookProtocol.EVENT_FOREGROUND_SERVICE_STARTED,
             SystemHookProtocol.EVENT_FOREGROUND_SERVICE_STOPPED,
+            SystemHookProtocol.EVENT_CLIPBOARD_CHANGED,
         )
     }
     /**

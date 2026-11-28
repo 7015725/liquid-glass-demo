@@ -15,6 +15,10 @@ internal data class HookEvent(
     val packageName: String? = null,
     val userId: Int? = null,
     val atEpochMs: Long = System.currentTimeMillis(),
+    /** Clipboard body; null for every non-clipboard event. */
+    val text: String? = null,
+    val mimeType: String? = null,
+    val label: String? = null,
 )
 
 /**

@@ -45,6 +45,9 @@ internal enum class HookEventSource {
      * (ActivityManagerService#handleAppDiedLocked).
      */
     PROCESS_DIED_RECORD,
+
+    /** The first argument is a ClipData (ClipboardService#setPrimaryClip). */
+    FIRST_ARGUMENT_CLIP,
 }
 
 internal data class HookCandidate(
@@ -174,6 +177,27 @@ internal object SystemHookCandidates {
      * edge. keyguardGoingAway is deliberately not treated as unlocked: it is a transition while
      * the keyguard may still be showing.
      */
+    /**
+     * Clipboard writes. Android 10/11 and 12+ have different argument layouts, so the payload
+     * reader finds ClipData/package/user by type instead of fixed indexes.
+     *
+     * AOSP signatures checked 2026-11-27: android-11 setPrimaryClip(ClipData, String callingPackage,
+     * int userId); android-14/15 setPrimaryClip(ClipData, String callingPackage,
+     * String attributionTag, int userId, int deviceId).
+     */
+    val clipboard = listOf(
+        HookCandidate(
+            label = "clipboard.setPrimaryClip",
+            // setPrimaryClip is declared on the private ClipboardImpl binder, not on the
+            // ClipboardService wrapper (AOSP android-10 through android-15).
+            className = "com.android.server.clipboard.ClipboardService\$ClipboardImpl",
+            methodName = "setPrimaryClip",
+            source = HookEventSource.FIRST_ARGUMENT_CLIP,
+            family = SystemHookFamily.CLIPBOARD,
+            kind = SystemHookProtocol.EVENT_CLIPBOARD_CHANGED,
+        ),
+    )
+
     val keyguard = listOf(
         HookCandidate(
             label = "keyguard.setKeyguardShown",

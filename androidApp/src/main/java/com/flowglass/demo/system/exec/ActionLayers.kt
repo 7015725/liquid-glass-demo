@@ -14,7 +14,7 @@ internal object ActionLayers {
     val normalTypes: Set<String> = setOf(
         "action.wifi_switch", "action.bluetooth_switch", "action.dnd_switch",
         "action.set_brightness", "action.set_volume", "action.launch_app",
-        "action.post_notification", "action.copy_clipboard", "action.delay",
+        "action.post_notification", "action.copy_clipboard", "action.open_clipboard_history", "action.delay",
         "action.http_request", "action.vibrate", "action.flashlight", "action.ringer_mode",
         "action.media_control", "action.open_url", "action.speak", "action.toast",
         "action.screen_timeout", "action.auto_rotate", "action.global_action",

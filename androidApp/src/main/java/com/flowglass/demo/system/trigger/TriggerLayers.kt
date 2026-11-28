@@ -20,13 +20,19 @@ internal object TriggerLayers {
         TriggerTypes.FOREGROUND_SERVICE,
     )
 
+    /** Sources that have both a normal fallback and a system-hook provider. */
+    private val dualLayer = setOf(TriggerTypes.CLIPBOARD_CHANGED)
+
     fun requiresSystemHook(typeId: String): Boolean = typeId in xposedOnly
 
     fun hasImplementation(typeId: String, layer: ExecutionLayer): Boolean = when (layer) {
         ExecutionLayer.NORMAL ->
-            TriggerTypes.sourceOf(typeId) != null && typeId !in xposedOnly && typeId != TriggerTypes.APP_METHOD_CALL
+            TriggerTypes.sourceOf(typeId) != null &&
+                (typeId !in xposedOnly || typeId in dualLayer) &&
+                typeId != TriggerTypes.APP_METHOD_CALL
         ExecutionLayer.XPOSED ->
-            typeId == TriggerTypes.APP_FOREGROUND || typeId == TriggerTypes.APP_METHOD_CALL || typeId in xposedOnly
+            typeId == TriggerTypes.APP_FOREGROUND || typeId == TriggerTypes.APP_METHOD_CALL ||
+                typeId in xposedOnly || typeId in dualLayer
         ExecutionLayer.ROOT -> typeId == TriggerTypes.APP_FOREGROUND
     }
 

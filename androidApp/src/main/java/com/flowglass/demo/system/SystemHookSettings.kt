@@ -28,6 +28,7 @@ object SystemHookSettings {
     private const val KEY_HOOKS = "hook_count"
     private const val KEY_AVAILABLE_FAMILIES = "available_families"
     private const val KEY_SUBSCRIBED_FAMILIES = "subscribed_families"
+    private const val KEY_AUXILIARY_FAMILIES = "auxiliary_families"
     private const val KEY_WATCHED = "watched_packages"
     private const val HEARTBEAT_TTL_MS = 60_000L
     private const val HEARTBEAT_MIN_WRITE_MS = 2_000L
@@ -65,8 +66,14 @@ object SystemHookSettings {
     fun availableFamilies(context: Context): Int =
         prefs(context).getInt(KEY_AVAILABLE_FAMILIES, SystemHookFamily.defaultMask)
 
-    fun subscribedFamilies(context: Context): Int =
-        prefs(context).getInt(KEY_SUBSCRIBED_FAMILIES, SystemHookFamily.defaultMask)
+    fun subscribedFamilies(context: Context): Int {
+        val store = prefs(context)
+        return (store.getInt(KEY_SUBSCRIBED_FAMILIES, SystemHookFamily.defaultMask) or
+            store.getInt(KEY_AUXILIARY_FAMILIES, 0)) and knownFamilyMask()
+    }
+
+    fun auxiliaryFamilies(context: Context): Int =
+        prefs(context).getInt(KEY_AUXILIARY_FAMILIES, 0) and knownFamilyMask()
 
     fun watchedPackages(context: Context): Set<String> =
         parseWatched(prefs(context).getString(KEY_WATCHED, "").orEmpty())
@@ -79,7 +86,7 @@ object SystemHookSettings {
             heartbeatFresh = heartbeatFresh(store.getLong(KEY_HEARTBEAT, 0L)),
             hookCount = store.getInt(KEY_HOOKS, -1),
             availableFamilies = store.getInt(KEY_AVAILABLE_FAMILIES, SystemHookFamily.defaultMask),
-            subscribedFamilies = store.getInt(KEY_SUBSCRIBED_FAMILIES, SystemHookFamily.defaultMask),
+            subscribedFamilies = subscribedFamilies(context),
         )
     }
 
@@ -169,13 +176,31 @@ object SystemHookSettings {
      * uses it, so the hook does not collect events nobody listens to.
      */
     fun broadcastConfig(context: Context, families: Int, watched: Collection<String>) {
-        val mask = families and knownFamilyMask()
+        val mask = (families and knownFamilyMask())
+        val effective = (mask or auxiliaryFamilies(context)) and knownFamilyMask()
         val normalized = normalizeWatched(watched)
         prefs(context).edit {
             putInt(KEY_SUBSCRIBED_FAMILIES, mask)
             putString(KEY_WATCHED, normalized.joinToString(","))
         }
-        if (!send(context, SystemHookProtocol.ACTION_CONFIG, mask, normalized)) {
+        if (!send(context, SystemHookProtocol.ACTION_CONFIG, effective, normalized)) {
+            scheduleConfigRetry(context)
+        }
+    }
+
+    /**
+     * Subscribe to a family that belongs to a feature, not to the rule set. The clipboard
+     * archive uses this so it keeps recording while TriggerService has no eligible rules.
+     */
+    internal fun setAuxiliaryFamily(context: Context, family: SystemHookFamily, enabled: Boolean) {
+        val store = prefs(context)
+        val current = store.getInt(KEY_AUXILIARY_FAMILIES, 0)
+        val next = if (enabled) current or family.mask else current and family.mask.inv()
+        store.edit { putInt(KEY_AUXILIARY_FAMILIES, next and knownFamilyMask()) }
+        val mask = (store.getInt(KEY_SUBSCRIBED_FAMILIES, SystemHookFamily.defaultMask) or
+            (next and knownFamilyMask())) and knownFamilyMask()
+        val watched = parseWatched(store.getString(KEY_WATCHED, "").orEmpty())
+        if (!send(context, SystemHookProtocol.ACTION_CONFIG, mask, watched)) {
             scheduleConfigRetry(context)
         }
     }
@@ -194,8 +219,9 @@ object SystemHookSettings {
                     synchronized(configRetryLock) { pendingConfigRetry = null }
                     val store = prefs(appContext)
                     val mask = store.getInt(KEY_SUBSCRIBED_FAMILIES, 0) and knownFamilyMask()
+                    val effective = (mask or (store.getInt(KEY_AUXILIARY_FAMILIES, 0) and knownFamilyMask())) and knownFamilyMask()
                     val watched = parseWatched(store.getString(KEY_WATCHED, "").orEmpty())
-                    if (!send(appContext, SystemHookProtocol.ACTION_CONFIG, mask, watched)) {
+                    if (!send(appContext, SystemHookProtocol.ACTION_CONFIG, effective, watched)) {
                         scheduleConfigRetry(appContext)
                     }
                 }
@@ -211,7 +237,7 @@ object SystemHookSettings {
             putInt(KEY_SUBSCRIBED_FAMILIES, 0)
             putString(KEY_WATCHED, "")
         }
-        if (!send(context, SystemHookProtocol.ACTION_CONFIG, 0, emptySet())) {
+        if (!send(context, SystemHookProtocol.ACTION_CONFIG, subscribedFamilies(context), emptySet())) {
             scheduleConfigRetry(context)
         }
     }
@@ -223,7 +249,8 @@ object SystemHookSettings {
      */
     fun broadcastState(context: Context) {
         val store = prefs(context)
-        val mask = store.getInt(KEY_SUBSCRIBED_FAMILIES, SystemHookFamily.defaultMask) and knownFamilyMask()
+        val mask = (store.getInt(KEY_SUBSCRIBED_FAMILIES, SystemHookFamily.defaultMask) or
+            store.getInt(KEY_AUXILIARY_FAMILIES, 0)) and knownFamilyMask()
         val watched = parseWatched(store.getString(KEY_WATCHED, "").orEmpty())
         if (!send(context, SystemHookProtocol.ACTION_STATE, mask, watched)) {
             scheduleStateRetry(context)
