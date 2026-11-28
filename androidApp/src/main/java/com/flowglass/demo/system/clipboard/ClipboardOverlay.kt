@@ -85,7 +85,12 @@ internal object ClipboardOverlay {
                 Toast.makeText(app, "已输入到当前输入框", Toast.LENGTH_SHORT).show()
             } else {
                 copyToClipboard(app, text)
-                val message = if (root == null) "未找到输入框，已复制" else "输入失败，已复制"
+                val detail = outcome.detail.replace('\n', ' ').take(60)
+                val message = if (root == null) {
+                    "未找到输入框，已复制"
+                } else {
+                    "输入失败：$detail，已复制"
+                }
                 Toast.makeText(app, message, Toast.LENGTH_SHORT).show()
             }
         }
