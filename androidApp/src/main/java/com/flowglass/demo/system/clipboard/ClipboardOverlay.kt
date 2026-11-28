@@ -72,7 +72,10 @@ internal object ClipboardOverlay {
         insertScope.launch {
             delay(250)
             val root = resolveRoot()
-            if (!TextInputTask.hasFocusedInput(root)) {
+            // Root can inject without a separate focus probe: on newer ROMs the
+            // dumpsys input_method format no longer exposes mServedView reliably.
+            // Only the unrooted/accessibility-only path needs a focus check here.
+            if (root == null && !TextInputTask.hasFocusedInput(null)) {
                 copyToClipboard(app, text)
                 Toast.makeText(app, "未找到输入框，已复制", Toast.LENGTH_SHORT).show()
                 return@launch
@@ -82,13 +85,22 @@ internal object ClipboardOverlay {
                 Toast.makeText(app, "已输入到当前输入框", Toast.LENGTH_SHORT).show()
             } else {
                 copyToClipboard(app, text)
-                Toast.makeText(app, "未找到输入框，已复制", Toast.LENGTH_SHORT).show()
+                val message = if (root == null) "未找到输入框，已复制" else "输入失败，已复制"
+                Toast.makeText(app, message, Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    private suspend fun resolveRoot(): RootInfo? =
-        runCatching { Root.check(request = false) }.getOrNull()?.takeIf { it.granted }
+    private suspend fun resolveRoot(): RootInfo? {
+        val cached = runCatching { Root.check(request = false) }.getOrNull()
+            ?.takeIf { it.granted }
+        if (cached != null) return cached
+        if (Root.findSu() == null) return null
+        // The Root layer may not have been refreshed yet in this process; ask once so
+        // the overlay follows the Root-first convention instead of silently copying.
+        return runCatching { Root.check(request = true) }.getOrNull()
+            ?.takeIf { it.granted }
+    }
 
     private fun copyToClipboard(context: Context, text: String) {
         ClipboardArchive.suppressNext(text)
