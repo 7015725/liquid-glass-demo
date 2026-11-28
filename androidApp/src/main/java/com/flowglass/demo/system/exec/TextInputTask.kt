@@ -48,13 +48,22 @@ internal object TextInputTask {
                 "Root 键入仅支持 ASCII；中文等字符请开启无障碍服务",
             )
 
-        val result = RootSessions.run(root, command, timeoutMs = 10_000)
+        val result = try {
+            RootSessions.run(root, command, timeoutMs = 10_000)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            return TaskOutcome(
+                StepStatus.FAILURE,
+                "Root 文本输入失败：${failure.message ?: failure.javaClass.simpleName}",
+            )
+        }
         return when {
             result.timedOut -> TaskOutcome(StepStatus.FAILURE, "Root 文本输入超时")
             result.truncated -> TaskOutcome(StepStatus.FAILURE, "Root 文本输入输出超过上限")
             result.exitCode != 0 -> TaskOutcome(
                 StepStatus.FAILURE,
-                "Root 文本输入失败：退出码 ${result.exitCode}${result.combinedOutput.take(200).let { if (it.isBlank()) "" else "\n$it" }}",
+                "Root 文本输入失败：退出码 ${result.exitCode}",
             )
             else -> TaskOutcome(StepStatus.SUCCESS, "已输入 ${text.length} 个字符（Root）")
         }
