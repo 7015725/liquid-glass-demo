@@ -30,6 +30,7 @@ internal object RootTasks {
             "action.screen_timeout" -> RootActions.screenTimeout(task.parameter, root)
             "action.auto_rotate" -> RootActions.autoRotate(task.parameter, root)
             "action.global_action" -> RootActions.globalAction(task.parameter, root)
+            "action.input_text" -> TextInputTask.run(task.parameter, root)
             "action.launch_app" -> {
                 require(task.parameter.isNotBlank()) { "参数格式不正确：期望 应用包名或应用名称" }
                 LaunchableApps.launchRoot(context, task.parameter, root)

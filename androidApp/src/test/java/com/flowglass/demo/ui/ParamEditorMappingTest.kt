@@ -15,8 +15,8 @@ class ParamEditorMappingTest {
 
     @Test fun everyBuiltInParameterResolvesToAConcreteEditor() {
         val all = registry.all()
-        assertEquals("组件数量", 90, all.size)
-        assertEquals("参数数量", 130, all.sumOf { it.params.size })
+        assertEquals("组件数量", 91, all.size)
+        assertEquals("参数数量", 131, all.sumOf { it.params.size })
         all.forEach { meta ->
             meta.params.forEach { spec ->
                 assertNotEquals(
