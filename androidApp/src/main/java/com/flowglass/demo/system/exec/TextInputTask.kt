@@ -1,24 +1,59 @@
 package com.flowglass.demo.system.exec
 
 import android.accessibilityservice.AccessibilityService
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 import com.flowglass.demo.system.FlowAccessibilityService
 import com.flowglass.demo.system.RootInfo
+import com.flowglass.demo.system.clipboard.ClipboardArchive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
  * Types into the currently focused editable field.
  *
- * Accessibility is the primary path because it can deliver arbitrary Unicode text directly and
- * inserts at the caret instead of replacing the field. The Root fallback uses `input text`, which
- * is limited to printable ASCII; it is useful on rooted devices where accessibility is disabled.
- * The text itself is never included in failure/success details or trace parameters.
+ * Root is tried first when the selected execution layer provides it. Printable ASCII uses
+ * `input text`; other text (Chinese, newlines, etc.) is placed on the clipboard and pasted with a
+ * root key event, so Root input is no longer limited to ASCII. Accessibility remains the fallback
+ * for unrooted devices and for inputs that reject paste. The text itself is never included in
+ * failure/success details or trace parameters.
  */
 internal object TextInputTask {
-    suspend fun run(text: String, root: RootInfo?): TaskOutcome {
+    /** True when the current accessibility window has an editable input focus. */
+    fun hasFocusedEditable(): Boolean {
+        val service = FlowAccessibilityService.instance ?: return false
+        return runCatching {
+            val root = service.rootInActiveWindow ?: return false
+            val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                ?: root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
+                ?: return false
+            focused.isEditable
+        }.getOrDefault(false)
+    }
+
+    /** True when either accessibility or a root shell can see an editable input focus. */
+    suspend fun hasFocusedInput(root: RootInfo?): Boolean {
+        if (hasFocusedEditable()) return true
+        if (root == null) return false
+        val probe = runCatching {
+            RootSessions.run(root, "dumpsys input_method", timeoutMs = 5_000, outputLimit = 64_000)
+        }.getOrNull() ?: return false
+        if (probe.timedOut || probe.exitCode != 0) return false
+        return probe.output.lineSequence().any { "mServedView=" in it && "EditText" in it }
+    }
+
+    suspend fun run(context: Context, text: String, root: RootInfo?): TaskOutcome {
         if (text.isEmpty()) return TaskOutcome(StepStatus.FAILURE, "输入文本为空")
+
+        var rootFailure: String? = null
+        if (root != null) {
+            val outcome = injectWithRoot(context, text, root)
+            if (outcome.status == StepStatus.SUCCESS) return outcome
+            rootFailure = outcome.detail
+        }
 
         val service = FlowAccessibilityService.instance
         var accessibilityFailure: String? = null
@@ -36,18 +71,41 @@ internal object TextInputTask {
             accessibilityFailure = outcome.detail
         }
 
-        if (root == null) {
-            return TaskOutcome(
-                StepStatus.FAILURE,
-                accessibilityFailure ?: "当前没有可写入的输入框；请开启无障碍服务",
-            )
-        }
-        val command = TextInputPlan.rootCommand(text)
-            ?: return TaskOutcome(
-                StepStatus.FAILURE,
-                "Root 键入仅支持 ASCII；中文等字符请开启无障碍服务",
-            )
+        return TaskOutcome(
+            StepStatus.FAILURE,
+            accessibilityFailure ?: rootFailure ?: "当前没有可写入的输入框；请开启无障碍服务",
+        )
+    }
 
+    private suspend fun injectWithRoot(
+        context: Context,
+        text: String,
+        root: RootInfo,
+    ): TaskOutcome {
+        val command = TextInputPlan.rootCommand(text)
+        if (command != null) {
+            return runRootCommand(root, command, text.length)
+        }
+
+        val manager = context.getSystemService(ClipboardManager::class.java)
+            ?: return TaskOutcome(StepStatus.FAILURE, "剪贴板服务不可用")
+        val setClipboard = withContext(Dispatchers.Main.immediate) {
+            runCatching {
+                ClipboardArchive.suppressNext(text)
+                manager.setPrimaryClip(ClipData.newPlainText("流光输入", text))
+            }.isSuccess
+        }
+        if (!setClipboard) {
+            return TaskOutcome(StepStatus.FAILURE, "Root 输入准备失败：无法写入剪贴板")
+        }
+        return runRootCommand(root, "input keyevent 279", text.length)
+    }
+
+    private suspend fun runRootCommand(
+        root: RootInfo,
+        command: String,
+        length: Int,
+    ): TaskOutcome {
         val result = try {
             RootSessions.run(root, command, timeoutMs = 10_000)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -65,7 +123,7 @@ internal object TextInputTask {
                 StepStatus.FAILURE,
                 "Root 文本输入失败：退出码 ${result.exitCode}",
             )
-            else -> TaskOutcome(StepStatus.SUCCESS, "已输入 ${text.length} 个字符（Root）")
+            else -> TaskOutcome(StepStatus.SUCCESS, "已输入 $length 个字符（Root）")
         }
     }
 
