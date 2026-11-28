@@ -66,8 +66,8 @@ class EngineCoreTest {
         val registry = ComponentRegistry()
         BuiltInActions.registerInto(registry)
 
-        assertEquals(27, registry.byKind(ComponentKind.ACTION).size)
-        assertEquals(27, registry.all().map { it.typeId }.distinct().size)
+        assertEquals(28, registry.byKind(ComponentKind.ACTION).size)
+        assertEquals(28, registry.all().map { it.typeId }.distinct().size)
         assertEquals(Tier.ROOT, registry.find("action.root_shell")?.minTier)
         assertEquals(Tier.NORMAL, registry.find("action.airplane_mode")?.minTier)
         assertEquals(Tier.NORMAL, registry.find("action.mobile_data")?.minTier)
@@ -88,8 +88,8 @@ class EngineCoreTest {
         assertEquals(BuiltInComponents.all.size, registry.all().size)
         assertTrue(registry.byKind(ComponentKind.TRIGGER).any { it.outputs.isNotEmpty() })
         assertTrue(registry.byKind(ComponentKind.CONDITION).isNotEmpty())
-        // 26 plain actions + 7 task-chain blocks/system actions.
-        assertEquals(34, registry.byKind(ComponentKind.ACTION).size)
+        // 27 plain actions + 7 task-chain blocks/system actions.
+        assertEquals(35, registry.byKind(ComponentKind.ACTION).size)
     }
 
     @Test

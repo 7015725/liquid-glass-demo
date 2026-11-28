@@ -256,6 +256,7 @@ object CommandCatalog {
         "condition.dnd_state", "action.dnd_switch", "action.ringer_mode" -> Ic.Moon
         "action.set_brightness", "action.set_volume" -> Ic.Gauge
         "action.copy_clipboard" -> Ic.Copy
+        "action.input_text" -> Ic.Edit
         "action.delay" -> Ic.Timer
         "action.root_shell" -> Ic.Terminal
         "action.http_request", "action.open_url" -> Ic.Share

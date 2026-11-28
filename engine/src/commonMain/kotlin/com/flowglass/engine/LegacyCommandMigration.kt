@@ -236,6 +236,7 @@ object LegacyCommandMigration {
         "启动应用" to "action.launch_app",
         "发送通知" to "action.post_notification",
         "复制到剪贴板" to "action.copy_clipboard",
+        "输入文本" to "action.input_text",
         "延时等待" to "action.delay",
         "执行 Shell(Root)" to "action.root_shell",
         "HTTP 请求" to "action.http_request",
