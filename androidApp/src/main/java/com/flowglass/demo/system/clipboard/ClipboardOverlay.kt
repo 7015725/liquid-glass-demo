@@ -23,6 +23,8 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.flowglass.demo.system.Root
+import com.flowglass.demo.system.RootInfo
 import com.flowglass.demo.system.exec.StepStatus
 import com.flowglass.demo.system.exec.TextInputTask
 import kotlinx.coroutines.CoroutineScope
@@ -43,7 +45,10 @@ internal object ClipboardOverlay {
             existing.refresh()
             return true
         }
-        val created = OverlayWindow(app, canInsert = TextInputTask.hasFocusedEditable())
+        val created = OverlayWindow(
+            app,
+            canInsert = TextInputTask.hasFocusedEditable() || Root.findSu() != null,
+        )
         return if (created.show()) {
             window = created
             true
@@ -66,7 +71,13 @@ internal object ClipboardOverlay {
         hide()
         insertScope.launch {
             delay(250)
-            val outcome = TextInputTask.run(text, root = null)
+            val root = resolveRoot()
+            if (!TextInputTask.hasFocusedInput(root)) {
+                copyToClipboard(app, text)
+                Toast.makeText(app, "未找到输入框，已复制", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val outcome = TextInputTask.run(app, text, root)
             if (outcome.status == StepStatus.SUCCESS) {
                 Toast.makeText(app, "已输入到当前输入框", Toast.LENGTH_SHORT).show()
             } else {
@@ -75,6 +86,9 @@ internal object ClipboardOverlay {
             }
         }
     }
+
+    private suspend fun resolveRoot(): RootInfo? =
+        runCatching { Root.check(request = false) }.getOrNull()?.takeIf { it.granted }
 
     private fun copyToClipboard(context: Context, text: String) {
         ClipboardArchive.suppressNext(text)
