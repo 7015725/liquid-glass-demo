@@ -6,6 +6,7 @@ import android.os.Build
 import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.OnBackPressedDispatcherOwner
 import androidx.activity.setViewTreeOnBackPressedDispatcherOwner
@@ -22,9 +23,19 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.flowglass.demo.system.Root
+import com.flowglass.demo.system.RootInfo
+import com.flowglass.demo.system.exec.StepStatus
+import com.flowglass.demo.system.exec.TextInputTask
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 internal object ClipboardOverlay {
     private var window: OverlayWindow? = null
+    private val insertScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     fun show(context: Context): Boolean {
         val app = context.applicationContext
@@ -34,7 +45,10 @@ internal object ClipboardOverlay {
             existing.refresh()
             return true
         }
-        val created = OverlayWindow(app)
+        val created = OverlayWindow(
+            app,
+            canInsert = TextInputTask.hasFocusedEditable() || Root.findSu() != null,
+        )
         return if (created.show()) {
             window = created
             true
@@ -47,9 +61,63 @@ internal object ClipboardOverlay {
         window?.hide()
         window = null
     }
+
+    /**
+     * Selection closes the picker so the previous app can regain input focus, then inserts the
+     * entry at its caret. If no field accepts the text, preserve the old copy behavior.
+     */
+    fun insertText(context: Context, text: String) {
+        val app = context.applicationContext
+        hide()
+        insertScope.launch {
+            delay(250)
+            val root = resolveRoot()
+            // Root can inject without a separate focus probe: on newer ROMs the
+            // dumpsys input_method format no longer exposes mServedView reliably.
+            // Only the unrooted/accessibility-only path needs a focus check here.
+            if (root == null && !TextInputTask.hasFocusedInput(null)) {
+                copyToClipboard(app, text)
+                Toast.makeText(app, "未找到输入框，已复制", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val outcome = TextInputTask.run(app, text, root)
+            if (outcome.status == StepStatus.SUCCESS) {
+                Toast.makeText(app, "已输入到当前输入框", Toast.LENGTH_SHORT).show()
+            } else {
+                copyToClipboard(app, text)
+                val detail = outcome.detail.replace('\n', ' ').take(60)
+                val message = if (root == null) {
+                    "未找到输入框，已复制"
+                } else {
+                    "输入失败：$detail，已复制"
+                }
+                Toast.makeText(app, message, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private suspend fun resolveRoot(): RootInfo? {
+        val cached = runCatching { Root.check(request = false) }.getOrNull()
+            ?.takeIf { it.granted }
+        if (cached != null) return cached
+        if (Root.findSu() == null) return null
+        // The Root layer may not have been refreshed yet in this process; ask once so
+        // the overlay follows the Root-first convention instead of silently copying.
+        return runCatching { Root.check(request = true) }.getOrNull()
+            ?.takeIf { it.granted }
+    }
+
+    private fun copyToClipboard(context: Context, text: String) {
+        ClipboardArchive.suppressNext(text)
+        context.getSystemService(android.content.ClipboardManager::class.java)
+            ?.setPrimaryClip(android.content.ClipData.newPlainText("流光剪贴板", text))
+    }
 }
 
-private class OverlayWindow(private val context: Context) :
+private class OverlayWindow(
+    private val context: Context,
+    private val canInsert: Boolean,
+) :
     LifecycleOwner, SavedStateRegistryOwner, OnBackPressedDispatcherOwner {
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val savedStateController = SavedStateRegistryController.create(this)
@@ -109,6 +177,7 @@ private class OverlayWindow(private val context: Context) :
                 ClipboardOverlayScreen(
                     store = store,
                     refreshTick = refreshTick.value,
+                    canInsert = canInsert,
                     onClose = { ClipboardOverlay.hide() },
                     onCopy = { entry ->
                         ClipboardArchive.suppressNext(entry.content)
@@ -117,6 +186,7 @@ private class OverlayWindow(private val context: Context) :
                                 android.content.ClipData.newPlainText("流光剪贴板", entry.content),
                             )
                     },
+                    onInsert = { entry -> ClipboardOverlay.insertText(context, entry.content) },
                 )
             }
         }

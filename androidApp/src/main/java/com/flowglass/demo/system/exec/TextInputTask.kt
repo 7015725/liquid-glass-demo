@@ -7,6 +7,7 @@ import android.content.Context
 import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 import com.flowglass.demo.system.FlowAccessibilityService
+import com.flowglass.demo.system.Root
 import com.flowglass.demo.system.RootInfo
 import com.flowglass.demo.system.clipboard.ClipboardArchive
 import kotlinx.coroutines.Dispatchers
@@ -106,22 +107,47 @@ internal object TextInputTask {
         command: String,
         length: Int,
     ): TaskOutcome {
-        val result = try {
-            RootSessions.run(root, command, timeoutMs = 10_000)
+        var persistentFailure: String? = null
+        val persistent = try {
+            RootSessions.run(root, command, timeoutMs = 5_000)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            persistentFailure = "Root 会话失败：${failure.message ?: failure.javaClass.simpleName}"
+            null
+        }
+        persistent?.let { result ->
+            when {
+                result.timedOut -> persistentFailure = "Root 会话超时"
+                result.truncated -> persistentFailure = "Root 会话输出超过上限"
+                result.exitCode != 0 -> persistentFailure = "Root 会话退出码 ${result.exitCode}"
+                else -> return TaskOutcome(StepStatus.SUCCESS, "已输入 $length 个字符（Root）")
+            }
+        }
+
+        // Some newer ROMs/root managers cannot run the persistent supervisor shell even
+        // though a one-shot `su -c` works. Fall back to the same execution path as the
+        // manual command before reporting a failure.
+        val oneShot = try {
+            Root.runProcess(
+                listOf(root.suPath, "-c", command),
+                timeoutMs = 10_000,
+                outputLimit = 1_000,
+            )
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             return TaskOutcome(
                 StepStatus.FAILURE,
-                "Root 文本输入失败：${failure.message ?: failure.javaClass.simpleName}",
+                "Root 输入失败：${failure.message ?: failure.javaClass.simpleName}",
             )
         }
         return when {
-            result.timedOut -> TaskOutcome(StepStatus.FAILURE, "Root 文本输入超时")
-            result.truncated -> TaskOutcome(StepStatus.FAILURE, "Root 文本输入输出超过上限")
-            result.exitCode != 0 -> TaskOutcome(
+            oneShot.timedOut -> TaskOutcome(StepStatus.FAILURE, "Root 输入超时")
+            oneShot.truncated -> TaskOutcome(StepStatus.FAILURE, "Root 输入输出超过上限")
+            oneShot.exitCode != 0 -> TaskOutcome(
                 StepStatus.FAILURE,
-                "Root 文本输入失败：退出码 ${result.exitCode}",
+                "Root 输入失败：退出码 ${oneShot.exitCode}${persistentFailure?.let { "（$it）" } ?: ""}",
             )
             else -> TaskOutcome(StepStatus.SUCCESS, "已输入 $length 个字符（Root）")
         }
