@@ -75,8 +75,10 @@ import java.util.Locale
 internal fun ClipboardOverlayScreen(
     store: ClipboardHistoryStore,
     refreshTick: Int,
+    canInsert: Boolean,
     onClose: () -> Unit,
     onCopy: (ClipboardEntry) -> Unit,
+    onInsert: (ClipboardEntry) -> Unit,
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -163,6 +165,7 @@ internal fun ClipboardOverlayScreen(
                 copiedId = copiedId,
                 confirmClear = confirmClear,
                 retentionDays = retentionDays,
+                canInsert = canInsert,
                 onSearchToggle = {
                     searchOpen = !searchOpen
                     if (!searchOpen) search = ""
@@ -176,6 +179,7 @@ internal fun ClipboardOverlayScreen(
                     onCopy(entry)
                     copiedId = entry.id
                 },
+                onInsert = { entry -> onInsert(entry) },
                 onDelete = { entry ->
                     scope.launch {
                         withContext(Dispatchers.IO) { store.delete(entry.id) }
@@ -210,10 +214,12 @@ private fun ClipboardSheet(
     copiedId: Long?,
     confirmClear: Boolean,
     retentionDays: Int,
+    canInsert: Boolean,
     onSearchToggle: () -> Unit,
     onSearchChange: (String) -> Unit,
     onSearchClose: () -> Unit,
     onCopy: (ClipboardEntry) -> Unit,
+    onInsert: (ClipboardEntry) -> Unit,
     onDelete: (ClipboardEntry) -> Unit,
     onClear: () -> Unit,
     onClose: () -> Unit,
@@ -383,6 +389,9 @@ private fun ClipboardSheet(
                         ClipboardRow(
                             entry = entry,
                             copied = copiedId == entry.id,
+                            onSelect = {
+                                if (canInsert) onInsert(entry) else onCopy(entry)
+                            },
                             onCopy = { onCopy(entry) },
                             onDelete = { onDelete(entry) },
                         )
@@ -407,7 +416,12 @@ private fun ClipboardSheet(
             Spacer(Modifier.width(8.dp))
             T("·", 11.sp, color = C.Divider)
             Spacer(Modifier.width(8.dp))
-            T("复制后自动保存", 10.sp, color = C.Muted.copy(alpha = 0.72f), maxLines = 1)
+            T(
+                if (canInsert) "轻点内容输入 · 复制键仅复制" else "点击内容复制",
+                10.sp,
+                color = C.Muted.copy(alpha = 0.72f),
+                maxLines = 1,
+            )
             Spacer(Modifier.weight(1f))
             Box(
                 Modifier
@@ -485,6 +499,7 @@ private fun ClipboardSearchField(
 private fun ClipboardRow(
     entry: ClipboardEntry,
     copied: Boolean,
+    onSelect: () -> Unit,
     onCopy: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -497,6 +512,7 @@ private fun ClipboardRow(
             .clip(RoundedCornerShape(17.dp))
             .background(C.Tonal.copy(alpha = 0.72f))
             .border(1.dp, C.Divider.copy(alpha = 0.34f), RoundedCornerShape(17.dp))
+            .clickable(onClick = onSelect)
             .padding(start = 13.dp, end = 10.dp, top = 10.dp, bottom = 8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
